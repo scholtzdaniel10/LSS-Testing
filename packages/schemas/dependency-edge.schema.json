@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lss.dev/schemas/dependency-edge.schema.json",
+  "title": "Dependency edge (contract C3)",
+  "type": "object",
+  "required": ["from", "to", "kind"],
+  "additionalProperties": false,
+  "properties": {
+    "from": { "type": "string", "minLength": 1, "description": "Project-relative path." },
+    "to": { "type": "string", "minLength": 1, "description": "Project-relative path or pkg:vendor/name." },
+    "kind": { "type": "string", "enum": ["import", "require", "route", "include", "env", "service"] },
+    "symbol": { "type": "string", "description": "Optional symbol-level precision, e.g. ClassName::method." },
+    "line": { "type": "integer", "minimum": 1 }
+  }
+}

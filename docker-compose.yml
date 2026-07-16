@@ -1,0 +1,33 @@
+# Infrastructure services for local development (PLT-1).
+# The api and web apps run natively during early development
+# (see CLAUDE.md "Running locally"); app containers are added
+# when PLT-1's full acceptance criterion is closed out.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: lss
+      POSTGRES_USER: lss
+      POSTGRES_PASSWORD: lss
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lss"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

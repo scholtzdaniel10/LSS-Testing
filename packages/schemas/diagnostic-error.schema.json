@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lss.dev/schemas/diagnostic-error.schema.json",
+  "title": "Diagnostic error (contract C5)",
+  "type": "object",
+  "required": ["id", "source", "ruleId", "kind", "severity", "file", "range", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "source": { "type": "string", "enum": ["phpstan", "eslint", "tsc", "runtime"] },
+    "ruleId": { "type": "string" },
+    "kind": {
+      "type": "string",
+      "enum": ["type-error", "null-risk", "missing-dep", "contract-mismatch", "unused", "security", "other"]
+    },
+    "severity": { "type": "string", "enum": ["error", "warning", "info"] },
+    "file": { "type": "string", "minLength": 1 },
+    "range": {
+      "type": "object",
+      "required": ["startLine", "startCol", "endLine", "endCol"],
+      "additionalProperties": false,
+      "properties": {
+        "startLine": { "type": "integer", "minimum": 1 },
+        "startCol": { "type": "integer", "minimum": 0 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endCol": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "message": { "type": "string" },
+    "explanation": { "type": "string", "description": "Plain-language, from the taxonomy (DX-5)." },
+    "upstream": { "type": "array", "items": { "type": "string" } },
+    "downstream": { "type": "array", "items": { "type": "string" } }
+  }
+}

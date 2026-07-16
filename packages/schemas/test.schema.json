@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lss.dev/schemas/test.schema.json",
+  "title": "Browser test (contract C6)",
+  "type": "object",
+  "required": ["id", "projectId", "name", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "projectId": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1 },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "action", "target"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "action": { "type": "string", "enum": ["navigate", "click", "fill", "expectVisible", "expectText"] },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "testId": { "type": "string", "description": "Node uuid (preferred; renderer stamps data-testid)." },
+              "selector": { "type": "string", "description": "CSS/Playwright selector fallback for imported apps." }
+            }
+          },
+          "value": { "type": "string", "description": "Required for fill and expectText." }
+        }
+      }
+    }
+  }
+}

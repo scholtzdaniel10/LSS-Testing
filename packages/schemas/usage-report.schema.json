@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lss.dev/schemas/usage-report.schema.json",
+  "title": "Uses/Needs report (contract C4)",
+  "type": "object",
+  "required": ["uses", "needs"],
+  "additionalProperties": false,
+  "properties": {
+    "uses": {
+      "type": "object",
+      "required": ["languages", "frameworks", "deps"],
+      "additionalProperties": false,
+      "properties": {
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "frameworks": { "type": "array", "items": { "type": "string" } },
+        "deps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "version", "source"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" },
+              "source": { "type": "string", "enum": ["composer", "npm"] }
+            }
+          }
+        }
+      }
+    },
+    "needs": {
+      "type": "object",
+      "required": ["missingDeps", "envVars", "services"],
+      "additionalProperties": false,
+      "properties": {
+        "missingDeps": { "type": "array", "items": { "type": "string" } },
+        "envVars": { "type": "array", "items": { "type": "string" } },
+        "services": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

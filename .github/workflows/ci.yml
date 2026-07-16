@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pdo_sqlite, sqlite3, zip
+          coverage: none
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Code style (Pint)
+        run: ./vendor/bin/pint --test
+      - name: Tests (Pest)
+        run: ./vendor/bin/pest --ci
+        env:
+          APP_ENV: testing
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test.unit
+      - name: Build (includes tsc strict check)
+        run: npm run build
+
+  sql-safety:
+    # PLT-2 gate: raw SQL built from interpolated/concatenated variables fails CI.
+    # Parameterised raw queries (static string + bindings array) pass.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject string-built SQL
+        run: |
+          set +e
+          matches=$(grep -rEn --include='*.php' \
+            '(whereRaw|selectRaw|orderByRaw|havingRaw|groupByRaw|DB::(raw|select|selectOne|statement|unprepared))\s*\(\s*("([^"]*(\{\$|"\s*\.))|'"'"'[^'"'"']*'"'"'\s*\.\s*\$)' \
+            apps/api/app apps/api/routes 2>/dev/null)
+          set -e
+          if [ -n "$matches" ]; then
+            echo "::error::String-built SQL detected — use bound parameters (vault note 00, invariant 2):"
+            echo "$matches"
+            exit 1
+          fi
+          echo "No string-built SQL found."
