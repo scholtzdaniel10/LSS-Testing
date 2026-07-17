@@ -1,22 +1,31 @@
-# LSS-Testing — Webapp Builder
+# LSS-Testing — Maintenance System
 
-A visual development environment: build webapps in a drag-drop node-tree editor,
-import existing apps into an Obsidian-like dependency graph, diagnose errors by
-following the pipeline, and generate Pest/Playwright tests from the UI itself.
+A codebase **maintenance & health system**: the company drags a program in (its
+codebase), and the system shows the health of that program — an Obsidian-like
+dependency graph and node-tree explorer, a diagnostics pipeline that classifies
+errors and traces their blast radius, Pest/Playwright test fabrication against
+the app's own dev/staging environment, and a health dashboard that rolls it all
+up per program.
 
 **The spec lives in the shared Obsidian vault** (`scholtzdaniel10/LSS-vault`,
-`Projects/Webapp Builder/`) — architecture & contracts, feature milestones with
-task IDs, UI map, data model, engineering standards. This repo is the
+`Projects/Maintenance System/`) — architecture & contracts, feature milestones
+with task IDs, UI map, data model, engineering standards. This repo is the
 implementation. Agents: read `CLAUDE.md` first.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `apps/web` | Ionic + React frontend |
-| `apps/api` | Laravel backend (`/api/v1`) |
+| `apps/web` | Ionic + React frontend (dashboard, graph explorer, diagnostics, test composer) |
+| `apps/api` | Laravel backend (`/api/v1`) — import, analysis, health snapshots, test runner |
 | `packages/schemas` | JSON Schemas for contracts C1–C7 |
-| `packages/renderer` | Node-tree → DOM renderer (NT-11) |
+
+## Security model (one paragraph, non-negotiable)
+
+Imported program sources are **data, never code**: they are parsed in a
+path-jailed sandbox and never executed. The only execution surface is the
+company program's **own** dev/staging URL, registered per project, which the
+Playwright runner drives. No credentials are persisted for targets.
 
 ## Local development
 
@@ -28,7 +37,7 @@ docker compose up -d
 cd apps/api
 composer install
 cp .env.example .env && php artisan key:generate
-php artisan serve          # http://127.0.0.1:8000 — health at /api/v1/health
+php artisan serve          # http://127.0.0.1:8000 — service health at /api/v1/health
 
 # web
 cd apps/web

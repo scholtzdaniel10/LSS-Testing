@@ -3,11 +3,12 @@
   "$id": "https://lss.dev/schemas/test.schema.json",
   "title": "Browser test (contract C6)",
   "type": "object",
-  "required": ["id", "projectId", "name", "steps"],
+  "required": ["id", "projectId", "targetEnvId", "name", "steps"],
   "additionalProperties": false,
   "properties": {
     "id": { "type": "string", "format": "uuid" },
     "projectId": { "type": "string", "format": "uuid" },
+    "targetEnvId": { "type": "string", "format": "uuid" },
     "name": { "type": "string", "minLength": 1 },
     "steps": {
       "type": "array",
@@ -20,11 +21,14 @@
           "action": { "type": "string", "enum": ["navigate", "click", "fill", "expectVisible", "expectText"] },
           "target": {
             "type": "object",
+            "required": ["selector"],
             "additionalProperties": false,
-            "minProperties": 1,
             "properties": {
-              "testId": { "type": "string", "description": "Node uuid (preferred; renderer stamps data-testid)." },
-              "selector": { "type": "string", "description": "CSS/Playwright selector fallback for imported apps." }
+              "selector": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Preference order: data-testid > role/text > css (TST-5)."
+              }
             }
           },
           "value": { "type": "string", "description": "Required for fill and expectText." }

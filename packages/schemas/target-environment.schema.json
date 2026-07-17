@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lss.dev/schemas/target-environment.schema.json",
+  "title": "Target environment (contract C1)",
+  "description": "The company program's own running instance. Playwright drives this URL; the system never hosts or executes imported code. Never store credentials here (invariant 5).",
+  "type": "object",
+  "required": ["id", "projectId", "name", "baseUrl"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "projectId": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1 },
+    "baseUrl": { "type": "string", "format": "uri" },
+    "notes": { "type": "string", "description": "Auth hints, VPN requirements - free text, no secrets." }
+  }
+}

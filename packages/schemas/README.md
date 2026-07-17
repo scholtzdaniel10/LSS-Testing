@@ -1,13 +1,13 @@
 # @lss/schemas — contracts C1–C7
 
 JSON Schemas (draft 2020-12) for the frozen contracts defined in the vault note
-`Projects/Webapp Builder/00 Architecture & Contracts.md`. Both apps validate
-against these files — never against a local copy.
+`Projects/Maintenance System/00 Architecture & Contracts.md` (v1). Both apps
+validate against these files — never against a local copy.
 
 | File | Contract |
 |---|---|
-| `node.schema.json`, `scene.schema.json` | C1 — node tree & scene |
-| `node-type.schema.json` | C2 — palette node-type definitions |
+| `target-environment.schema.json` | C1 — the company program's own running instance (test target) |
+| `health-snapshot.schema.json` | C2 — per-program health rollup for the dashboard |
 | `dependency-edge.schema.json` | C3 — dependency graph edges |
 | `usage-report.schema.json` | C4 — import uses/needs report |
 | `diagnostic-error.schema.json` | C5 — normalised analyser findings |

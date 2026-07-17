@@ -1,11 +1,16 @@
-# CLAUDE.md — LSS-Testing (Webapp Builder)
+# CLAUDE.md — LSS-Testing (Maintenance System)
 
-Spec source of truth: the Obsidian vault at `C:\LSS\LSS` → `Projects/Webapp Builder/`
-(git repo `scholtzdaniel10/LSS-vault` — pull it before reading; on other machines adjust the path to your vault clone).
+A codebase maintenance & health system: drag a company program in → dependency
+graph + diagnostics + Pest/Playwright testing → health dashboard. **Not a site
+builder** (that was a v0 misread; see vault Roadmap decision log 2026-07-17).
 
-- Contracts C1–C7 in "00 Architecture & Contracts" are frozen: implement, don't
-  redesign. Changes need a human-approved decision-log row in the vault Roadmap.
-- Every piece of work maps to a task ID (PLT/NT/IG/DX/TST) defined in the vault
+Spec source of truth: the Obsidian vault at `C:\LSS\LSS` → `Projects/Maintenance System/`
+(git repo `scholtzdaniel10/LSS-vault` — pull it before reading; on other machines
+adjust the path to your vault clone).
+
+- Contracts C1–C7 in "00 Architecture & Contracts" (v1) are frozen: implement,
+  don't redesign. Changes need a human-approved decision-log row in the vault Roadmap.
+- Every piece of work maps to a task ID (PLT/IG/DX/TST/HD) defined in the vault
   feature notes. Claim in the vault before coding (🔒 convention, Roadmap
   "How agents work this project"); commit messages start with the ID.
 - Definition of done: acceptance criterion has a passing test + the pre-merge
@@ -13,8 +18,10 @@ Spec source of truth: the Obsidian vault at `C:\LSS\LSS` → `Projects/Webapp Bu
   ticked + daily-note entry (vault AGENT-DOCUMENTATION-POLICY).
 - Quality bar: note 09 is binding — design tokens only, all four UI states,
   strict types, no dead code. "Works" is not "done".
-- Security invariants (vault note 00) override convenience. Imported project
-  files are hostile data. No unparameterised SQL. Path-jail all FS access.
+- Security invariants (vault note 00) override convenience: imported program
+  files are hostile data — parse, never execute; the company's own target URL
+  (contract C1) is the only execution surface; no unparameterised SQL;
+  path-jail all FS access; never persist target credentials.
 - No `Co-Authored-By: Claude` trailers in commits.
 
 ## Layout
@@ -22,12 +29,12 @@ Spec source of truth: the Obsidian vault at `C:\LSS\LSS` → `Projects/Webapp Bu
 - `apps/web` — Ionic + React frontend
 - `apps/api` — Laravel backend (`/api/v1`)
 - `packages/schemas` — JSON Schemas for contracts C1–C7 (single source for both apps)
-- `packages/renderer` — node-tree → DOM renderer (shared by preview & test runner)
 
 ## Running locally (Windows, no Docker yet)
 
-- API: `cd apps/api; php artisan serve` → http://127.0.0.1:8000 (health: `/api/v1/health`)
+- API: `cd apps/api; php artisan serve` → http://127.0.0.1:8000 (service health: `/api/v1/health`)
 - Web: `cd apps/web; npm run dev`
 - Postgres/Redis via `docker-compose.yml` where Docker exists; Daniel's machine
   currently has no Docker — SQLite + array/file drivers are the local fallback
   (see `apps/api/.env`), but code must stay Postgres/Redis-compatible.
+- Composer runs as `php <scratchpad>\composer.phar` on Daniel's machine (no global install).

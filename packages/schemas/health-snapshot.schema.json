@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lss.dev/schemas/health-snapshot.schema.json",
+  "title": "Health snapshot (contract C2)",
+  "description": "Per-program health rollup. Scores are 0-100; every score must be traceable to metrics/topIssues evidence.",
+  "type": "object",
+  "required": ["projectId", "takenAt", "scores", "metrics", "topIssues"],
+  "additionalProperties": false,
+  "properties": {
+    "projectId": { "type": "string", "format": "uuid" },
+    "takenAt": { "type": "string", "format": "date-time" },
+    "scores": {
+      "type": "object",
+      "required": ["overall", "errors", "dependencies", "tests", "structure"],
+      "additionalProperties": false,
+      "properties": {
+        "overall": { "$ref": "#/$defs/score" },
+        "errors": { "$ref": "#/$defs/score" },
+        "dependencies": { "$ref": "#/$defs/score" },
+        "tests": { "$ref": "#/$defs/score" },
+        "structure": { "$ref": "#/$defs/score" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["errorCounts", "errorChains", "missingDeps", "outdatedDeps", "undeclaredEnvVars", "testPassRate", "testsTotal", "filesAnalysed", "hotspots"],
+      "additionalProperties": false,
+      "properties": {
+        "errorCounts": {
+          "type": "object",
+          "required": ["error", "warning", "info"],
+          "additionalProperties": false,
+          "properties": {
+            "error": { "type": "integer", "minimum": 0 },
+            "warning": { "type": "integer", "minimum": 0 },
+            "info": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "errorChains": { "type": "integer", "minimum": 0 },
+        "missingDeps": { "type": "integer", "minimum": 0 },
+        "outdatedDeps": { "type": "integer", "minimum": 0 },
+        "undeclaredEnvVars": { "type": "integer", "minimum": 0 },
+        "testPassRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "testsTotal": { "type": "integer", "minimum": 0 },
+        "filesAnalysed": { "type": "integer", "minimum": 0 },
+        "hotspots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "centrality", "errorDensity"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string", "minLength": 1 },
+              "centrality": { "type": "number", "minimum": 0 },
+              "errorDensity": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "topIssues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dimension", "refType", "refId", "summary"],
+        "additionalProperties": false,
+        "properties": {
+          "dimension": { "type": "string", "enum": ["errors", "dependencies", "tests", "structure"] },
+          "refType": { "type": "string", "enum": ["error", "dep", "testRun", "file"] },
+          "refId": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "score": { "type": "integer", "minimum": 0, "maximum": 100 }
+  }
+}
