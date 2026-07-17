@@ -1,0 +1,85 @@
+/*
+ * Design tokens — extracted from animejs.com (2026-07-17).
+ * The single place visual identity lives (vault note 09): components reference
+ * roles, never raw hex. Swap this file to restyle the app.
+ *
+ * Chart palettes validated with the dataviz six-checks validator against
+ * surface #252423: categorical worst adjacent CVD dE 29.9 (PASS all),
+ * status set passes contrast + CVD and always ships with icon + label.
+ */
+:root {
+  /* Surfaces (anime.js black/bg ramp) */
+  --surface-page: #252423;
+  --surface-panel: #2a2928;
+  --surface-raised: #302e2c;
+  --surface-wash: rgba(246, 244, 242, 0.05);
+
+  /* Ink (white ramp) */
+  --ink-1: #f6f4f2;
+  --ink-2: #cccac9;
+  --ink-3: #85837e;
+  --ink-4: #706e69;
+
+  /* Hairlines */
+  --line-1: #3b3937;
+  --line-2: #4a4745;
+  --line-3: #625d5b;
+
+  /* Brand accent (the anime.js red) — chrome only, never a data series */
+  --accent: #ff4b4b;
+  --accent-dim: #d34343;
+  --accent-wash: rgba(255, 75, 75, 0.12);
+
+  /* Neon chrome accents (step-1 hues; UI details only, never marks) */
+  --neon-lime: #b7ff54;
+  --neon-cyan: #26f2d5;
+  --neon-yellow: #ffcc2a;
+
+  /* Categorical data series (validated; fixed order, never cycled) */
+  --series-1: #4584d3; /* king-2   */
+  --series-2: #678838; /* lime-3   */
+  --series-3: #c256a0; /* magenta-2*/
+  --series-4: #8a5bd3; /* lavender-2 */
+  --series-other: #706e69;
+
+  /* Status (reserved; always icon + label, never a series) */
+  --status-good: #07d38f;
+  --status-warn: #d3aa29;
+  --status-serious: #d36b32;
+  --status-critical: #d34343;
+
+  /* Sequential ramp (king, bright -> surface) for magnitude */
+  --seq-1: #4584d3;
+  --seq-2: #365a87;
+  --seq-3: #324e71;
+  --seq-4: #2c3b52;
+
+  /* Chart chrome */
+  --grid-line: #33312f;
+  --axis-line: #4a4745;
+
+  /* Type */
+  --font-sans: "Helvetica Neue", Helvetica, Inter, Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --text-hero: 56px;
+
+  /* Spacing (4px scale) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --ring-focus: 0 0 0 2px var(--surface-page), 0 0 0 4px var(--line-3);
+}
