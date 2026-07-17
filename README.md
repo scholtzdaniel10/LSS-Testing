@@ -29,14 +29,44 @@ Playwright runner drives. No credentials are persisted for targets.
 
 ## Local development
 
+### Database
+
+The API supports **SQLite** (default, no setup) and **Postgres** (Iteration 1 target).
+
+**SQLite (fastest start — matches CI):**
+
 ```sh
-# infrastructure (needs Docker; optional early on — see CLAUDE.md fallback)
+cd apps/api
+composer install   # or: php composer.phar install
+cp .env.example .env && php artisan key:generate
+touch database/database.sqlite   # Windows: New-Item database/database.sqlite -ItemType File
+php artisan migrate --seed
+```
+
+**Postgres (with Docker, when available):**
+
+```sh
+docker compose up -d postgres redis
+cd apps/api
+cp .env.example .env && php artisan key:generate
+# Set DB_CONNECTION=pgsql and uncomment DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD
+php artisan migrate --seed
+```
+
+`docker-compose.yml` provisions Postgres 17 (`lss` / `lss` / database `lss` on port 5432) and Redis on 6379.
+
+**Postgres without Docker (Daniel's machine):** install [PostgreSQL 17](https://www.postgresql.org/download/windows/), create database `lss` and user `lss`, then set `DB_CONNECTION=pgsql` in `apps/api/.env`.
+
+Seeded demo project: `lexpro-portal` (matches the v0 preview mock data shapes).
+
+### Run the apps
+
+```sh
+# infrastructure (optional — postgres/redis only)
 docker compose up -d
 
 # api
 cd apps/api
-composer install
-cp .env.example .env && php artisan key:generate
 php artisan serve          # http://127.0.0.1:8000 — service health at /api/v1/health
 
 # web
