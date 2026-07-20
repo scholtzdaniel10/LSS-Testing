@@ -55,7 +55,7 @@ php artisan migrate --seed
 
 `docker-compose.yml` provisions Postgres 17 (`lss` / `lss` / database `lss` on port 5432) and Redis on 6379.
 
-**Postgres without Docker (Daniel's machine):** install [PostgreSQL 17](https://www.postgresql.org/download/windows/), create database `lss` and user `lss`, then set `DB_CONNECTION=pgsql` in `apps/api/.env`.
+**Postgres without Docker (Daniel's machine — done, Postgres 16):** install [PostgreSQL 16+](https://www.postgresql.org/download/windows/), then as the postgres superuser: `CREATE ROLE lss LOGIN PASSWORD 'lss'; CREATE DATABASE lss OWNER lss;` and set the `DB_*` values in `apps/api/.env` (`DB_CONNECTION=pgsql`, host 127.0.0.1:5432, db/user/password `lss`).
 
 Seeded demo project: `lexpro-portal` (matches the v0 preview mock data shapes).
 
