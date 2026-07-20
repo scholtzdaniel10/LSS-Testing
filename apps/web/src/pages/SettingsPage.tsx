@@ -238,6 +238,7 @@ const SettingsPage: React.FC = () => {
               onChange={(e) => setEditor({ ...editor, editor: e.target.value as EditorSettings['editor'] })}
             >
               <option value="vscode">VS Code</option>
+              <option value="cursor">Cursor</option>
               <option value="phpstorm">PhpStorm</option>
               <option value="sublime">Sublime Text</option>
               <option value="custom">Custom command…</option>
@@ -276,6 +277,11 @@ const SettingsPage: React.FC = () => {
                 onChange={(e) => setEditor({ ...editor, customTemplate: e.target.value })}
                 placeholder="{path}:{line}"
               />
+              <span className="field__hint">
+                Placeholders: <span className="mono">&#123;path&#125;</span> file,{' '}
+                <span className="mono">&#123;root&#125;</span> project folder,{' '}
+                <span className="mono">&#123;line&#125;</span> line number.
+              </span>
             </div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>

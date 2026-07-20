@@ -63,7 +63,34 @@ const DependencyGraph: React.FC<Props> = ({
     };
   }, [edges, errorFiles, extraFileIds]);
 
+  // Adjacency for neighbour highlighting — a focused node keeps its direct
+  // connections bright and dims everything else, so the graph reads clearly
+  // even with hundreds of nodes.
+  const neighbours = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    const add = (a: string, b: string) => {
+      if (!map.has(a)) map.set(a, new Set());
+      map.get(a)!.add(b);
+    };
+    for (const l of graphData.links) {
+      const s = linkEndpointId(l.source as string | GraphNode);
+      const t = linkEndpointId(l.target as string | GraphNode);
+      add(s, t);
+      add(t, s);
+    }
+    return map;
+  }, [graphData]);
+
   const focusId = hoverId ?? selected;
+
+  const isDimmed = useCallback(
+    (id: string) => {
+      if (!focusId) return false;
+      if (id === focusId) return false;
+      return !(neighbours.get(focusId)?.has(id) ?? false);
+    },
+    [focusId, neighbours],
+  );
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -130,12 +157,25 @@ const DependencyGraph: React.FC<Props> = ({
     [focusId],
   );
 
+  const centerOn = useCallback((node: GraphNode) => {
+    const g = graphRef.current;
+    if (!g || node.x == null || node.y == null) return;
+    g.centerAt(node.x, node.y, 500);
+    g.zoom(Math.max(2, g.zoom()), 500);
+  }, []);
+
   const activateNode = useCallback(
     (node: GraphNode) => {
       onSelect(node.id);
-      if (!node.external) onOpenFile(node.id);
+      if (node.external) {
+        // External packages/classes have no file to open — pan to it so the
+        // click still does something visible.
+        centerOn(node);
+        return;
+      }
+      onOpenFile(node.id);
     },
-    [onOpenFile, onSelect],
+    [centerOn, onOpenFile, onSelect],
   );
 
   const paintNode = useCallback(
@@ -143,6 +183,7 @@ const DependencyGraph: React.FC<Props> = ({
       const x = node.x ?? 0;
       const y = node.y ?? 0;
       const r = nodeRadius(node);
+      const dim = isDimmed(node.id);
       const fill =
         node.id === selected
           ? theme.accent
@@ -152,16 +193,28 @@ const DependencyGraph: React.FC<Props> = ({
               ? theme.raised
               : node.color;
 
+      ctx.globalAlpha = dim ? 0.25 : 1;
+
       ctx.beginPath();
       ctx.arc(x, y, r, 0, 2 * Math.PI);
       ctx.fillStyle = fill;
       ctx.fill();
 
-      ctx.strokeStyle = node.id === focusId ? theme.ink2 : theme.line1;
-      ctx.lineWidth = node.id === focusId ? 2 : 1;
-      ctx.stroke();
+      // External nodes get a dashed ring so it reads as "not one of your files".
+      if (node.external) {
+        ctx.save();
+        ctx.setLineDash([2, 2]);
+        ctx.strokeStyle = node.id === focusId ? theme.ink2 : theme.line3;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        ctx.strokeStyle = node.id === focusId ? theme.ink2 : theme.line1;
+        ctx.lineWidth = node.id === focusId ? 2 : 1;
+        ctx.stroke();
+      }
 
-      if (globalScale >= 0.55) {
+      if (globalScale >= 0.55 && !dim) {
         // labelMetrics sets ctx.font as a side effect; only labelTop is needed here.
         const { labelTop } = labelMetrics(node, globalScale, ctx);
         ctx.textAlign = 'center';
@@ -169,8 +222,10 @@ const DependencyGraph: React.FC<Props> = ({
         ctx.fillStyle = node.id === focusId ? theme.ink2 : 'rgba(204, 202, 201, 0.8)';
         ctx.fillText(node.name, x, labelTop);
       }
+
+      ctx.globalAlpha = 1;
     },
-    [focusId, labelMetrics, nodeRadius, selected, theme],
+    [focusId, isDimmed, labelMetrics, nodeRadius, selected, theme],
   );
 
   const paintPointerArea = useCallback(
@@ -193,6 +248,15 @@ const DependencyGraph: React.FC<Props> = ({
     [labelMetrics],
   );
 
+  const nodeTooltip = useCallback((node: GraphNode) => {
+    if (node.external) {
+      const kind = node.id.startsWith('php:') ? 'class/namespace' : 'package';
+      return `${node.name} — external ${kind} · ${node.degree} link${node.degree === 1 ? '' : 's'} · not a file`;
+    }
+    const err = node.errors > 0 ? ` · ${node.errors} error${node.errors === 1 ? '' : 's'}` : '';
+    return `${node.id} · ${node.degree} link${node.degree === 1 ? '' : 's'}${err} · click to open in IDE`;
+  }, []);
+
   return (
     <div ref={wrapRef} className="graph-wrap graph-wrap--force">
       <ForceGraph2D
@@ -202,7 +266,7 @@ const DependencyGraph: React.FC<Props> = ({
         graphData={graphData}
         backgroundColor={theme.page}
         nodeId="id"
-        nodeLabel=""
+        nodeLabel={nodeTooltip}
         linkColor={linkColor}
         linkWidth={linkWidth}
         linkDirectionalArrowLength={3.5}
@@ -217,7 +281,10 @@ const DependencyGraph: React.FC<Props> = ({
         enablePanInteraction
         enablePointerInteraction
         showPointerCursor={(obj) => !!obj}
-        onEngineStop={() => graphRef.current?.pauseAnimation()}
+        onEngineStop={() => {
+          graphRef.current?.zoomToFit(400, 40);
+          graphRef.current?.pauseAnimation();
+        }}
         linkHoverPrecision={0}
         onNodeClick={activateNode}
         onNodeHover={(node) => setHoverId(node?.id ?? null)}
@@ -229,7 +296,10 @@ const DependencyGraph: React.FC<Props> = ({
           /* links are visual only — avoid stealing clicks from node labels */
         }}
       />
-      <p className="graph-wrap__hint">Drag nodes · scroll to zoom · click a node or its label to open in IDE</p>
+      <p className="graph-wrap__hint">
+        Hover a node for its path · drag to move · scroll to zoom · click a file to open it in your IDE ·
+        dashed ring = external package
+      </p>
     </div>
   );
 };
