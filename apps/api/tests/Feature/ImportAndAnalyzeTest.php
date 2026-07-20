@@ -128,6 +128,36 @@ it('queues analyze and persists evidence-gated findings (DX-3/DX-17)', function 
         ->and($errors->json('data.0.range.startLine'))->toBe(1);
 });
 
+it('re-scan chains analyze then snapshot synchronously (UI-4)', function () {
+    // Regression: Bus::chain(...) returns a PendingChain, which has no
+    // dispatchSync() — this endpoint 500'd on every real call until fixed.
+    asUser();
+
+    $project = Project::query()->create(['name' => 'rescan-demo']);
+    $jail = PathJail::fromConfig();
+    $root = $jail->projectRoot($project->id);
+    mkdir($root.DIRECTORY_SEPARATOR.'src', 0755, true);
+    file_put_contents($root.DIRECTORY_SEPARATOR.'src'.DIRECTORY_SEPARATOR.'A.php', "<?php\n");
+
+    $project->update(['sandbox_path' => $root, 'last_imported_at' => now()]);
+    $project->files()->create(['path' => 'src/A.php', 'size' => 6, 'lang' => 'php']);
+
+    $this->app->instance(
+        AnalysisRunner::class,
+        AnalysisRunner::withDefaults(PhpStanAdapter::withJsonRunner(fn () => '{"files":[]}')),
+    );
+
+    $response = $this->postJson("/api/v1/projects/{$project->id}/rescan");
+    $response->assertAccepted();
+
+    $analyzeStatus = JobStatus::query()->findOrFail($response->json('data.analyzeJobId'));
+    $snapshotStatus = JobStatus::query()->findOrFail($response->json('data.snapshotJobId'));
+    expect($analyzeStatus->status)->toBe(JobStatus::STATUS_DONE)
+        ->and($snapshotStatus->status)->toBe(JobStatus::STATUS_DONE);
+
+    $this->getJson("/api/v1/projects/{$project->id}/health-report")->assertOk();
+});
+
 it('precision harness finds every seeded defect ruleId+line (DX-17a)', function () {
     $seeded = [
         ['ruleId' => 'property.nonObject', 'line' => 11],

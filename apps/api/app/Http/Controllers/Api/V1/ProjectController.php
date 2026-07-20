@@ -3,12 +3,19 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Requests\ImportProjectRequest;
+use App\Http\Requests\LinkLocalProjectRequest;
 use App\Http\Requests\StoreProjectRequest;
 use App\Jobs\ImportProjectArchive;
+use App\Jobs\LinkLocalProject;
 use App\Models\JobStatus;
 use App\Models\Project;
+use App\Support\Api\ApiResponse;
+use App\Support\Sandbox\PathJail;
+use Database\Seeders\DemoProjectSeeder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -95,6 +102,83 @@ class ProjectController extends Controller
     }
 
     /**
+     * Link a folder on the same machine as the API — analyze in place, no zip upload.
+     */
+    public function linkLocal(LinkLocalProjectRequest $request, Project $project): JsonResponse
+    {
+        $data = $request->validated();
+
+        $status = JobStatus::query()->create([
+            'type' => 'link-local',
+            'project_id' => $project->id,
+            'status' => JobStatus::STATUS_QUEUED,
+        ]);
+
+        try {
+            LinkLocalProject::dispatchSync(
+                $project->id,
+                $status->id,
+                $data['path'],
+                $data['name'] ?? null,
+            );
+        } catch (\Throwable $e) {
+            $status->refresh();
+            if ($status->status !== JobStatus::STATUS_FAILED) {
+                $status->markFailed($e->getMessage());
+            }
+
+            return $this->respond([
+                'jobId' => $status->id,
+                'status' => $status->status,
+                'projectId' => $project->id,
+                'message' => $status->message ?? $e->getMessage(),
+            ], status: 500);
+        }
+
+        $status->refresh();
+
+        return $this->respond([
+            'jobId' => $status->id,
+            'status' => $status->status,
+            'projectId' => $project->id,
+            'message' => $status->message,
+        ], status: $status->status === JobStatus::STATUS_FAILED ? 500 : 202);
+    }
+
+    public function destroy(Request $request, Project $project, PathJail $jail): JsonResponse
+    {
+        if ($project->id === DemoProjectSeeder::DEMO_PROJECT_ID) {
+            return ApiResponse::failure([
+                ApiResponse::problem(
+                    title: 'Conflict',
+                    detail: 'The seeded demo project cannot be deleted.',
+                    status: 409,
+                    instance: $request->getPathInfo(),
+                ),
+            ], status: 409);
+        }
+
+        Cache::forget("graph:{$project->id}");
+
+        if (($project->source_type ?? 'import') !== 'local') {
+            $root = $jail->projectRoot($project->id);
+            if (is_dir($root)) {
+                File::deleteDirectory($root);
+            }
+        }
+
+        foreach (Storage::disk('local')->files('imports') as $path) {
+            if (str_starts_with(basename($path), $project->id.'_')) {
+                Storage::disk('local')->delete($path);
+            }
+        }
+
+        $project->delete();
+
+        return $this->respond(['deleted' => true]);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function serializeProject(Project $project): array
@@ -102,6 +186,8 @@ class ProjectController extends Controller
         return [
             'id' => $project->id,
             'name' => $project->name,
+            'sourceType' => $project->source_type ?? 'import',
+            'localSourcePath' => $project->local_source_path,
             'sandboxPath' => $project->sandbox_path,
             'lastImportedAt' => $project->last_imported_at?->toIso8601String(),
             'createdAt' => $project->created_at?->toIso8601String(),

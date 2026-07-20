@@ -1,12 +1,35 @@
+export type ApiProblem = {
+  status?: number;
+  title?: string;
+  detail?: string;
+  violations?: Array<{ field: string; message: string }>;
+};
+
 export type ApiEnvelope<T> = {
   data: T;
   meta: Record<string, unknown>;
-  errors: Array<{ status?: number; title?: string; detail?: string }>;
+  errors: ApiProblem[];
 };
+
+function formatApiError(body: ApiEnvelope<unknown> | null, fallback: string): string {
+  const dataMsg =
+    body?.data && typeof body.data === 'object' && body.data !== null && 'message' in body.data
+      ? String((body.data as { message?: string }).message ?? '').trim()
+      : '';
+  if (dataMsg) return dataMsg;
+
+  const err = body?.errors?.[0];
+  if (!err) return fallback;
+  const violations = err.violations?.filter((v) => v.message.trim()).map((v) => v.message) ?? [];
+  if (violations.length > 0) return violations.join(' · ');
+  return err.detail ?? err.title ?? fallback;
+}
 
 export type Project = {
   id: string;
   name: string;
+  sourceType?: 'import' | 'local';
+  localSourcePath?: string | null;
   sandboxPath: string | null;
   lastImportedAt: string | null;
   createdAt: string | null;
@@ -128,12 +151,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiEnve
 
   const body = (await res.json().catch(() => null)) as ApiEnvelope<T> | null;
   if (!res.ok) {
+    if (!body) {
+      const hint =
+        res.status >= 500
+          ? ' — the server may have timed out while scanning a large folder; check apps/api/storage/logs/laravel.log'
+          : '';
+      throw new ApiError(`${res.statusText || `HTTP ${res.status}`}${hint}`, res.status);
+    }
     const dataMsg =
       body?.data && typeof body.data === 'object' && body.data !== null && 'message' in body.data
         ? String((body.data as { message?: string }).message ?? '')
         : '';
-    const detail =
-      (body?.errors?.[0]?.detail ?? body?.errors?.[0]?.title ?? dataMsg) || res.statusText;
+    const detail = formatApiError(body, dataMsg || res.statusText || `HTTP ${res.status}`);
     throw new ApiError(detail || `HTTP ${res.status}`, res.status, body ?? undefined);
   }
   if (!body) throw new ApiError('Empty response', res.status);
@@ -158,9 +187,22 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     }),
+  deleteProject: (id: string) =>
+    request<{ deleted: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
+  linkLocal: (projectId: string, path: string, name?: string) =>
+    request<{ jobId: string; status: string; projectId: string; message?: string }>(
+      `/projects/${projectId}/link-local`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, ...(name ? { name } : {}) }),
+      },
+    ),
   importZip: async (projectId: string, blob: Blob, name: string, resumeToken?: string) => {
     const form = new FormData();
-    form.append('archive', blob, `${name}.zip`);
+    const archive =
+      blob instanceof File ? blob : new File([blob], `${name}.zip`, { type: 'application/zip' });
+    form.append('archive', archive);
     form.append('name', name);
     if (resumeToken) form.append('resumeToken', resumeToken);
     return request<{ jobId: string; status: string; projectId: string }>(`/projects/${projectId}/import`, {

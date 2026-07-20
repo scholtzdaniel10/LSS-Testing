@@ -25,6 +25,7 @@
     "jszip": "^3.10.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "react-force-graph-2d": "^1.29.1",
     "react-router": "^5.3.4",
     "react-router-dom": "^5.3.4"
   },

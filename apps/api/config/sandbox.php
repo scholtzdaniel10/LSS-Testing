@@ -43,6 +43,33 @@ return [
         '__pycache__',
         'playwright-report',
         'test-results',
+        'uploads',
+        'storage',
+        'cache',
+        'logs',
+        'log',
+        'images',
+        'media',
+        'backup',
+        'backups',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Local folder linking (Obsidian-style — API reads disk, no zip upload)
+    |--------------------------------------------------------------------------
+    |
+    | When true, POST /projects/{id}/link-local accepts an absolute path on the
+    | same machine as the API. Disable in shared/hosted deployments.
+    | Optional LOCAL_PATH_PREFIXES=C:\LSS;C:\Projects restricts allowed roots.
+    |
+    */
+
+    'allow_local_link' => (bool) env('SANDBOX_ALLOW_LOCAL_LINK', true),
+
+    'local_path_prefixes' => array_values(array_filter(array_map(
+        'trim',
+        explode(';', (string) env('LOCAL_PATH_PREFIXES', '')),
+    ))),
 
 ];

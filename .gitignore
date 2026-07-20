@@ -13,3 +13,8 @@ node_modules/
 
 # Logs
 *.log
+
+# Generated at runtime by PhpStanAdapter::ensureConfig() when a project's
+# local-linked root has no phpstan.neon of its own (e.g. this repo itself,
+# self-imported as a local project during testing).
+.lss-phpstan.neon

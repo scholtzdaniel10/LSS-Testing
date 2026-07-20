@@ -7,20 +7,23 @@ import {
   type LocalProjectManifest,
 } from '../lib/localProjectStore';
 import { zipLocalFiles } from '../lib/zipUpload';
-import { loadEditorSettings } from '../types';
+import { linkLocalFolder } from '../lib/linkLocalProject';
+import { loadLocalProjectRoot, saveLocalProjectRoot } from '../types';
 import { useProject } from '../state/ProjectContext';
 
 /**
- * IG-17/18/19: drop a folder → ignore rules + IndexedDB tree → zip upload.
+ * Drop a folder for browser preview, then analyze on disk via API (no zip upload).
  */
 const ImportDropzone: React.FC = () => {
-  const { setLocalManifest, reloadAll, selectProject, token } = useProject();
+  const { setLocalManifest, reloadAll, selectProject, token, project, localManifest } = useProject();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [statsLine, setStatsLine] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diskPath, setDiskPath] = useState(loadLocalProjectRoot);
+  const [showZipUpload, setShowZipUpload] = useState(false);
 
-  const finishLocal = async (manifest: LocalProjectManifest) => {
+  const finishLocal = useCallback(async (manifest: LocalProjectManifest) => {
     await saveLocalProject(manifest);
     setLocalManifest(manifest);
     setStatsLine(
@@ -30,7 +33,7 @@ const ImportDropzone: React.FC = () => {
           .join(', ') || 'none'})`,
     );
     return manifest;
-  };
+  }, [setLocalManifest]);
 
   const uniqueName = async (base: string): Promise<string> => {
     const { data: existing } = await api.projects();
@@ -39,6 +42,53 @@ const ImportDropzone: React.FC = () => {
     let i = 2;
     while (names.has(`${base}-${i}`)) i += 1;
     return `${base}-${i}`;
+  };
+
+  const persistDiskPath = (path: string) => {
+    setDiskPath(path);
+    saveLocalProjectRoot(path);
+  };
+
+  const linkLocal = async (manifest: LocalProjectManifest | null, localPath: string) => {
+    const bearer = getApiToken() || token;
+    if (!bearer) {
+      setError('Set an API token in Settings before linking a local folder.');
+      return;
+    }
+    const trimmed = localPath.trim();
+    if (!trimmed) {
+      setError('Enter the full folder path on your PC (e.g. C:\\Projects\\my-app).');
+      return;
+    }
+    persistDiskPath(trimmed);
+    try {
+      const { projectId, name } = await linkLocalFolder(trimmed, {
+        projectId: manifest?.serverProjectId ?? project?.id,
+        projectName: manifest?.name ?? project?.name,
+        token: bearer,
+        onStatus: setBusy,
+      });
+
+      if (manifest) {
+        const updated = { ...manifest, name, serverProjectId: projectId };
+        await saveLocalProject(updated);
+        setLocalManifest(updated);
+      }
+      setBusy('Link complete — switching to project…');
+      selectProject(projectId);
+      await reloadAll();
+      setBusy(null);
+      setError(null);
+      setStatsLine(
+        (prev) =>
+          `${prev ?? ''} · Linked ${trimmed} on disk (no upload). Graph and diagnostics are from the API scan.`,
+      );
+    } catch (e) {
+      const msg =
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Local link failed';
+      setError(msg);
+      setBusy(null);
+    }
   };
 
   const upload = async (manifest: LocalProjectManifest) => {
@@ -57,6 +107,13 @@ const ImportDropzone: React.FC = () => {
         setBusy(`Zipping ${done}/${total}…`);
       });
 
+      const zipMb = blob.size / (1024 * 1024);
+      if (zipMb > 1.9) {
+        throw new Error(
+          `Zip is ${zipMb.toFixed(1)} MB — use Analyze on disk instead (enter folder path above).`,
+        );
+      }
+
       setBusy('Creating project…');
       let projectId = manifest.serverProjectId;
       let name = manifest.name;
@@ -67,7 +124,7 @@ const ImportDropzone: React.FC = () => {
       }
       setActiveProjectId(projectId);
 
-      setBusy('Uploading zip (import runs on the API)…');
+      setBusy(`Uploading ${zipMb.toFixed(1)} MB (legacy zip import)…`);
       const imported = await api.importZip(projectId, blob, name, manifest.uploadJobId);
       if (imported.data.status === 'failed') {
         throw new Error(imported.meta?.message as string ?? 'Import failed on the server');
@@ -95,49 +152,42 @@ const ImportDropzone: React.FC = () => {
       };
       await saveLocalProject(updated);
       setLocalManifest(updated);
-      setBusy('Import complete — switching to new project…');
       selectProject(projectId);
       await reloadAll();
       setBusy(null);
       setError(null);
-      if (!loadEditorSettings().localRoot.trim()) {
-        setStatsLine(
-          (prev) =>
-            `${prev ?? ''} · Set Local project root in Settings so Open in IDE works.`,
-        );
-      }
+      setStatsLine((prev) => `${prev ?? ''} · Zip upload complete for ${name}.`);
     } catch (e) {
       const msg =
-        e instanceof ApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : 'Import failed';
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Import failed';
       setError(msg);
       setBusy(null);
     }
   };
 
-  const onFiles = useCallback(
-    async (files: FileList | null) => {
-      if (!files || files.length === 0) return;
-      setError(null);
-      setBusy('Reading local folder…');
-      try {
-        const manifest = await ingestFileList(
-          files,
-          files[0]?.webkitRelativePath?.split(/[/\\]/)[0] ?? 'program',
+  const previewFolder = useCallback(async (files: FileList | null, nameHint?: string) => {
+    if (!files || files.length === 0) return;
+    setError(null);
+    setBusy('Reading folder for preview…');
+    try {
+      const manifest = await ingestFileList(
+        files,
+        nameHint ?? files[0]?.webkitRelativePath?.split(/[/\\]/)[0] ?? 'program',
+      );
+      await finishLocal(manifest);
+      setBusy(null);
+      if (!diskPath.trim()) {
+        setError(null);
+        setStatsLine(
+          (prev) =>
+            `${prev ?? ''} · Preview ready — enter the same folder path below and click Analyze on disk.`,
         );
-        await finishLocal(manifest);
-        await upload(manifest);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Import failed');
-        setBusy(null);
       }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [token],
-  );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not read folder');
+      setBusy(null);
+    }
+  }, [diskPath, finishLocal]);
 
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -152,14 +202,14 @@ const ImportDropzone: React.FC = () => {
         if (handle.kind === 'directory') {
           const manifest = await ingestDirectoryHandle(handle as FileSystemDirectoryHandle);
           await finishLocal(manifest);
-          await upload(manifest);
+          setBusy(null);
           return;
         }
       } catch {
         // fall through
       }
     }
-    await onFiles(e.dataTransfer.files);
+    await previewFolder(e.dataTransfer.files);
   };
 
   const pickDirectory = async () => {
@@ -169,18 +219,20 @@ const ImportDropzone: React.FC = () => {
         const handle = await window.showDirectoryPicker();
         const manifest = await ingestDirectoryHandle(handle);
         await finishLocal(manifest);
-        await upload(manifest);
+        setBusy(null);
         return;
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') {
           setBusy(null);
           return;
         }
-        // fall through to input
       }
     }
     inputRef.current?.click();
   };
+
+  const canAnalyze = !!token && !!diskPath.trim() && !busy;
+  const manifestForLink = localManifest;
 
   return (
     <div
@@ -191,16 +243,41 @@ const ImportDropzone: React.FC = () => {
     >
       <div className="panel__head">
         <h2 className="panel__title">Import program</h2>
-        <span className="panel__hint">IG-17/18/19 · local-first, then upload</span>
+        <span className="panel__hint">analyze on your PC — no upload</span>
       </div>
       <p className="page__subtitle">
-        Drop a folder (or pick one). Ignore rules strip node_modules/vendor/dist/.git/.angular client-side
-        before anything is uploaded. Until you import, Explore shows the seeded demo{' '}
-        <span className="mono">lexpro-portal</span>.
+        Point the API at the folder on this machine. Drop or pick a folder for a quick browser preview,
+        then enter the full path and analyze. Ignore rules strip node_modules/vendor/dist/.git before
+        scanning.
       </p>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn--accent" onClick={() => void pickDirectory()} disabled={!!busy}>
-          Choose folder
+
+      <div className="field">
+        <label htmlFor="disk-path">Folder on this PC</label>
+        <input
+          id="disk-path"
+          value={diskPath}
+          onChange={(e) => setDiskPath(e.target.value)}
+          onBlur={() => persistDiskPath(diskPath)}
+          placeholder="C:\Projects\my-app"
+          disabled={!!busy}
+        />
+        <span className="field__hint">
+          Must match the folder you are maintaining — the API reads it directly (same machine as{' '}
+          <span className="mono">php artisan serve</span>).
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button
+          type="button"
+          className="btn btn--accent"
+          disabled={!canAnalyze}
+          onClick={() => void linkLocal(manifestForLink, diskPath)}
+        >
+          Analyze on disk
+        </button>
+        <button type="button" className="btn" onClick={() => void pickDirectory()} disabled={!!busy}>
+          Choose folder (preview)
         </button>
         <input
           ref={inputRef}
@@ -209,9 +286,19 @@ const ImportDropzone: React.FC = () => {
           webkitdirectory=""
           multiple
           hidden
-          onChange={(e) => void onFiles(e.target.files)}
+          onChange={(e) => void previewFolder(e.target.files)}
         />
+        <button
+          type="button"
+          className="btn"
+          style={{ marginLeft: 'auto' }}
+          disabled={!!busy}
+          onClick={() => setShowZipUpload((v) => !v)}
+        >
+          {showZipUpload ? 'Hide zip upload' : 'Legacy zip upload…'}
+        </button>
       </div>
+
       {busy && <p className="panel__hint" style={{ marginTop: 12 }}>{busy}</p>}
       {statsLine && (
         <p className="mono" style={{ marginTop: 8, fontSize: 'var(--text-sm)' }}>
@@ -228,8 +315,35 @@ const ImportDropzone: React.FC = () => {
           Tip: paste a Sanctum token in Settings first (`php artisan token:issue jean@lss.local`).
         </p>
       )}
+      {!diskPath.trim() && token && (
+        <p className="field__hint" style={{ marginTop: 8 }}>
+          Enter your project folder path above — the app will not upload until you use legacy zip upload.
+        </p>
+      )}
+      {showZipUpload && localManifest && (
+        <div style={{ marginTop: 12 }}>
+          <p className="field__hint">
+            Small projects only — large folders should use Analyze on disk.
+          </p>
+          <button
+            type="button"
+            className="btn"
+            disabled={!!busy || !token}
+            onClick={() => void upload(localManifest)}
+          >
+            Upload zip to API
+          </button>
+        </div>
+      )}
+      {project?.sourceType === 'local' && project.localSourcePath && (
+        <p className="field__hint" style={{ marginTop: 8 }}>
+          Active project is linked to <span className="mono">{project.localSourcePath}</span>. Re-scan from
+          Diagnose or click Analyze on disk after edits.
+        </p>
+      )}
     </div>
   );
 };
 
 export default ImportDropzone;
+

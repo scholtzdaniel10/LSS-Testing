@@ -70,6 +70,25 @@ export async function listLocalProjects(): Promise<LocalProjectManifest[]> {
   return result;
 }
 
+export async function deleteLocalProject(id: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+/** Remove browser-side imports linked to a server project id. */
+export async function deleteLocalProjectsForServerId(serverProjectId: string): Promise<void> {
+  const all = await listLocalProjects();
+  await Promise.all(
+    all.filter((m) => m.serverProjectId === serverProjectId).map((m) => deleteLocalProject(m.id)),
+  );
+}
+
 /** Strip the folder-name prefix webkitdirectory adds (handles nested same-name folders). */
 function stripPickerPrefix(relative: string, folderName: string): string {
   let path = relative.replace(/\\/g, '/');
@@ -107,7 +126,6 @@ export async function ingestFileList(
     files.push(entry);
   }
 
-  const top = list[0]?.webkitRelativePath?.split(/[/\\]/)[0];
   return {
     id: crypto.randomUUID(),
     name: nameHint || top || 'imported-program',

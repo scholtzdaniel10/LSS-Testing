@@ -53,7 +53,36 @@ body {
   background: var(--surface-panel);
   border: 1px solid var(--line-1);
   border-radius: var(--radius-sm);
+  padding: 0;
+  min-width: 160px;
+  max-width: 260px;
+}
+
+.topnav__program-select {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   padding: 5px 10px;
+  cursor: pointer;
+}
+
+.topnav__program-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .topnav__links {
@@ -457,13 +486,59 @@ body {
 }
 
 .graph-node text {
+  pointer-events: none;
+  user-select: none;
   font-family: var(--font-mono);
   font-size: 10px;
   fill: var(--ink-3);
 }
 
-.graph-node:hover text {
-  fill: var(--ink-1);
+.graph-node--external {
+  cursor: default;
+}
+
+.graph-node:hover circle,
+.graph-node:focus-visible circle {
+  filter: brightness(1.12);
+}
+
+.graph-node--selected circle {
+  stroke: var(--accent) !important;
+  stroke-width: 2.5;
+}
+
+.graph-node--hover circle {
+  stroke: var(--ink-1);
+  stroke-width: 2;
+}
+
+.graph-wrap {
+  min-height: 320px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-page);
+  overflow: hidden;
+}
+
+.graph-wrap--force {
+  position: relative;
+}
+
+.graph-wrap--force canvas {
+  display: block;
+  touch-action: none;
+  cursor: default;
+}
+
+.graph-wrap__hint {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  border-top: 1px solid var(--line-1);
+}
+
+.graph-wrap svg {
+  display: block;
 }
 
 /* ---------- Diagnose: code pane ---------- */

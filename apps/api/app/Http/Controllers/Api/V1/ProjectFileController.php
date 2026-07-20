@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Requests\FileContentRequest;
 use App\Models\Project;
 use App\Models\ProjectFile;
-use App\Support\Sandbox\PathJail;
+use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Http\JsonResponse;
 use InvalidArgumentException;
 
@@ -36,15 +36,13 @@ class ProjectFileController extends Controller
         ]);
     }
 
-    public function show(FileContentRequest $request, Project $project, PathJail $jail): JsonResponse
+    public function show(FileContentRequest $request, Project $project, ProjectWorkspace $workspace): JsonResponse
     {
         $path = $request->validated()['path'];
         $record = $project->files()->where('path', $path)->first();
 
-        // Seeded demos (and not-yet-imported rows) may have DB metadata without
-        // a sandbox on disk — return a soft miss instead of path-jail 500s.
         try {
-            $absolute = $jail->resolve($project->id, $path);
+            $absolute = $workspace->resolve($project, $path);
         } catch (InvalidArgumentException $e) {
             return response()->json([
                 'data' => null,

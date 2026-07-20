@@ -22,7 +22,10 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::get('/projects', [ProjectController::class, 'index']);
         Route::post('/projects', [ProjectController::class, 'store']);
         Route::get('/projects/{project}', [ProjectController::class, 'show']);
+        Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
         Route::post('/projects/{project}/import', [ProjectController::class, 'import'])
+            ->middleware('throttle:expensive');
+        Route::post('/projects/{project}/link-local', [ProjectController::class, 'linkLocal'])
             ->middleware('throttle:expensive');
 
         Route::get('/projects/{project}/tree', [ProjectFileController::class, 'tree']);

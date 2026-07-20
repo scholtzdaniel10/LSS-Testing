@@ -17,7 +17,9 @@ class Project extends Model
 
     protected $fillable = [
         'name',
+        'source_type',
         'sandbox_path',
+        'local_source_path',
         'last_imported_at',
     ];
 

@@ -41,6 +41,14 @@ final class PathJail
      */
     public function resolve(string $projectId, string $relativePath): string
     {
+        return $this->resolveUnder($this->projectRoot($projectId), $relativePath);
+    }
+
+    /**
+     * Resolve a relative path under an explicit root (local-linked projects).
+     */
+    public function resolveUnder(string $baseRoot, string $relativePath): string
+    {
         $relativePath = str_replace('\\', '/', $relativePath);
         if (str_contains($relativePath, "\0")) {
             throw new InvalidArgumentException('Null byte in path.');
@@ -49,7 +57,7 @@ final class PathJail
             throw new InvalidArgumentException('Absolute paths are not allowed.');
         }
 
-        $base = $this->real($this->projectRoot($projectId));
+        $base = $this->real($baseRoot);
         $candidate = $this->join($base, $relativePath);
         $real = $this->real($candidate, mustExist: false);
 

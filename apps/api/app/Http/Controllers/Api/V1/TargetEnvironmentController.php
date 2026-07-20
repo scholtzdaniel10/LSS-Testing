@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Requests\StoreTargetEnvironmentRequest;
 use App\Models\Project;
 use App\Models\TargetEnvironment;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\JsonResponse;
 
 /**
  * TST-1: target environment CRUD + reachability probe.

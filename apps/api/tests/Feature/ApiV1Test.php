@@ -72,6 +72,21 @@ describe('Projects API', function () {
             ->assertJsonPath('data.name', 'lexpro-portal')
             ->assertJsonPath('data.sandboxPath', 'sandboxes/lexpro-portal');
     });
+
+    it('deletes a user project but protects the seeded demo', function () {
+        $demo = Project::query()->findOrFail(DemoProjectSeeder::DEMO_PROJECT_ID);
+        $extra = Project::query()->create(['name' => 'throwaway-import']);
+
+        $this->deleteJson("/api/v1/projects/{$demo->id}")
+            ->assertStatus(409)
+            ->assertJsonPath('errors.0.detail', 'The seeded demo project cannot be deleted.');
+
+        $this->deleteJson("/api/v1/projects/{$extra->id}")
+            ->assertOk()
+            ->assertJsonPath('data.deleted', true);
+
+        expect(Project::query()->find($extra->id))->toBeNull();
+    });
 });
 
 describe('Health report API', function () {

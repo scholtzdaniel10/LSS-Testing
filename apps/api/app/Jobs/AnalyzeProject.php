@@ -7,9 +7,10 @@ use App\Models\Project;
 use App\Services\Diagnostics\AnalysisRunner;
 use App\Services\Graph\DependencyGraphBuilder;
 use App\Services\Import\UsageReportBuilder;
-use App\Support\Sandbox\PathJail;
+use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -25,31 +26,31 @@ class AnalyzeProject implements ShouldQueue
     ) {}
 
     public function handle(
-        PathJail $jail,
+        ProjectWorkspace $workspace,
         UsageReportBuilder $usage,
         DependencyGraphBuilder $graph,
         AnalysisRunner $runner,
     ): void {
+        @set_time_limit(600);
+
         $status = JobStatus::query()->findOrFail($this->jobStatusId);
         $status->markRunning(10);
 
         $project = Project::query()->findOrFail($this->projectId);
-        if ($project->sandbox_path === null || $project->sandbox_path === '') {
-            throw new \RuntimeException('Project has no sandbox; import first.');
-        }
-
-        $sandbox = $jail->assertInsideProject($this->projectId, $project->sandbox_path);
+        $sandbox = $workspace->root($project);
 
         $status->markRunning(25);
         $report = $usage->build($sandbox);
         $usage->persist($project, $report);
 
         $status->markRunning(45);
-        $edges = $graph->build($sandbox);
+        $paths = $project->files()->pluck('path')->all();
+        $edges = $graph->buildIndexed($sandbox, $paths);
         $project->graphSnapshots()->create([
             'scanned_at' => now(),
             'edges' => $edges,
         ]);
+        Cache::forget("graph:{$project->id}");
 
         $status->markRunning(70);
         $result = $runner->run($project, $sandbox);

@@ -66,11 +66,10 @@ class AnalyzeController extends Controller
         ]);
 
         try {
-            if (config('queue.default') === 'sync') {
-                $chain->dispatchSync();
-            } else {
-                $chain->dispatch();
-            }
+            // PendingChain has no dispatchSync(); force synchronous execution
+            // via the 'sync' connection regardless of the app's default queue
+            // driver, so Re-scan always finishes before this request returns.
+            $chain->onConnection('sync')->dispatch();
         } catch (\Throwable $e) {
             $analyze->refresh();
             $snapshot->refresh();

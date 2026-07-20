@@ -5,9 +5,9 @@ namespace App\Jobs;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Models\ProjectFile;
+use App\Services\Import\LocalDirectoryScanner;
 use App\Services\Import\UsageReportBuilder;
-use App\Services\Import\ZipImporter;
-use App\Support\Sandbox\PathJail;
+use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
@@ -15,34 +15,36 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * IG-19 / IG-1: extract uploaded zip into path-jailed sandbox, replace
- * project_files, persist C4 usage report. Never executes imported code.
+ * Link an on-disk folder as the project source (Obsidian-style) — no zip upload.
  */
-class ImportProjectArchive implements ShouldQueue
+class LinkLocalProject implements ShouldQueue
 {
     use Queueable;
 
     public function __construct(
         public readonly string $projectId,
         public readonly string $jobStatusId,
-        public readonly string $zipPath,
-        public readonly string $projectName,
+        public readonly string $localPath,
+        public readonly ?string $projectName = null,
     ) {}
 
     public function handle(
-        ZipImporter $importer,
+        ProjectWorkspace $workspace,
+        LocalDirectoryScanner $scanner,
         UsageReportBuilder $usage,
-        PathJail $jail,
     ): void {
+        @set_time_limit(600);
+
         $status = JobStatus::query()->findOrFail($this->jobStatusId);
         $status->markRunning(5);
 
         $project = Project::query()->findOrFail($this->projectId);
-        $result = $importer->import($this->projectId, $this->zipPath);
+        $root = $workspace->assertLocalRoot($this->localPath);
 
-        $status->markRunning(60);
+        $status->markRunning(20);
+        $result = $scanner->scan($root);
 
-        DB::transaction(function () use ($project, $result, $jail, $usage): void {
+        DB::transaction(function () use ($project, $result, $root, $usage): void {
             $project->files()->delete();
             $rows = [];
             foreach ($result['files'] as $file) {
@@ -64,24 +66,25 @@ class ImportProjectArchive implements ShouldQueue
                 ProjectFile::query()->insert($rows);
             }
 
-            $sandbox = $jail->projectRoot($project->id);
-            $report = $usage->build($sandbox);
+            $report = $usage->build($root);
             $usage->persist($project, $report);
 
             $project->update([
-                'name' => $this->projectName,
-                'sandbox_path' => $sandbox,
+                'name' => $this->projectName ?? $project->name,
+                'source_type' => 'local',
+                'local_source_path' => $root,
+                'sandbox_path' => $root,
                 'last_imported_at' => now(),
             ]);
         });
 
-        $status->markRunning(85);
+        $status->markRunning(70);
 
         $analyzeStatus = JobStatus::query()->create([
             'type' => 'analyze',
             'project_id' => $project->id,
             'status' => JobStatus::STATUS_QUEUED,
-            'message' => 'Post-import dependency scan',
+            'message' => 'Post-link dependency scan',
         ]);
         AnalyzeProject::dispatchSync($this->projectId, $analyzeStatus->id);
 
@@ -89,19 +92,17 @@ class ImportProjectArchive implements ShouldQueue
             'type' => 'build-health-snapshot',
             'project_id' => $project->id,
             'status' => JobStatus::STATUS_QUEUED,
-            'message' => 'Post-import health snapshot',
+            'message' => 'Post-link health snapshot',
         ]);
         BuildHealthSnapshot::dispatchSync($this->projectId, $snapshotStatus->id);
 
-        @unlink($this->zipPath);
         $status->markDone(
-            'Imported '.count($result['files']).' files (skipped '.$result['skipped'].') · graph + health ready',
+            'Linked local folder · '.count($result['files']).' files (skipped '.$result['skipped'].') · graph + health ready',
         );
     }
 
     public function failed(Throwable $exception): void
     {
-        @unlink($this->zipPath);
         JobStatus::query()->find($this->jobStatusId)?->markFailed($exception->getMessage());
     }
 }

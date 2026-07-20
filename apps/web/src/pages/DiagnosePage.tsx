@@ -74,7 +74,7 @@ const DiagnosePage: React.FC = () => {
         <ScreenState
           status={status === 'ready' && errors.length === 0 ? 'empty' : status}
           errorMessage={errorMessage}
-          emptyHint="No findings yet. Import a program and run Re-scan on Health."
+          emptyHint="No findings yet. After import we run PHPStan if vendor/bin/phpstan exists in the API — clean code may legitimately show zero. Hit Re-scan on Health to refresh."
         >
           <div className="split" data-animate>
             <div className="panel">

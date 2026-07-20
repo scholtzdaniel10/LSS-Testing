@@ -2,17 +2,20 @@ import { useEffect, useState } from 'react';
 import { useEntrance } from '../lib/anim';
 import { api, setApiToken, getApiToken } from '../api/client';
 import { useProject } from '../state/ProjectContext';
+import { linkLocalFolder } from '../lib/linkLocalProject';
 import {
   defaultEditorSettings,
   loadEditorSettings,
   openInIde,
   saveEditorSettings,
+  saveLocalProjectRoot,
   type EditorSettings,
 } from '../types';
 
 const SettingsPage: React.FC = () => {
   const ref = useEntrance();
-  const { project, targets, setToken, reloadAll, projects, selectProject } = useProject();
+  const { project, targets, setToken, reloadAll, projects, selectProject, deleteProject, jobMessage } =
+    useProject();
   const [token, setTokenLocal] = useState(getApiToken);
   const [editor, setEditor] = useState<EditorSettings>(loadEditorSettings);
   const [envName, setEnvName] = useState('staging');
@@ -20,6 +23,8 @@ const SettingsPage: React.FC = () => {
   const [envNotes, setEnvNotes] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [probe, setProbe] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const first = targets[0];
@@ -42,6 +47,10 @@ const SettingsPage: React.FC = () => {
     setMessage('Editor settings saved (local)');
   };
 
+  const onLocalRootBlur = () => {
+    saveLocalProjectRoot(editor.localRoot);
+  };
+
   const saveTarget = async () => {
     if (!project) {
       setMessage('Select a project first');
@@ -56,6 +65,28 @@ const SettingsPage: React.FC = () => {
     }
   };
 
+  const removeProject = async () => {
+    if (!project) {
+      setMessage('Select a project first');
+      return;
+    }
+    const ok = window.confirm(
+      `Delete "${project.name}" from the API? This removes its sandbox, graph, and diagnostics. This cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeleting(true);
+    setMessage(null);
+    const name = project.name;
+    try {
+      await deleteProject(project.id);
+      setMessage(`Deleted ${name}`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const runProbe = async () => {
     if (!project || !targets[0]) {
       setProbe('Save a target environment first');
@@ -63,6 +94,33 @@ const SettingsPage: React.FC = () => {
     }
     const { data } = await api.probeTarget(project.id, targets[0].id);
     setProbe(data.reachable ? `Reachable (HTTP ${data.status})` : `Unreachable: ${data.error ?? data.status}`);
+  };
+
+  const linkLocalOnDisk = async () => {
+    if (!project) {
+      setMessage('Select a project first');
+      return;
+    }
+    if (!editor.localRoot.trim()) {
+      setMessage('Set Local project root to the folder on your PC first');
+      return;
+    }
+    setLinking(true);
+    setMessage(null);
+    saveLocalProjectRoot(editor.localRoot);
+    try {
+      await linkLocalFolder(editor.localRoot.trim(), {
+        projectId: project.id,
+        projectName: project.name,
+        onStatus: (m) => setMessage(m),
+      });
+      await reloadAll();
+      setMessage(`Linked and analyzed ${editor.localRoot.trim()}`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Local link failed');
+    } finally {
+      setLinking(false);
+    }
   };
 
   return (
@@ -113,6 +171,29 @@ const SettingsPage: React.FC = () => {
               ))}
             </select>
           </div>
+          {project && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn"
+                disabled={deleting || project.name === 'lexpro-portal'}
+                onClick={() => void removeProject()}
+                title={
+                  project.name === 'lexpro-portal'
+                    ? 'The seeded demo project cannot be deleted'
+                    : 'Remove project and sandbox from the API'
+                }
+              >
+                {deleting ? 'Deleting…' : 'Delete project'}
+              </button>
+              {project.name === 'lexpro-portal' && (
+                <span className="field__hint">Demo project is protected.</span>
+              )}
+              {!project.lastImportedAt && project.name !== 'lexpro-portal' && (
+                <span className="field__hint">Never imported — safe to delete failed attempts.</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="panel" data-animate>
@@ -168,9 +249,23 @@ const SettingsPage: React.FC = () => {
               id="local-root"
               value={editor.localRoot}
               onChange={(e) => setEditor({ ...editor, localRoot: e.target.value })}
+              onBlur={onLocalRootBlur}
               placeholder="C:\Users\Jean\Documents\LSS-Testing\LSS-Testing"
             />
             <span className="field__hint">Required for Explore graph/tree clicks to open files in your editor.</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn--accent"
+              disabled={linking || !project || !editor.localRoot.trim() || !token}
+              onClick={() => void linkLocalOnDisk()}
+            >
+              {linking ? 'Linking…' : 'Link & analyze on disk'}
+            </button>
+            <span className="field__hint" style={{ alignSelf: 'center' }}>
+              No zip upload — API reads this folder directly (same PC as php artisan serve).
+            </span>
           </div>
           {editor.editor === 'custom' && (
             <div className="field">
@@ -198,6 +293,11 @@ const SettingsPage: React.FC = () => {
         </div>
 
         {message && <p className="v0-banner" data-animate>{message}</p>}
+        {jobMessage && !message && (
+          <p className="panel__hint" data-animate style={{ marginTop: 12 }}>
+            {jobMessage}
+          </p>
+        )}
       </div>
     </div>
   );

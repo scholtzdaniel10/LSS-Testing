@@ -65,9 +65,9 @@ Seeded demo project: `lexpro-portal` (matches the v0 preview mock data shapes).
 # infrastructure (optional — postgres/redis only)
 docker compose up -d
 
-# api
+# api — raise PHP upload limits for folder imports (default 2M is too small)
 cd apps/api
-php artisan serve          # http://127.0.0.1:8000 — service health at /api/v1/health
+php -d upload_max_filesize=512M -d post_max_size=512M artisan serve   # http://127.0.0.1:8000 — /api/v1/health
 # if QUEUE_CONNECTION is not sync, also: php artisan queue:listen
 
 # issue a Sanctum token for the web UI
@@ -79,7 +79,18 @@ npm install
 npm run dev
 ```
 
-Paste the token in **Settings**. Seeded demo project: `lexpro-portal`. Drag a folder on **Explore** to import (ignore rules strip node_modules/vendor/dist/.git/.angular client-side).
+Paste the token in **Settings**. Set **Local project root** to your program folder on disk, then use **Link & analyze on disk** (no upload) or drop a folder on **Explore**.
+
+## Local folder linking (Obsidian-style)
+
+When the API runs on the same machine as your code (`php artisan serve`), register the absolute path instead of uploading a zip:
+
+1. Settings → **Local project root** → e.g. `C:\Projects\my-app`
+2. **Link & analyze on disk** (or drop a folder on Explore after saving the path)
+
+The API scans that folder in place (ignore rules apply). No size limit beyond disk space and scan time. Disable in hosted deployments with `SANDBOX_ALLOW_LOCAL_LINK=false`.
+
+Optional: restrict paths with `LOCAL_PATH_PREFIXES=C:\LSS;C:\Projects` in `apps/api/.env`.
 
 ## Workflow
 

@@ -15,6 +15,13 @@ use RuntimeException;
  */
 final class PhpStanAdapter implements Analyzer
 {
+    /**
+     * Real legacy codebases (thousands of untyped files) exceed PHP's default
+     * 128M inside PHPStan's own analysis workers well before level-0 analysis
+     * completes — see vault "10 Iteration 1" pilot notes for the measured case.
+     */
+    private const MEMORY_LIMIT = '2G';
+
     /** @var callable(string): string|null */
     private $jsonRunner;
 
@@ -57,12 +64,18 @@ final class PhpStanAdapter implements Analyzer
                 'analyse',
                 '--error-format=json',
                 '--no-progress',
+                // Real codebases (thousands of legacy files) exceed PHP's
+                // default 128M under PHPStan's own analysis workers; without
+                // this, a crash silently normalizes to "0 findings" — a false
+                // "all clear" that violates the evidence-only accuracy policy
+                // (vault note 10). 1G is generous for a single-project scan.
+                '--memory-limit='.self::MEMORY_LIMIT,
                 '-c',
                 $configPath,
             ]);
 
-        // PHPStan exits non-zero when it finds errors; still parse stdout.
         $json = $result->output();
+
         if ($json === '' && $result->errorOutput() !== '') {
             // Prefer stdout; if empty, do not invent findings from stderr.
             return [];
@@ -79,6 +92,19 @@ final class PhpStanAdapter implements Analyzer
         $decoded = json_decode($json, true);
         if (! is_array($decoded)) {
             return [];
+        }
+
+        // PHPStan's own JSON envelope reports worker crashes (e.g. memory
+        // exhaustion) in general_errors even when it still exits with some
+        // stdout. Surface these as a real failure instead of returning an
+        // empty (and therefore misleadingly "clean") finding list.
+        if (($decoded['general_errors'] ?? []) !== []) {
+            $reasons = implode('; ', array_map(
+                static fn (mixed $e): string => strtok((string) $e, "\n") ?: (string) $e,
+                array_slice($decoded['general_errors'], 0, 3),
+            ));
+
+            throw new RuntimeException("PHPStan analysis did not complete: {$reasons}");
         }
 
         $files = $decoded['files'] ?? [];

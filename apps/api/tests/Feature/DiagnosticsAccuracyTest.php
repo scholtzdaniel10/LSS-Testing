@@ -91,6 +91,20 @@ it('normalises PHPStan JSON to C5 findings (DX-2)', function () {
         ->and($findings[0]['file'])->toBe('src/Defects.php');
 });
 
+it('refuses to report a clean scan when PHPStan crashed (DX-15/17 honesty)', function () {
+    // Regression: a worker OOM crash still produces some stdout; silently
+    // returning [] from that reads as "0 findings, all clear" — false.
+    $crashJson = json_encode([
+        'general_errors' => [
+            'Child process error: PHPStan process crashed because it reached configured PHP memory limit: 128M',
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $adapter = PhpStanAdapter::withJsonRunner(fn () => $crashJson);
+
+    expect(fn () => $adapter->run('/sandbox'))->toThrow(RuntimeException::class, 'memory limit');
+});
+
 it('writes CI3 PHPStan bootstrap without composer (DX-16)', function () {
     $fixture = base_path('tests/fixtures/ci3-mini');
     $adapter = new PhpStanAdapter;

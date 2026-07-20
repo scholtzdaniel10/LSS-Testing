@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type DiagnosticFinding, type GraphEdge, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
+import { deleteLocalProjectsForServerId, listLocalProjects } from '../lib/localProjectStore';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 
@@ -33,6 +34,7 @@ type ProjectContextValue = {
   jobMessage: string | null;
   reloadAll: () => Promise<void>;
   rescan: () => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
 };
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -106,6 +108,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setErrors(Array.isArray(errEnv.data) ? errEnv.data : []);
       setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
       setTargets(Array.isArray(tgtEnv.data) ? tgtEnv.data : []);
+      const locals = await listLocalProjects();
+      setLocalManifest(locals.find((m) => m.serverProjectId === id) ?? null);
       setStatus('ready');
     } catch (e) {
       setStatus('error');
@@ -113,12 +117,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshProjects]);
 
-  const selectProject = (id: string) => {
-    setActiveProjectId(id);
-    void reloadAll();
-  };
+  const selectProject = useCallback(
+    (id: string) => {
+      setActiveProjectId(id);
+      void reloadAll();
+    },
+    [reloadAll],
+  );
 
-  const rescan = async () => {
+  const rescan = useCallback(async () => {
     if (!project) return;
     setJobMessage('Queuing re-scan…');
     try {
@@ -131,7 +138,25 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setJobMessage(e instanceof ApiError ? e.message : 'Re-scan failed');
     }
-  };
+  }, [project, reloadAll]);
+
+  const deleteProject = useCallback(async (id: string) => {
+    setJobMessage('Deleting project…');
+    try {
+      await api.deleteProject(id);
+      await deleteLocalProjectsForServerId(id);
+      if (getActiveProjectId() === id) {
+        setLocalManifest(null);
+        setActiveProjectId(null);
+      }
+      await refreshProjects();
+      await reloadAll();
+      setJobMessage('Project deleted');
+    } catch (e) {
+      setJobMessage(e instanceof ApiError ? e.message : 'Delete failed');
+      throw e;
+    }
+  }, [refreshProjects, reloadAll]);
 
   useEffect(() => {
     void reloadAll();
@@ -159,11 +184,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       jobMessage,
       reloadAll,
       rescan,
+      deleteProject,
     }),
     [
       token,
       projects,
       project,
+      selectProject,
       refreshProjects,
       health,
       healthHistory,
@@ -177,6 +204,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       errorMessage,
       jobMessage,
       reloadAll,
+      rescan,
+      deleteProject,
     ],
   );
 

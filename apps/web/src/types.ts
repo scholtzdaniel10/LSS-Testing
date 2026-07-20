@@ -39,6 +39,15 @@ export function saveEditorSettings(settings: EditorSettings): void {
   localStorage.setItem(EDITOR_KEY, JSON.stringify(settings));
 }
 
+/** Persist the on-disk project folder (shared by Explore link + IDE open). */
+export function saveLocalProjectRoot(path: string): void {
+  saveEditorSettings({ ...loadEditorSettings(), localRoot: path });
+}
+
+export function loadLocalProjectRoot(): string {
+  return loadEditorSettings().localRoot.trim();
+}
+
 /** IG-15: open a file:line in the configured IDE. Returns false when localRoot is unset. */
 export function openInIde(settings: EditorSettings, filePath: string, line = 1, projectName?: string): boolean {
   if (!settings.localRoot.trim()) {
