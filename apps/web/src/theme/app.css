@@ -541,6 +541,87 @@ body {
   display: block;
 }
 
+/* Graph toolbar: hide-externals toggle, node counts, collapse-all */
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line-1);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.graph-toolbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.graph-toolbar__toggle input {
+  accent-color: var(--accent);
+}
+
+.graph-toolbar__count {
+  color: var(--ink-4);
+}
+
+.graph-toolbar__spacer {
+  flex: 1;
+}
+
+.graph-toolbar__stat {
+  font-family: var(--font-mono);
+  color: var(--ink-3);
+}
+
+.graph-toolbar__btn {
+  font: inherit;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.graph-toolbar__btn:hover {
+  color: var(--ink-1);
+  background: var(--surface-wash);
+}
+
+/* Breadcrumb chips for the currently drilled-into folders */
+.graph-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line-1);
+}
+
+.graph-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.graph-chip:hover {
+  color: var(--ink-1);
+  border-color: var(--line-3);
+}
+
+.graph-chip span {
+  color: var(--ink-4);
+  margin-left: 2px;
+}
+
 /* ---------- Diagnose: code pane ---------- */
 .code-pane {
   font-family: var(--font-mono);

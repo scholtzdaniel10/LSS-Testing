@@ -69,20 +69,14 @@ const ExplorePage: React.FC = () => {
     return map;
   }, [errors]);
 
-  // Feed all listed files to the graph; graphModel ranks by importance and
-  // caps them, so isolated files can still earn a slot instead of being
-  // dropped by an arbitrary pre-slice here.
-  const graphFileIds = useMemo(() => treeRows.map((r) => r.path), [treeRows]);
-
-  const graphStats = useMemo(() => {
-    const built = new Set<string>();
-    for (const e of graphEdges) {
-      built.add(e.from);
-      built.add(e.to);
-    }
-    for (const p of graphFileIds) built.add(p);
-    return { nodes: Math.min(built.size, 480), links: Math.min(graphEdges.length, 1200) };
-  }, [graphEdges, graphFileIds]);
+  // The graph rolls files up into folder nodes (clean at any size) and drills
+  // down on click, so it gets the full file list — not the 400-row tree slice.
+  const allFilePaths = useMemo(() => {
+    const serverReady = tree.length > 0 && project?.lastImportedAt;
+    return serverReady
+      ? tree.map((t) => t.path)
+      : (localManifest?.files.map((f) => f.path) ?? tree.map((t) => t.path));
+  }, [tree, localManifest, project?.lastImportedAt]);
 
   return (
     <div className="page">
@@ -154,17 +148,15 @@ const ExplorePage: React.FC = () => {
             <div className="panel">
               <div className="panel__head">
                 <h2 className="panel__title">Dependency graph</h2>
-                <span className="panel__hint">
-                  {graphStats.nodes} nodes · {graphStats.links} links · packages/classes = grey nodes
-                </span>
+                <span className="panel__hint">folder view · drill down on click</span>
               </div>
-              {graphEdges.length === 0 && graphFileIds.length === 0 ? (
+              {graphEdges.length === 0 && allFilePaths.length === 0 ? (
                 <p className="page__subtitle">No graph yet — import a program or switch project in the header.</p>
               ) : (
                 <DependencyGraph
                   edges={graphEdges}
                   errorFiles={errorFiles}
-                  extraFileIds={graphFileIds}
+                  files={allFilePaths}
                   selected={selected}
                   onSelect={setSelected}
                   onOpenFile={(path) => openFile(path)}

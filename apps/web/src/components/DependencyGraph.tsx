@@ -1,7 +1,7 @@
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEdge } from '../api/client';
-import { buildForceGraphData, type ForceGraphLink, type ForceGraphNode } from '../lib/graphModel';
+import { buildGraphView, collapseFolder, type ForceGraphLink, type ForceGraphNode } from '../lib/graphModel';
 
 type GraphNode = ForceGraphNode & NodeObject;
 type GraphLink = ForceGraphLink & LinkObject;
@@ -13,7 +13,7 @@ function linkEndpointId(endpoint: string | GraphNode): string {
 type Props = {
   edges: GraphEdge[];
   errorFiles: Map<string, number>;
-  extraFileIds?: string[];
+  files?: string[];
   selected: string | null;
   onSelect: (id: string | null) => void;
   onOpenFile: (path: string) => void;
@@ -27,18 +27,13 @@ function readCssVar(name: string, fallback: string): string {
   return value || fallback;
 }
 
-const DependencyGraph: React.FC<Props> = ({
-  edges,
-  errorFiles,
-  extraFileIds = [],
-  selected,
-  onSelect,
-  onOpenFile,
-}) => {
+const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selected, onSelect, onOpenFile }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined);
   const [width, setWidth] = useState(640);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showExternal, setShowExternal] = useState(false);
 
   const theme = useMemo(
     () => ({
@@ -47,6 +42,7 @@ const DependencyGraph: React.FC<Props> = ({
       line2: readCssVar('--line-2', '#4a4745'),
       line3: readCssVar('--line-3', '#625d5b'),
       ink2: readCssVar('--ink-2', '#cccac9'),
+      ink3: readCssVar('--ink-3', '#85837e'),
       critical: readCssVar('--status-critical', '#d34343'),
       page: readCssVar('--surface-page', '#252423'),
       raised: readCssVar('--surface-raised', '#302e2c'),
@@ -55,17 +51,16 @@ const DependencyGraph: React.FC<Props> = ({
     [],
   );
 
-  const graphData = useMemo(() => {
-    const built = buildForceGraphData(edges, errorFiles, extraFileIds);
-    return {
-      nodes: built.nodes.map((n) => ({ ...n })),
-      links: built.links.map((l) => ({ ...l })),
-    };
-  }, [edges, errorFiles, extraFileIds]);
+  const view = useMemo(
+    () => buildGraphView(edges, files, errorFiles, expanded, showExternal),
+    [edges, files, errorFiles, expanded, showExternal],
+  );
 
-  // Adjacency for neighbour highlighting — a focused node keeps its direct
-  // connections bright and dims everything else, so the graph reads clearly
-  // even with hundreds of nodes.
+  const graphData = useMemo(
+    () => ({ nodes: view.nodes.map((n) => ({ ...n })), links: view.links.map((l) => ({ ...l })) }),
+    [view],
+  );
+
   const neighbours = useMemo(() => {
     const map = new Map<string, Set<string>>();
     const add = (a: string, b: string) => {
@@ -95,9 +90,7 @@ const DependencyGraph: React.FC<Props> = ({
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      setWidth(Math.max(320, Math.floor(entry.contentRect.width)));
-    });
+    const ro = new ResizeObserver(([entry]) => setWidth(Math.max(320, Math.floor(entry.contentRect.width))));
     ro.observe(el);
     setWidth(Math.max(320, Math.floor(el.clientWidth)));
     return () => ro.disconnect();
@@ -106,11 +99,12 @@ const DependencyGraph: React.FC<Props> = ({
   useEffect(() => {
     const g = graphRef.current;
     if (!g) return;
-    g.d3Force('charge')?.strength(-140);
-    g.d3Force('link')?.distance(52);
+    g.d3Force('charge')?.strength(-160);
+    g.d3Force('link')?.distance(56);
   }, [graphData]);
 
   const nodeRadius = useCallback((node: GraphNode) => {
+    if (node.kind === 'folder') return 10 + Math.min(Math.sqrt(node.fileCount) * 2.4, 16);
     if (node.external) return 6;
     return 8 + Math.min(node.inDegree, 6);
   }, []);
@@ -119,19 +113,10 @@ const DependencyGraph: React.FC<Props> = ({
     (node: GraphNode, globalScale: number, ctx: CanvasRenderingContext2D) => {
       const r = nodeRadius(node);
       const fontSize = Math.max(9, 11 / globalScale);
-      ctx.font = `${fontSize}px ${theme.mono}`;
-      const textWidth = ctx.measureText(node.name).width;
-      const padX = 6;
-      const padY = 4;
-      return {
-        r,
-        fontSize,
-        textWidth,
-        labelTop: (node.y ?? 0) + r + 2,
-        labelHeight: fontSize + padY * 2,
-        padX,
-        padY,
-      };
+      ctx.font = `${node.kind === 'folder' ? '600 ' : ''}${fontSize}px ${theme.mono}`;
+      const label = node.kind === 'folder' ? `${node.name} ${node.fileCount}` : node.name;
+      const textWidth = ctx.measureText(label).width;
+      return { r, fontSize, textWidth, label, labelTop: (node.y ?? 0) + r + 2, labelHeight: fontSize + 8, padX: 6, padY: 4 };
     },
     [nodeRadius, theme.mono],
   );
@@ -149,10 +134,11 @@ const DependencyGraph: React.FC<Props> = ({
 
   const linkWidth = useCallback(
     (link: GraphLink) => {
-      if (!focusId) return link.externalTarget ? 1 : 1.5;
+      const base = Math.min(0.8 + (link.weight ?? 1) * 0.35, 4);
+      if (!focusId) return base;
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
-      return src === focusId || tgt === focusId ? 2.5 : 0.8;
+      return src === focusId || tgt === focusId ? Math.max(base, 2.5) : 0.7;
     },
     [focusId],
   );
@@ -167,9 +153,11 @@ const DependencyGraph: React.FC<Props> = ({
   const activateNode = useCallback(
     (node: GraphNode) => {
       onSelect(node.id);
+      if (node.kind === 'folder' && node.folderPath) {
+        setExpanded((prev) => new Set(prev).add(node.folderPath!));
+        return;
+      }
       if (node.external) {
-        // External packages/classes have no file to open — pan to it so the
-        // click still does something visible.
         centerOn(node);
         return;
       }
@@ -193,14 +181,12 @@ const DependencyGraph: React.FC<Props> = ({
               ? theme.raised
               : node.color;
 
-      ctx.globalAlpha = dim ? 0.25 : 1;
-
+      ctx.globalAlpha = dim ? 0.22 : 1;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, 2 * Math.PI);
       ctx.fillStyle = fill;
       ctx.fill();
 
-      // External nodes get a dashed ring so it reads as "not one of your files".
       if (node.external) {
         ctx.save();
         ctx.setLineDash([2, 2]);
@@ -208,21 +194,29 @@ const DependencyGraph: React.FC<Props> = ({
         ctx.lineWidth = 1;
         ctx.stroke();
         ctx.restore();
+      } else if (node.kind === 'folder') {
+        // A second ring marks folders as expandable "containers".
+        ctx.strokeStyle = node.id === focusId ? theme.ink2 : theme.line1;
+        ctx.lineWidth = node.id === focusId ? 2 : 1;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, r - 3, 0, 2 * Math.PI);
+        ctx.strokeStyle = theme.page;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       } else {
         ctx.strokeStyle = node.id === focusId ? theme.ink2 : theme.line1;
         ctx.lineWidth = node.id === focusId ? 2 : 1;
         ctx.stroke();
       }
 
-      if (globalScale >= 0.55 && !dim) {
-        // labelMetrics sets ctx.font as a side effect; only labelTop is needed here.
-        const { labelTop } = labelMetrics(node, globalScale, ctx);
+      if (globalScale >= 0.5 && !dim) {
+        const { labelTop, label } = labelMetrics(node, globalScale, ctx);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         ctx.fillStyle = node.id === focusId ? theme.ink2 : 'rgba(204, 202, 201, 0.8)';
-        ctx.fillText(node.name, x, labelTop);
+        ctx.fillText(label, x, labelTop);
       }
-
       ctx.globalAlpha = 1;
     },
     [focusId, isDimmed, labelMetrics, nodeRadius, selected, theme],
@@ -234,14 +228,11 @@ const DependencyGraph: React.FC<Props> = ({
       const y = node.y ?? 0;
       const { r, textWidth, labelTop, labelHeight, padX, padY } = labelMetrics(node, globalScale, ctx);
       const hitR = Math.max(18, r + 12);
-
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(x, y, hitR, 0, 2 * Math.PI);
       ctx.fill();
-
-      // Labels are the usual click target — include them in the hit map.
-      if (globalScale >= 0.55) {
+      if (globalScale >= 0.5) {
         ctx.fillRect(x - textWidth / 2 - padX, labelTop - padY, textWidth + padX * 2, labelHeight);
       }
     },
@@ -249,16 +240,56 @@ const DependencyGraph: React.FC<Props> = ({
   );
 
   const nodeTooltip = useCallback((node: GraphNode) => {
+    if (node.kind === 'folder') {
+      return `${node.folderPath}/ · ${node.fileCount} file${node.fileCount === 1 ? '' : 's'}${node.errors > 0 ? ` · ${node.errors} errors` : ''} · click to expand`;
+    }
     if (node.external) {
       const kind = node.id.startsWith('php:') ? 'class/namespace' : 'package';
-      return `${node.name} — external ${kind} · ${node.degree} link${node.degree === 1 ? '' : 's'} · not a file`;
+      return `${node.name} — external ${kind} · not a file`;
     }
     const err = node.errors > 0 ? ` · ${node.errors} error${node.errors === 1 ? '' : 's'}` : '';
     return `${node.id} · ${node.degree} link${node.degree === 1 ? '' : 's'}${err} · click to open in IDE`;
   }, []);
 
+  const expandedList = useMemo(() => [...expanded].sort(), [expanded]);
+
   return (
     <div ref={wrapRef} className="graph-wrap graph-wrap--force">
+      <div className="graph-toolbar">
+        <label className="graph-toolbar__toggle">
+          <input type="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} />
+          Show external packages
+          {!showExternal && view.hiddenExternal > 0 ? (
+            <span className="graph-toolbar__count"> ({view.hiddenExternal} hidden)</span>
+          ) : null}
+        </label>
+        <span className="graph-toolbar__spacer" />
+        <span className="graph-toolbar__stat">
+          {view.folderCount} folders · {view.fileNodeCount} files
+        </span>
+        {expanded.size > 0 && (
+          <button type="button" className="graph-toolbar__btn" onClick={() => setExpanded(new Set())}>
+            Collapse all
+          </button>
+        )}
+      </div>
+
+      {expandedList.length > 0 && (
+        <div className="graph-breadcrumbs">
+          {expandedList.map((f) => (
+            <button
+              key={f}
+              type="button"
+              className="graph-chip"
+              onClick={() => setExpanded((prev) => collapseFolder(prev, f))}
+              title={`Collapse ${f}/`}
+            >
+              {f}/ <span aria-hidden="true">×</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <ForceGraph2D
         ref={graphRef}
         width={width}
@@ -297,8 +328,8 @@ const DependencyGraph: React.FC<Props> = ({
         }}
       />
       <p className="graph-wrap__hint">
-        Hover a node for its path · drag to move · scroll to zoom · click a file to open it in your IDE ·
-        dashed ring = external package
+        Click a <strong>folder</strong> to drill in · click a <strong>file</strong> to open it in your IDE · hover for
+        the full path · dashed ring = external package
       </p>
     </div>
   );
