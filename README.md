@@ -68,12 +68,18 @@ docker compose up -d
 # api
 cd apps/api
 php artisan serve          # http://127.0.0.1:8000 — service health at /api/v1/health
+# if QUEUE_CONNECTION is not sync, also: php artisan queue:listen
 
-# web
+# issue a Sanctum token for the web UI
+php artisan token:issue jean@lss.local --label=web
+
+# web (Vite proxies /api → :8000)
 cd apps/web
 npm install
 npm run dev
 ```
+
+Paste the token in **Settings**. Seeded demo project: `lexpro-portal`. Drag a folder on **Explore** to import (ignore rules strip node_modules/vendor/dist/.git/.angular client-side).
 
 ## Workflow
 

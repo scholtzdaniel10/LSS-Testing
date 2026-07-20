@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { pathLength, useCountUp } from '../lib/anim';
 import { animate, stagger } from 'animejs';
-import type { DimensionScore } from '../mock/data';
+import type { DimensionScore } from '../types';
 
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
 

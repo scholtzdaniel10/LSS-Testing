@@ -1,0 +1,30 @@
+{
+  "phpstan:nullCoalesce.variable": {
+    "kind": "null-risk",
+    "explanation": "A value may be null here; callers can hit a runtime TypeError or silent skip."
+  },
+  "phpstan:property.nonObject": {
+    "kind": "null-risk",
+    "explanation": "Property access on a possibly-null object fails at runtime."
+  },
+  "phpstan:argument.type": {
+    "kind": "type-error",
+    "explanation": "Argument type does not match the declared parameter; expect TypeError or wrong behaviour."
+  },
+  "phpstan:return.type": {
+    "kind": "type-error",
+    "explanation": "Returned value does not match the declared return type."
+  },
+  "phpstan:class.notFound": {
+    "kind": "missing-dep",
+    "explanation": "Referenced class cannot be resolved — missing autoload or undeclared dependency."
+  },
+  "phpstan:function.notFound": {
+    "kind": "missing-dep",
+    "explanation": "Referenced function cannot be resolved."
+  },
+  "phpstan:variable.undefined": {
+    "kind": "type-error",
+    "explanation": "Undefined variable — will raise a notice or Error depending on PHP version."
+  }
+}

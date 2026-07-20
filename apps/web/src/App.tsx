@@ -8,6 +8,7 @@ import ExplorePage from './pages/ExplorePage';
 import DiagnosePage from './pages/DiagnosePage';
 import TestPage from './pages/TestPage';
 import SettingsPage from './pages/SettingsPage';
+import { ProjectProvider } from './state/ProjectContext';
 
 /* Core CSS required for Ionic components to work properly */
 import '@ionic/react/css/core.css';
@@ -26,21 +27,23 @@ setupIonicReact();
 
 const App: React.FC = () => (
   <IonApp>
-    <IonReactRouter>
-      <div className="app-shell">
-        <TopNav />
-        <Switch>
-          <Route exact path="/health" component={HealthPage} />
-          <Route exact path="/explore" component={ExplorePage} />
-          <Route exact path="/diagnose" component={DiagnosePage} />
-          <Route exact path="/test" component={TestPage} />
-          <Route exact path="/settings" component={SettingsPage} />
-          <Route exact path="/">
-            <Redirect to="/health" />
-          </Route>
-        </Switch>
-      </div>
-    </IonReactRouter>
+    <ProjectProvider>
+      <IonReactRouter>
+        <div className="app-shell">
+          <TopNav />
+          <Switch>
+            <Route exact path="/health" component={HealthPage} />
+            <Route exact path="/explore" component={ExplorePage} />
+            <Route exact path="/diagnose" component={DiagnosePage} />
+            <Route exact path="/test" component={TestPage} />
+            <Route exact path="/settings" component={SettingsPage} />
+            <Route exact path="/">
+              <Redirect to="/health" />
+            </Route>
+          </Switch>
+        </div>
+      </IonReactRouter>
+    </ProjectProvider>
   </IonApp>
 );
 

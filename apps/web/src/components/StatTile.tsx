@@ -1,5 +1,5 @@
 import { useCountUp } from '../lib/anim';
-import type { DimensionScore } from '../mock/data';
+import type { DimensionScore } from '../types';
 import Sparkline from './Sparkline';
 import StatusPill from './StatusPill';
 

@@ -1,12 +1,15 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AnalyzeController;
 use App\Http\Controllers\Api\V1\ErrorController;
 use App\Http\Controllers\Api\V1\GraphController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\HealthReportController;
 use App\Http\Controllers\Api\V1\JobStatusController;
 use App\Http\Controllers\Api\V1\ProjectController;
+use App\Http\Controllers\Api\V1\ProjectFileController;
 use App\Http\Controllers\Api\V1\SnapshotController;
+use App\Http\Controllers\Api\V1\TargetEnvironmentController;
 use App\Http\Controllers\Api\V1\UsageReportController;
 use Illuminate\Support\Facades\Route;
 
@@ -17,15 +20,32 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/projects', [ProjectController::class, 'index']);
+        Route::post('/projects', [ProjectController::class, 'store']);
         Route::get('/projects/{project}', [ProjectController::class, 'show']);
+        Route::post('/projects/{project}/import', [ProjectController::class, 'import'])
+            ->middleware('throttle:expensive');
+
+        Route::get('/projects/{project}/tree', [ProjectFileController::class, 'tree']);
+        Route::get('/projects/{project}/file', [ProjectFileController::class, 'show']);
+
         Route::get('/projects/{project}/health-report', [HealthReportController::class, 'show']);
         Route::get('/projects/{project}/health-report/history', [HealthReportController::class, 'history']);
         Route::get('/projects/{project}/graph', [GraphController::class, 'show']);
         Route::get('/projects/{project}/usage-report', [UsageReportController::class, 'show']);
         Route::get('/projects/{project}/errors', [ErrorController::class, 'index']);
+
+        Route::get('/projects/{project}/target-environments', [TargetEnvironmentController::class, 'index']);
+        Route::post('/projects/{project}/target-environments', [TargetEnvironmentController::class, 'store']);
+        Route::delete('/projects/{project}/target-environments/{targetEnvironment}', [TargetEnvironmentController::class, 'destroy']);
+        Route::post('/projects/{project}/target-environments/{targetEnvironment}/probe', [TargetEnvironmentController::class, 'probe']);
+
         Route::get('/jobs/{jobStatus}', [JobStatusController::class, 'show']);
 
         Route::post('/projects/{project}/snapshot', [SnapshotController::class, 'store'])
+            ->middleware('throttle:expensive');
+        Route::post('/projects/{project}/analyze', [AnalyzeController::class, 'store'])
+            ->middleware('throttle:expensive');
+        Route::post('/projects/{project}/rescan', [AnalyzeController::class, 'rescan'])
             ->middleware('throttle:expensive');
     });
 });

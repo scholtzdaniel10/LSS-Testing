@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Services\Diagnostics\AnalysisRunner;
+use App\Support\Sandbox\IgnoreRules;
+use App\Support\Sandbox\PathJail;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -14,7 +17,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(PathJail::class, fn () => PathJail::fromConfig());
+        $this->app->singleton(IgnoreRules::class, fn () => IgnoreRules::fromConfig());
+        $this->app->singleton(AnalysisRunner::class, fn () => AnalysisRunner::withDefaults());
     }
 
     /**
