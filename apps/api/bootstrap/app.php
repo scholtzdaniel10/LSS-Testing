@@ -13,7 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // API-only app: guests are never redirected to a login page — they get
+        // the 401 envelope from ApiExceptionRenderer regardless of Accept header.
+        $middleware->redirectGuestsTo(fn (): null => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         ApiExceptionRenderer::register($exceptions);

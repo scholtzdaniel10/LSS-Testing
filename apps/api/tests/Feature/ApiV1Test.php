@@ -16,6 +16,7 @@ describe('API envelope (contract C7)', function () {
     });
 
     it('returns RFC-7807-style errors for missing resources', function () {
+        asUser();
         $missingId = '00000000-0000-4000-8000-000000000000';
 
         $this->getJson("/api/v1/projects/{$missingId}")
@@ -35,6 +36,7 @@ describe('API envelope (contract C7)', function () {
 
     it('paginates list endpoints with meta.total', function () {
         $this->seed();
+        asUser();
 
         $this->getJson('/api/v1/projects?per_page=1')
             ->assertOk()
@@ -52,6 +54,7 @@ describe('API envelope (contract C7)', function () {
 describe('Projects API', function () {
     beforeEach(function () {
         $this->seed();
+        asUser();
     });
 
     it('lists seeded demo projects', function () {
@@ -74,6 +77,7 @@ describe('Projects API', function () {
 describe('Health report API', function () {
     beforeEach(function () {
         $this->seed();
+        asUser();
     });
 
     it('returns the latest C2 health snapshot', function () {

@@ -21,7 +21,9 @@ class HealthReportController extends Controller
             return $this->respond(null, ['message' => 'No health snapshot recorded yet.']);
         }
 
-        return $this->respond($snapshot->snapshot);
+        // HD-4: the dashboard must be able to show its work — the scoring
+        // formula travels with every report.
+        return $this->respond($snapshot->snapshot, ['formula' => config('health.formula')]);
     }
 
     public function history(Request $request, Project $project): JsonResponse

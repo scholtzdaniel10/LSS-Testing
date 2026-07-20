@@ -111,7 +111,7 @@ class ApiExceptionRenderer
             }
 
             if ($status < 500) {
-                return ApiResponse::failure([
+                $response = ApiResponse::failure([
                     ApiResponse::problem(
                         title: class_basename($exception),
                         detail: $exception->getMessage() !== '' ? $exception->getMessage() : 'Request could not be completed.',
@@ -119,6 +119,13 @@ class ApiExceptionRenderer
                         instance: $request->getPathInfo(),
                     ),
                 ], status: $status);
+
+                // Preserve HTTP-exception headers — 429 must keep Retry-After (C7).
+                if ($exception instanceof HttpExceptionInterface) {
+                    $response->withHeaders($exception->getHeaders());
+                }
+
+                return $response;
             }
 
             return null;

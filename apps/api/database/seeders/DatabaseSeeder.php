@@ -9,10 +9,11 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        User::factory()->create([
-            'name' => 'Daniel',
-            'email' => 'daniel@lss.local',
-        ]);
+        foreach (['Daniel' => 'daniel@lss.local', 'Jean' => 'jean@lss.local'] as $name => $email) {
+            if (! User::query()->where('email', $email)->exists()) {
+                User::factory()->create(['name' => $name, 'email' => $email]);
+            }
+        }
 
         $this->call(DemoProjectSeeder::class);
     }

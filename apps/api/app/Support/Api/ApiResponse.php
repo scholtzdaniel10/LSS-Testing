@@ -2,6 +2,7 @@
 
 namespace App\Support\Api;
 
+use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 
@@ -32,6 +33,21 @@ final class ApiResponse
             'page' => $paginator->currentPage(),
             'per_page' => $paginator->perPage(),
             'last_page' => $paginator->lastPage(),
+        ]));
+    }
+
+    /**
+     * Keyset pagination for big tables (vault note 11, rule 4) — errors lists
+     * must never use OFFSET. Cursors are opaque; clients follow nextCursor.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    public static function cursorPaginated(CursorPaginator $paginator, array $meta = []): JsonResponse
+    {
+        return self::success($paginator->items(), array_merge($meta, [
+            'per_page' => $paginator->perPage(),
+            'next_cursor' => $paginator->nextCursor()?->encode(),
+            'prev_cursor' => $paginator->previousCursor()?->encode(),
         ]));
     }
 
