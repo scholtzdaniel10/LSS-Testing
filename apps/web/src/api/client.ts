@@ -262,4 +262,11 @@ export async function pollJob(
   timeoutMs = 120_000,
 ): Promise<JobStatus> {
   const start = Date.now();
-  while (Date.now() - 
+  while (Date.now() - start < timeoutMs) {
+    const { data } = await api.job(jobId);
+    onUpdate?.(data);
+    if (data.status === 'done' || data.status === 'failed') return data;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  throw new ApiError('Job timed out', 408);
+}

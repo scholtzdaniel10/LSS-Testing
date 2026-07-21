@@ -214,4 +214,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <ProjectContext.Provider value={value}>{children}</ProjectCon
+  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
+}
+
+export function useProject(): ProjectContextValue {
+  const ctx = useContext(ProjectContext);
+  if (!ctx) throw new Error('useProject requires ProjectProvider');
+  return ctx;
+}

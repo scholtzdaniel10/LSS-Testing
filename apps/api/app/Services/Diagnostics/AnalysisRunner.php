@@ -69,4 +69,29 @@ final class AnalysisRunner
                     'scan_id' => $scan->id,
                     'source' => $finding['source'],
                     'rule_id' => $finding['ruleId'],
-                    'kind' => $findin
+                    'kind' => $finding['kind'],
+                    'severity' => $finding['severity'],
+                    'file' => $finding['file'],
+                    'range' => $finding['range'],
+                    'message' => $finding['message'],
+                    'explanation' => $finding['explanation'],
+                    'upstream' => $finding['upstream'],
+                    'downstream' => $finding['downstream'],
+                ]);
+                $accepted++;
+            }
+        }
+
+        $scan->update([
+            'status' => 'done',
+            'analyser_status' => $analyserStatus,
+        ]);
+
+        return [
+            'scan' => $scan->fresh(),
+            'accepted' => $accepted,
+            'rejected' => $rejected,
+            'analysers' => $analyserStatus,
+        ];
+    }
+}

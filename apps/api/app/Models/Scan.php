@@ -31,4 +31,11 @@ class Scan extends Model
 
     public function project(): BelongsTo
     {
-        return 
+        return $this->belongsTo(Project::class);
+    }
+
+    public function errors(): HasMany
+    {
+        return $this->hasMany(DiagnosticError::class);
+    }
+}
