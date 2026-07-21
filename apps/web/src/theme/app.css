@@ -787,4 +787,36 @@ body {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--ink-4);
-  border: 1px dashed var(
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+}
+
+.skeleton-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--sp-3) 0;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface-wash), var(--surface-raised), var(--surface-wash));
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.panel--error {
+  border-color: var(--status-critical);
+}
+
+.import-drop {
+  border-style: dashed;
+  margin-bottom: var(--sp-4);
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}

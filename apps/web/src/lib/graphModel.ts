@@ -35,6 +35,9 @@ export type ForceGraphNode = {
   /** Files rolled up under a folder node; 1 for file/external nodes. */
   fileCount: number;
   color: string;
+  /** d3-force positions (set at runtime). */
+  x?: number;
+  y?: number;
 };
 
 export type ForceGraphLink = {
@@ -280,4 +283,148 @@ export function mergeErrorMaps(
     result.set(path, (result.get(path) ?? 0) + count);
   }
   return result;
+}
+
+// ── Collapsible file-tree model ─────────────────────────────────────────────────
+
+export type TreeNodeKind = 'folder' | 'file';
+
+export type TreeNode = {
+  /** Slash-separated path (folders: without trailing slash). */
+  path: string;
+  name: string;
+  kind: TreeNodeKind;
+  depth: number;
+  /** Folder-series key from folderOf(). */
+  folder: string;
+  /** Aggregate error count (files: direct; folders: sum of children under them). */
+  errors: number;
+  /** Direct link-edge count for file nodes; 0 for folders. */
+  links: number;
+  /** Number of direct child nodes (folders only). */
+  childCount: number;
+};
+
+/**
+ * Build a sorted, hierarchical tree from a flat list of file paths.
+ *
+ * Rules:
+ *  - Intermediate folder nodes are synthesized from path segments.
+ *  - Children within each folder are sorted folders-first, then alphabetically.
+ *  - `expandedFolders` controls which folders expose their children.
+ *    By default top-level folders are expanded; everything else is collapsed.
+ *  - Only visible nodes (ancestors expanded) are emitted so the caller can
+ *    render them directly as a flat list with indented rows.
+ */
+export function buildFileTree(
+  paths: string[],
+  expandedFolders: Set<string>,
+  linkCount: Map<string, number>,
+  errorCount: Map<string, number>,
+): TreeNode[] {
+  // 1. Collect all unique folder paths and file paths.
+  const allFolders = new Set<string>();
+  for (const p of paths) {
+    const parts = p.split('/');
+    // Walk all ancestor directories.
+    for (let i = 1; i < parts.length; i++) {
+      allFolders.add(parts.slice(0, i).join('/'));
+    }
+  }
+
+  // 2. Build a children map: parent -> sorted children.
+  const children = new Map<string | null, string[]>();
+  const addChild = (parent: string | null, child: string) => {
+    let arr = children.get(parent);
+    if (!arr) {
+      arr = [];
+      children.set(parent, arr);
+    }
+    if (!arr.includes(child)) arr.push(child);
+  };
+
+  for (const folder of allFolders) {
+    const parts = folder.split('/');
+    const parent = parts.length === 1 ? null : parts.slice(0, -1).join('/');
+    addChild(parent, folder);
+  }
+  for (const p of paths) {
+    const parts = p.split('/');
+    const parent = parts.length === 1 ? null : parts.slice(0, -1).join('/');
+    addChild(parent, p);
+  }
+
+  // Sort each children list: folders first, then alphabetical within each kind.
+  const sortChildren = (list: string[]) => {
+    list.sort((a, b) => {
+      const aIsFolder = allFolders.has(a);
+      const bIsFolder = allFolders.has(b);
+      if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+      return a.localeCompare(b);
+    });
+  };
+  for (const list of children.values()) {
+    sortChildren(list);
+  }
+
+  // 3. Pre-compute aggregate error counts for folders.
+  const folderErrors = new Map<string, number>();
+  // Process in reverse depth order (deepest first) for correct aggregation.
+  const sortedFolders = [...allFolders].sort((a, b) => b.split('/').length - a.split('/').length);
+  for (const folder of sortedFolders) {
+    let total = 0;
+    for (const child of children.get(folder) ?? []) {
+      if (allFolders.has(child)) {
+        total += folderErrors.get(child) ?? 0;
+      } else {
+        total += errorCount.get(child) ?? 0;
+      }
+    }
+    folderErrors.set(folder, total);
+  }
+
+  // 4. Walk in DFS order, only emitting visible nodes.
+  const result: TreeNode[] = [];
+
+  const visit = (path: string | null, depth: number) => {
+    const list = children.get(path) ?? [];
+    for (const child of list) {
+      const isFolder = allFolders.has(child);
+      const name = child.split('/').pop() ?? child;
+      const folderKey = folderOf(child);
+
+      const node: TreeNode = {
+        path: child,
+        name,
+        kind: isFolder ? 'folder' : 'file',
+        depth,
+        folder: folderKey,
+        errors: isFolder ? (folderErrors.get(child) ?? 0) : (errorCount.get(child) ?? 0),
+        links: isFolder ? 0 : (linkCount.get(child) ?? 0),
+        childCount: children.get(child)?.length ?? 0,
+      };
+      result.push(node);
+
+      if (isFolder && expandedFolders.has(child)) {
+        visit(child, depth + 1);
+      }
+    }
+  };
+
+  visit(null, 0);
+  return result;
+}
+
+/**
+ * Default expanded set: only top-level folders are expanded.
+ */
+export function defaultExpandedFolders(paths: string[]): Set<string> {
+  const topLevel = new Set<string>();
+  for (const p of paths) {
+    const top = p.split('/')[0];
+    if (top && p.includes('/')) {
+      topLevel.add(top);
+    }
+  }
+  return topLevel;
 }

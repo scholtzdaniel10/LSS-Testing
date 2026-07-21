@@ -199,4 +199,114 @@ const ExplorePage: React.FC = () => {
                       key={node.path}
                       ref={isFocused ? focusRowRef : undefined}
                       className={`tree__row${isSelected ? ' tree__row--selected' : ''}`}
-   
+                      style={{ paddingLeft: 6 + node.depth * 14 }}
+                      role={node.kind === 'folder' ? 'treeitem' : 'treeitem'}
+                      aria-expanded={node.kind === 'folder' ? isExpanded : undefined}
+                      tabIndex={0}
+                      onClick={() => {
+                        if (node.kind === 'folder') {
+                          toggleFolder(node.path);
+                        } else {
+                          openFile(node.path);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          if (node.kind === 'folder') {
+                            toggleFolder(node.path);
+                          } else {
+                            openFile(node.path);
+                          }
+                        }
+                      }}
+                    >
+                      {node.kind === 'folder' ? (
+                        <span
+                          className="tree__chevron"
+                          aria-hidden="true"
+                        >
+                          {isExpanded ? '▾' : '▸'}
+                        </span>
+                      ) : (
+                        <span
+                          className="tree__dot"
+                          style={{ background: SERIES[node.folder] ?? SERIES.other }}
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span title={node.path} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {node.name}{node.kind === 'folder' ? '/' : ''}
+                      </span>
+                      {/* Only show badges when non-zero (declutter) */}
+                      {node.errors > 0 && (
+                        <span className="tree__badge tree__badge--err" aria-label={`${node.errors} error${node.errors !== 1 ? 's' : ''}`}>
+                          {node.errors} err
+                        </span>
+                      )}
+                      {node.kind === 'file' && node.links > 0 && (
+                        <span className="tree__badge">
+                          {node.links} links
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel__head">
+                <h2 className="panel__title">Dependency graph</h2>
+                <span className="panel__hint">folder view · drill down on click</span>
+              </div>
+              {graphEdges.length === 0 && allFilePaths.length === 0 ? (
+                <p className="page__subtitle">No graph yet — import a program or switch project in the header.</p>
+              ) : (
+                <DependencyGraph
+                  edges={graphEdges}
+                  errorFiles={errorFiles}
+                  files={allFilePaths}
+                  selected={selected}
+                  onSelect={setSelected}
+                  onOpenFile={(path) => openFile(path)}
+                  focusPath={focusPath}
+                />
+              )}
+              {ideHint && (
+                <p role="status" className="field__hint" style={{ marginTop: 8 }}>
+                  {ideHint}
+                </p>
+              )}
+              {selected && (
+                <p className="mono" style={{ marginTop: 8, fontSize: 'var(--text-sm)' }}>
+                  Selected: {selected}
+                </p>
+              )}
+              {linkedError && (
+                <div
+                  className="panel"
+                  style={{ marginTop: 8, borderLeft: '3px solid var(--status-critical)', padding: 'var(--sp-3)' }}
+                  role="status"
+                  aria-label="Linked diagnostic finding"
+                >
+                  <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--status-critical)', fontWeight: 600 }}>
+                    {linkedError.kind} · {linkedError.ruleId}
+                  </p>
+                  <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-sm)', color: 'var(--ink-2)' }}>
+                    {linkedError.explanation ?? linkedError.message}
+                  </p>
+                  <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-xs)', color: 'var(--ink-3)' }}>
+                    {linkedError.file}:{linkedError.range.startLine}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </ScreenState>
+      </div>
+    </div>
+  );
+};
+
+export default ExplorePage;
