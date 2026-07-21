@@ -1,5 +1,5 @@
 /**
- * Browser orchestration — BFS crawler using Playwright/Chromium.
+ * Browser orchestration -- BFS crawler using Playwright/Chromium.
  * Navigate-only: never clicks, fills forms, or submits.
  */
 
@@ -42,7 +42,7 @@ export async function crawl(
   const queue: QueueItem[] = [];
 
   const startNorm = normalizeUrl(opts.baseUrl, opts.baseUrl);
-  if (!startNorm) throw new Error(`Invalid baseUrl: ${opts.baseUrl}`);
+  if (!startNorm) throw new Error('Invalid baseUrl: ' + opts.baseUrl);
   queue.push({ url: startNorm, depth: 0 });
   visited.add(startNorm);
 
@@ -82,7 +82,11 @@ export async function crawl(
     // Process in BFS waves, up to concurrency parallel contexts
     while (queue.length > 0 && results.length < opts.maxPages) {
       const batch: QueueItem[] = [];
-      while (queue.length > 0 && batch.length < opts.concurrency && results.length + batch.length < opts.maxPages) {
+      while (
+        queue.length > 0 &&
+        batch.length < opts.concurrency &&
+        results.length + batch.length < opts.maxPages
+      ) {
         batch.push(queue.shift()!);
       }
 
