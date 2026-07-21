@@ -49,4 +49,8 @@ const TopNav: React.FC = () => {
       </div>
       <span className="topnav__spacer" />
       <span className="topnav__tag">live API</span>
-    <
+    </nav>
+  );
+};
+
+export default TopNav;

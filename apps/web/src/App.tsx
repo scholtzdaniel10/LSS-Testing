@@ -42,4 +42,11 @@ const App: React.FC = () => (
             <Route exact path="/">
               <Redirect to="/health" />
             </Route>
-     
+          </Switch>
+        </div>
+      </IonReactRouter>
+    </ProjectProvider>
+  </IonApp>
+);
+
+export default App;
