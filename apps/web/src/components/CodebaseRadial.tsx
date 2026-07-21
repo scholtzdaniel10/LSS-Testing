@@ -23,12 +23,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RadialComponent, RadialEdge, RadialNode } from '../lib/radialModel';
 import {
   buildRadialLayout,
+  buildFolderLayout,
+  buildDrillComponent,
+  classifyEdges,
   collectLeaves,
   computeFocusNeighbourhood,
   componentRadius,
+  folderKeyOf,
   shouldShowLabel,
 } from '../lib/radialModel';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
+
+// -- SERIES palette (matches ExplorePage.tsx tree view) -----------------------
+const SERIES: Record<string, string> = {
+  app: 'var(--series-1)',
+  application: 'var(--series-1)',
+  routes: 'var(--series-2)',
+  resources: 'var(--series-3)',
+  database: 'var(--series-4)',
+  src: 'var(--series-1)',
+  system: 'var(--series-2)',
+  other: 'var(--series-other)',
+};
+
+function folderColor(path: string): string {
+  return SERIES[folderKeyOf(path)] ?? SERIES.other;
+}
 
 // -- Token refs ----------------------------------------------------------------
 const COLOR_EDGE_HEALTHY = 'var(--ink-4)';
@@ -117,6 +137,8 @@ type ComponentCircleProps = {
   onFileHover: (path: string | null) => void;
   onFocusUrl: (path: string) => void;
   errorFiles: ReadonlySet<string>;
+  /** When true, colour nodes by top-level folder (SERIES palette). */
+  useFolderColors: boolean;
 };
 
 function ComponentCircle({
@@ -130,6 +152,7 @@ function ComponentCircle({
   onFileHover,
   onFocusUrl,
   errorFiles,
+  useFolderColors,
 }: ComponentCircleProps) {
   const positions = useMemo(
     () => layoutLeaves(component.root, radius, cx, cy),
@@ -197,6 +220,7 @@ function ComponentCircle({
     }
     if (!isVisible(path)) return COLOR_NODE_FADED;
     if (errorFiles.has(path)) return COLOR_NODE_ERROR;
+    if (useFolderColors) return folderColor(path);
     return COLOR_NODE_DEFAULT;
   };
 
@@ -284,11 +308,17 @@ function ComponentCircle({
               cy={pos.y}
               r={isFocused ? 5 : hasError ? 4 : 3}
               fill={color}
-              stroke={isFocused ? 'var(--surface-page)' : 'none'}
-              strokeWidth={isFocused ? 1.5 : 0}
+              stroke={
+                isFocused
+                  ? 'var(--surface-page)'
+                  : hasError && useFolderColors
+                  ? COLOR_NODE_ERROR
+                  : 'none'
+              }
+              strokeWidth={isFocused ? 1.5 : hasError && useFolderColors ? 1.5 : 0}
               pointerEvents="none"
             />
-            {/* Invisible hit target — larger than the visual dot */}
+            {/* Invisible hit target -- larger than the visual dot */}
             <circle
               cx={pos.x}
               cy={pos.y}
@@ -426,6 +456,29 @@ export type CodebaseRadialProps = {
   onFocusTree: (path: string) => void;
 };
 
+// -- localStorage helpers -----------------------------------------------------
+
+type GroupingMode = 'component' | 'folder';
+
+function readLS<T>(key: string, fallback: T, parse: (v: string) => T | undefined): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    return parse(raw) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLS(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* ignore */ }
+}
+
+const LS_GROUPING = 'lss.radial.grouping';
+const LS_DRILL    = 'lss.radial.drill';
+
+// -- Main exported component --------------------------------------------------
+
 const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   edges,
   findings,
@@ -435,6 +488,32 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
 }) => {
   const [focusFile, setFocusFile] = useState<string | null>(focusParam ?? null);
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
+
+  // IG-27: grouping mode (component | folder) -- persisted to localStorage
+  const [groupingMode, setGroupingMode] = useState<GroupingMode>(() =>
+    readLS(LS_GROUPING, 'component' as GroupingMode, (v) =>
+      v === 'component' || v === 'folder' ? v : undefined,
+    ),
+  );
+
+  // IG-27: drill mode -- persisted to localStorage
+  const [drillMode, setDrillMode] = useState<boolean>(() =>
+    readLS(LS_DRILL, false, (v) => (v === 'true' ? true : v === 'false' ? false : undefined)),
+  );
+
+  // IG-27: drill breadcrumb chain -- list of file paths drilled into (empty = full map)
+  const [drillChain, setDrillChain] = useState<string[]>([]);
+
+  const setGrouping = useCallback((mode: GroupingMode) => {
+    setGroupingMode(mode);
+    writeLS(LS_GROUPING, mode);
+  }, []);
+
+  const setDrill = useCallback((on: boolean) => {
+    setDrillMode(on);
+    writeLS(LS_DRILL, String(on));
+    if (!on) setDrillChain([]);
+  }, []);
 
   // Zoom/pan state: transform a root <g> inside the fixed SVG.
   const [zoom, setZoom] = useState(1);
@@ -522,10 +601,34 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
 
   const allFilePaths = useMemo(() => files.map((f) => f.path), [files]);
 
-  const layout = useMemo(
-    () => buildRadialLayout(allFilePaths, edges, errorFiles),
-    [allFilePaths, edges, errorFiles],
+  // Full classified edge set -- used for drill neighbourhood computation.
+  const allClassifiedEdges = useMemo(() => {
+    const isExternal = (p: string) => p.startsWith('pkg:') || p.startsWith('php:');
+    const allFileSet = new Set(allFilePaths);
+    const internal = edges
+      .filter((e) => !isExternal(e.from) && !isExternal(e.to))
+      .filter((e) => allFileSet.has(e.from) && allFileSet.has(e.to));
+    return classifyEdges(internal, errorFiles);
+  }, [edges, allFilePaths, errorFiles]);
+
+  const baseLayout = useMemo(
+    () =>
+      groupingMode === 'folder'
+        ? buildFolderLayout(allFilePaths, edges, errorFiles)
+        : buildRadialLayout(allFilePaths, edges, errorFiles),
+    [allFilePaths, edges, errorFiles, groupingMode],
   );
+
+  // When drill mode is active and a drill chain exists, render only the drill circle.
+  const drillFile = drillMode && drillChain.length > 0 ? drillChain[drillChain.length - 1] : null;
+  const drillComponent = useMemo(
+    () => (drillFile ? buildDrillComponent(drillFile, allClassifiedEdges) : null),
+    [drillFile, allClassifiedEdges],
+  );
+
+  const layout = drillComponent
+    ? { components: [drillComponent], unlinked: { files: [] } }
+    : baseLayout;
 
   const SVG_WIDTH = 1400;
   const { placements, totalHeight } = useMemo(
@@ -535,8 +638,14 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const svgHeight = Math.max(totalHeight, 80);
 
   const handleFileClick = useCallback((path: string) => {
-    setFocusFile((prev) => (prev === path ? null : path));
-  }, []);
+    if (drillMode) {
+      // In drill mode, clicking drills into that node's neighbourhood.
+      setDrillChain((prev) => [...prev, path]);
+      setFocusFile(null);
+    } else {
+      setFocusFile((prev) => (prev === path ? null : path));
+    }
+  }, [drillMode]);
 
   const handleHover = useCallback((path: string | null) => {
     setHoveredFile(path);
@@ -552,6 +661,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const clearFocus = useCallback(() => {
     setFocusFile(null);
     setHoveredFile(null);
+    setDrillChain([]);
   }, []);
 
   const brokenCount = useMemo(() => {
@@ -619,8 +729,67 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
           )}
         </span>
 
+        {/* Grouping toggle (IG-27) */}
+        <div
+          role="group"
+          aria-label="Grouping mode"
+          style={{ display: 'flex', gap: '2px', background: 'var(--surface-raised)', borderRadius: 'var(--radius-sm)', padding: '2px' }}
+        >
+          <button
+            type="button"
+            aria-pressed={groupingMode === 'component'}
+            onClick={() => setGrouping('component')}
+            style={{
+              fontSize: 'var(--text-xs)',
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              cursor: 'pointer',
+              background: groupingMode === 'component' ? 'var(--surface-wash)' : 'none',
+              color: groupingMode === 'component' ? 'var(--ink-1)' : 'var(--ink-3)',
+            }}
+          >
+            By component
+          </button>
+          <button
+            type="button"
+            aria-pressed={groupingMode === 'folder'}
+            onClick={() => setGrouping('folder')}
+            style={{
+              fontSize: 'var(--text-xs)',
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              cursor: 'pointer',
+              background: groupingMode === 'folder' ? 'var(--surface-wash)' : 'none',
+              color: groupingMode === 'folder' ? 'var(--ink-1)' : 'var(--ink-3)',
+            }}
+          >
+            By folder
+          </button>
+        </div>
+
+        {/* Drill mode toggle (IG-27) */}
+        <button
+          type="button"
+          aria-pressed={drillMode}
+          onClick={() => setDrill(!drillMode)}
+          style={{
+            fontSize: 'var(--text-xs)',
+            padding: '2px 8px',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--line-2)',
+            cursor: 'pointer',
+            background: drillMode ? 'var(--surface-wash)' : 'none',
+            color: drillMode ? 'var(--ink-1)' : 'var(--ink-3)',
+          }}
+          title="When on, clicking a node re-draws the view centred on that node neighbourhood"
+        >
+          Drill {drillMode ? 'on' : 'off'}
+        </button>
+
         <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
-          {focusFile && (
+          {(focusFile || drillChain.length > 0) && (
             <button
               type="button"
               className="btn"
@@ -647,6 +816,55 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
           <LegendItem color="var(--status-critical)" label="error file" />
         </div>
       </div>
+
+      {/* Drill breadcrumb trail (IG-27) */}
+      {drillMode && drillChain.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            flexWrap: 'wrap',
+            fontSize: 'var(--text-xs)',
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--ink-3)',
+          }}
+          aria-label="Drill breadcrumb trail"
+        >
+          <button
+            type="button"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)', padding: 0, textDecoration: 'underline dotted', fontSize: 'inherit', fontFamily: 'inherit' }}
+            onClick={() => setDrillChain([])}
+          >
+            All
+          </button>
+          {drillChain.map((crumb, i) => {
+            const isLast = i === drillChain.length - 1;
+            return (
+              <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ color: 'var(--ink-4)' }}>&rsaquo;</span>
+                <button
+                  type="button"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: isLast ? 'default' : 'pointer',
+                    color: isLast ? 'var(--neon-cyan)' : 'var(--ink-3)',
+                    padding: 0,
+                    textDecoration: isLast ? 'none' : 'underline dotted',
+                    fontSize: 'inherit',
+                    fontFamily: 'inherit',
+                  }}
+                  onClick={() => { if (!isLast) setDrillChain(drillChain.slice(0, i + 1)); }}
+                  aria-current={isLast ? 'step' : undefined}
+                >
+                  {crumb.split('/').pop() ?? crumb}
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* Unlinked files -- collapsible, never rendered in SVG */}
       {layout.unlinked.files.length > 0 && unlinkedOpen && (
@@ -786,6 +1004,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
                     onFileHover={handleHover}
                     onFocusUrl={handleFocusUrl}
                     errorFiles={errorFiles}
+                    useFolderColors={groupingMode === 'folder' || drillMode}
                   />
                 );
               })}

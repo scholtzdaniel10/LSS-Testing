@@ -6,6 +6,8 @@
  *  - Per-component hierarchy from file paths
  *  - Edge-health classification (red if either endpoint has error-severity finding)
  *  - Focus-neighbourhood computation (both directions)
+ *  - Folder-grouping layout (IG-27): one circle per top-level folder
+ *  - Drill neighbourhood computation (IG-27): node + direct connections
  */
 
 import type { GraphEdge } from '../api/client';
@@ -363,4 +365,123 @@ export function shouldShowLabel(
   if (path === focusFile) return true;
   if (activeNeighbours.has(path)) return true;
   return false;
+}
+
+// ── Folder key derivation (IG-27) ────────────────────────────────────────────
+
+/**
+ * Map a file path to its top-level folder key.
+ * Matches the same logic as folderOf() in graphModel.ts and the SERIES palette
+ * in ExplorePage.tsx so the two views use consistent bucket names.
+ */
+export function folderKeyOf(path: string): string {
+  const top = path.split('/')[0] ?? 'other';
+  if (['app', 'application', 'routes', 'resources', 'database', 'src', 'system'].includes(top)) {
+    return top;
+  }
+  return 'other';
+}
+
+// ── Folder-grouping layout (IG-27) ───────────────────────────────────────────
+
+/**
+ * Build a RadialLayout where each circle = one top-level folder (instead of
+ * one connected component). Only linked files go into folder circles; unlinked
+ * files remain in the unlinked group as before.
+ *
+ * Inter-folder edges are included in the RadialComponent of whichever folder
+ * owns the "from" file; the renderer draws cross-circle edges naturally.
+ */
+export function buildFolderLayout(
+  allFiles: string[],
+  edges: GraphEdge[],
+  errorFiles: ReadonlySet<string>,
+): RadialLayout {
+  if (allFiles.length === 0) {
+    return { components: [], unlinked: { files: [] } };
+  }
+
+  // 1. Filter to internal edges only.
+  const isExternal = (p: string) => p.startsWith('pkg:') || p.startsWith('php:');
+  const allFileSet = new Set(allFiles);
+  const internalEdges = edges
+    .filter((e) => !isExternal(e.from) && !isExternal(e.to))
+    .filter((e) => allFileSet.has(e.from) && allFileSet.has(e.to));
+
+  // 2. Identify linked files.
+  const linkedFiles = new Set<string>();
+  for (const e of internalEdges) {
+    linkedFiles.add(e.from);
+    linkedFiles.add(e.to);
+  }
+
+  const unlinkedFiles = allFiles.filter((f) => !linkedFiles.has(f));
+
+  // 3. Classify all edges.
+  const classifiedEdges = classifyEdges(internalEdges, errorFiles);
+
+  // 4. Group linked files by top-level folder key.
+  const folderMap = new Map<string, string[]>();
+  for (const f of linkedFiles) {
+    const key = folderKeyOf(f);
+    const arr = folderMap.get(key) ?? [];
+    arr.push(f);
+    folderMap.set(key, arr);
+  }
+
+  // 5. Build one RadialComponent per folder, sorted largest-first.
+  // Include all edges that touch any file in this folder (cross-folder edges
+  // will appear in both affected folder components).
+  let idx = 0;
+  const components: RadialComponent[] = [...folderMap.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+    .map(([, files]) => {
+      const folderSet = new Set(files);
+      const folderEdges = classifiedEdges.filter(
+        (e) => folderSet.has(e.from) || folderSet.has(e.to),
+      );
+      return {
+        index: idx++,
+        files: files.sort((a, b) => a.localeCompare(b)),
+        root: buildHierarchy(files),
+        edges: folderEdges,
+      };
+    });
+
+  return {
+    components,
+    unlinked: { files: unlinkedFiles.sort((a, b) => a.localeCompare(b)) },
+  };
+}
+
+// ── Drill neighbourhood (IG-27) ──────────────────────────────────────────────
+
+/**
+ * Compute the drill neighbourhood of `focusFile`: the file itself plus all
+ * files directly connected to it (in either direction) across the FULL edge
+ * set. Returns a synthetic RadialComponent suitable for rendering as a single
+ * circle.
+ *
+ * @param focusFile  The file being drilled into.
+ * @param allEdges   Full classified edge set (from classifyEdges).
+ */
+export function buildDrillComponent(
+  focusFile: string,
+  allEdges: RadialEdge[],
+): RadialComponent {
+  const nb = computeFocusNeighbourhood(focusFile, allEdges);
+  const files = [focusFile, ...nb.neighbours].sort((a, b) => a.localeCompare(b));
+
+  // Only edges where both endpoints are in the drill circle.
+  const drillSet = new Set(files);
+  const drillEdges = allEdges.filter(
+    (e) => drillSet.has(e.from) && drillSet.has(e.to),
+  );
+
+  return {
+    index: 0,
+    files,
+    root: buildHierarchy(files),
+    edges: drillEdges,
+  };
 }
