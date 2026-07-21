@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphView, collapseFolder } from './graphModel';
+import { buildGraphView, collapseFolder, expansionChainForFile, mergeErrorMaps } from './graphModel';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -62,6 +62,4 @@ describe('collapseFolder', () => {
   it('also collapses folders expanded beneath the collapsed one', () => {
     const expanded = new Set(['application', 'application/controllers', 'system']);
     const next = collapseFolder(expanded, 'application');
-    expect([...next]).toEqual(['system']);
-  });
-});
+    expect([..

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
 import ImportDropzone from '../components/ImportDropzone';
 import DependencyGraph from '../components/DependencyGraph';
@@ -20,9 +21,26 @@ const SERIES: Record<string, string> = {
 
 const ExplorePage: React.FC = () => {
   const ref = useEntrance();
+  const location = useLocation();
   const { tree, graphEdges, errors, localManifest, status, errorMessage, usage, project } = useProject();
   const [selected, setSelected] = useState<string | null>(null);
   const [ideHint, setIdeHint] = useState<string | null>(null);
+
+  // Deep-link params: /explore?focus=<path>&errorId=<id>
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const focusPath = params.get('focus');
+  const linkedErrorId = params.get('errorId');
+
+  // When arriving via deep-link, pre-select the focused file.
+  useEffect(() => {
+    if (focusPath) setSelected(focusPath);
+  }, [focusPath]);
+
+  // Find the linked error (for the detail panel annotation).
+  const linkedError = useMemo(
+    () => (linkedErrorId ? errors.find((e) => e.id === linkedErrorId) ?? null : null),
+    [linkedErrorId, errors],
+  );
 
   const openFile = (path: string, line = 1) => {
     setSelected(path);
@@ -113,7 +131,7 @@ const ExplorePage: React.FC = () => {
         <ScreenState
           status={status === 'ready' && treeRows.length === 0 && !localManifest ? 'empty' : status === 'error' ? 'error' : treeRows.length || localManifest ? 'ready' : status}
           errorMessage={errorMessage}
-          emptyHint="No files yet — drop a folder above, or seed lexpro-portal on the API."
+          emptyHint="No files yet — drop a folder above, or link a project in Settings."
         >
           <div className="split" data-animate>
             <div className="panel">
@@ -156,28 +174,4 @@ const ExplorePage: React.FC = () => {
                 <DependencyGraph
                   edges={graphEdges}
                   errorFiles={errorFiles}
-                  files={allFilePaths}
-                  selected={selected}
-                  onSelect={setSelected}
-                  onOpenFile={(path) => openFile(path)}
-                />
-              )}
-              {ideHint && (
-                <p role="status" className="field__hint" style={{ marginTop: 8 }}>
-                  {ideHint}
-                </p>
-              )}
-              {selected && (
-                <p className="mono" style={{ marginTop: 8, fontSize: 'var(--text-sm)' }}>
-                  Selected: {selected}
-                </p>
-              )}
-            </div>
-          </div>
-        </ScreenState>
-      </div>
-    </div>
-  );
-};
-
-export default ExplorePage;
+                  files

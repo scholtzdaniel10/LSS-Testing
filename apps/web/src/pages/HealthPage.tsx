@@ -167,25 +167,19 @@ const HealthPage: React.FC = () => {
                   </div>
                   <div className="row-list">
                     {health.metrics.hotspots.map((h) => (
-                      <div key={h.file} className="row-list__row">
+                      <div
+                        key={h.file}
+                        className="row-list__row"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() =>
+                          history.push(`/explore?focus=${encodeURIComponent(h.file)}`)
+                        }
+                        onKeyDown={(e) =>
+                          e.key === 'Enter' &&
+                          history.push(`/explore?focus=${encodeURIComponent(h.file)}`)
+                        }
+                      >
                         <span className="row-list__grow mono">{h.file}</span>
                         <span className="row-list__meta">
-                          c={h.centrality} · e={h.errorDensity}
-                        </span>
-                      </div>
-                    ))}
-                    {health.metrics.hotspots.length === 0 && (
-                      <p className="page__subtitle">No hotspots above threshold.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </ScreenState>
-      </div>
-    </div>
-  );
-};
-
-export default HealthPage;
+         

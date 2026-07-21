@@ -430,6 +430,28 @@ body {
   flex-shrink: 0;
 }
 
+/* Inline file-path link inside a row-list__meta — resets button styles */
+.row-list__link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--series-1);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.row-list__link:hover {
+  color: var(--ink-2);
+}
+
+.row-list__link:focus-visible {
+  outline: 2px solid var(--line-3);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 /* ---------- Two-column layouts ---------- */
 .split {
   display: grid;
@@ -765,22 +787,4 @@ body {
 
 .skeleton-line {
   height: 12px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, var(--surface-wash), var(--surface-raised), var(--surface-wash));
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.2s ease-in-out infinite;
-}
-
-.panel--error {
-  border-color: var(--status-critical);
-}
-
-.import-drop {
-  border-style: dashed;
-  margin-bottom: var(--sp-4);
-}
-
-@keyframes skeleton-shimmer {
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
-}
+  bor

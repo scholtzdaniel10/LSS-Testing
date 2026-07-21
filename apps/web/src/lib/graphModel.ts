@@ -247,3 +247,37 @@ export function collapseFolder(expanded: Set<string>, folderPath: string): Set<s
   }
   return next;
 }
+
+/**
+ * Returns the set of folder paths that must be expanded so that `filePath` is
+ * visible as its own file node in the graph.
+ *
+ * Example: "application/controllers/Foo.php"
+ *   -> Set { "application", "application/controllers" }
+ */
+export function expansionChainForFile(filePath: string): Set<string> {
+  const parts = filePath.split('/');
+  const chain = new Set<string>();
+  let acc = '';
+  // Walk every directory segment except the filename (last part).
+  for (let i = 0; i < parts.length - 1; i++) {
+    acc = i === 0 ? parts[i] : `${acc}/${parts[i]}`;
+    chain.add(acc);
+  }
+  return chain;
+}
+
+/**
+ * Merge a per-file error count map (path -> count) into an existing
+ * `errorFiles` map, returning a new map (does not mutate either input).
+ */
+export function mergeErrorMaps(
+  base: Map<string, number>,
+  overlay: Map<string, number>,
+): Map<string, number> {
+  const result = new Map(base);
+  for (const [path, count] of overlay) {
+    result.set(path, (result.get(path) ?? 0) + count);
+  }
+  return result;
+}

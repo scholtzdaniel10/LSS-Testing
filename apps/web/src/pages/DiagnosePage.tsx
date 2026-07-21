@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useHistory } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
 import { SeverityPill } from '../components/StatusPill';
 import ScreenState from '../components/ScreenState';
@@ -8,6 +9,7 @@ import { loadEditorSettings, openInIde } from '../types';
 import type { DiagnosticFinding } from '../api/client';
 
 const DiagnosePage: React.FC = () => {
+  const history = useHistory();
   const ref = useEntrance();
   const { project, errors, analysers, status, errorMessage } = useProject();
   const [active, setActive] = useState<DiagnosticFinding | null>(null);
@@ -114,7 +116,20 @@ const DiagnosePage: React.FC = () => {
                     <div className="row-list__grow">
                       <div>{c.message}</div>
                       <div className="row-list__meta" style={{ marginTop: 2 }}>
-                        {c.file}:{c.range.startLine} · {c.kind} · {c.ruleId} · {c.source}
+                        <button
+                          type="button"
+                          className="row-list__link"
+                          aria-label={`Show ${c.file} in graph explorer`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            history.push(
+                              `/explore?focus=${encodeURIComponent(c.file)}&errorId=${encodeURIComponent(c.id)}`,
+                            );
+                          }}
+                        >
+                          {c.file}:{c.range.startLine}
+                        </button>
+                        {' · '}{c.kind} · {c.ruleId} · {c.source}
                       </div>
                     </div>
                   </div>
@@ -129,66 +144,30 @@ const DiagnosePage: React.FC = () => {
                     <h2 className="panel__title mono" style={{ textTransform: 'none', letterSpacing: 0 }}>
                       {active.file}
                     </h2>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => openInIde(loadEditorSettings(), active.file, active.range.startLine)}
-                    >
-                      Open in IDE
-                    </button>
+                    <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+                      <button
+                        type="button"
+                        className="btn"
+                        aria-label="Show this file in the graph explorer"
+                        onClick={() =>
+                          history.push(
+                            `/explore?focus=${encodeURIComponent(active.file)}&errorId=${encodeURIComponent(active.id)}`,
+                          )
+                        }
+                      >
+                        Show in graph
+                      </button>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => openInIde(loadEditorSettings(), active.file, active.range.startLine)}
+                      >
+                        Open in IDE
+                      </button>
+                    </div>
                   </div>
                   <p className="page__subtitle" style={{ margin: '0 0 var(--sp-3)' }}>
                     <strong style={{ color: 'var(--ink-1)' }}>{active.kind}</strong> —{' '}
                     {active.explanation ?? active.message}
                   </p>
-                  {fileError && <p className="field__hint">{fileError}</p>}
-                  <div className="code-pane">
-                    {lines.map((row) => {
-                      const hl = row.line >= active.range.startLine && row.line <= active.range.endLine;
-                      return (
-                        <div
-                          key={row.line}
-                          className={`code-pane__line ${hl ? 'code-pane__line--hl' : ''}`}
-                          onMouseEnter={hl ? (e) => setPopover({ top: e.currentTarget.offsetTop - 8 }) : undefined}
-                          role={hl ? 'button' : undefined}
-                          tabIndex={hl ? 0 : undefined}
-                        >
-                          <span className="code-pane__num">{row.line}</span>
-                          <span>{row.text || ' '}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {popover && (
-                    <div
-                      className="chain-popover"
-                      style={{ right: 24, top: popover.top }}
-                      onMouseLeave={() => setPopover(null)}
-                    >
-                      <h4>Upstream</h4>
-                      <ul>
-                        {(active.upstream.length ? active.upstream : ['—']).map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
-                      </ul>
-                      <h4>Downstream</h4>
-                      <ul>
-                        {(active.downstream.length ? active.downstream : ['—']).map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="page__subtitle">Select a finding.</p>
-              )}
-            </div>
-          </div>
-        </ScreenState>
-      </div>
-    </div>
-  );
-};
-
-export default DiagnosePage;
+                  {fileError && <p

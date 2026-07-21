@@ -1,7 +1,7 @@
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEdge } from '../api/client';
-import { buildGraphView, collapseFolder, type ForceGraphLink, type ForceGraphNode } from '../lib/graphModel';
+import { buildGraphView, collapseFolder, expansionChainForFile, type ForceGraphLink, type ForceGraphNode } from '../lib/graphModel';
 
 type GraphNode = ForceGraphNode & NodeObject;
 type GraphLink = ForceGraphLink & LinkObject;
@@ -17,6 +17,8 @@ type Props = {
   selected: string | null;
   onSelect: (id: string | null) => void;
   onOpenFile: (path: string) => void;
+  /** When set, auto-expands the folder chain for this path and centres on it. */
+  focusPath?: string | null;
 };
 
 const GRAPH_HEIGHT = 460;
@@ -27,13 +29,25 @@ function readCssVar(name: string, fallback: string): string {
   return value || fallback;
 }
 
-const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selected, onSelect, onOpenFile }) => {
+const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selected, onSelect, onOpenFile, focusPath }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined);
   const [width, setWidth] = useState(640);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showExternal, setShowExternal] = useState(false);
+
+  // When focusPath arrives (from deep-link), expand its full folder chain once.
+  useEffect(() => {
+    if (!focusPath) return;
+    const chain = expansionChainForFile(focusPath);
+    if (chain.size === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const f of chain) next.add(f);
+      return next;
+    });
+  }, [focusPath]);
 
   const theme = useMemo(
     () => ({
@@ -102,6 +116,15 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
     g.d3Force('charge')?.strength(-160);
     g.d3Force('link')?.distance(56);
   }, [graphData]);
+
+  // Centre on focusPath file node once the graph has it as a visible node.
+  useEffect(() => {
+    if (!focusPath) return;
+    const node = graphData.nodes.find((n) => n.id === focusPath);
+    if (!node || node.x == null || node.y == null) return;
+    graphRef.current?.centerAt(node.x, node.y, 500);
+    graphRef.current?.zoom(Math.max(2.5, graphRef.current.zoom()), 500);
+  }, [focusPath, graphData]);
 
   const nodeRadius = useCallback((node: GraphNode) => {
     if (node.kind === 'folder') return 10 + Math.min(Math.sqrt(node.fileCount) * 2.4, 16);
@@ -311,28 +334,4 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
         enableZoomInteraction
         enablePanInteraction
         enablePointerInteraction
-        showPointerCursor={(obj) => !!obj}
-        onEngineStop={() => {
-          graphRef.current?.zoomToFit(400, 40);
-          graphRef.current?.pauseAnimation();
-        }}
-        linkHoverPrecision={0}
-        onNodeClick={activateNode}
-        onNodeHover={(node) => setHoverId(node?.id ?? null)}
-        onBackgroundClick={() => onSelect(null)}
-        nodeCanvasObjectMode={() => 'replace'}
-        nodeCanvasObject={(node, ctx, globalScale) => paintNode(node, ctx, globalScale)}
-        nodePointerAreaPaint={paintPointerArea}
-        linkPointerAreaPaint={() => {
-          /* links are visual only — avoid stealing clicks from node labels */
-        }}
-      />
-      <p className="graph-wrap__hint">
-        Click a <strong>folder</strong> to drill in · click a <strong>file</strong> to open it in your IDE · hover for
-        the full path · dashed ring = external package
-      </p>
-    </div>
-  );
-};
-
-export default DependencyGraph;
+        showPointerCursor={(obj) => !!o
