@@ -5,7 +5,7 @@ use App\Models\Project;
 use Illuminate\Support\Facades\File;
 
 beforeEach(function () {
-    config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => []]);
+    config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => [storage_path('framework/testing')]]);
 });
 
 it('links a local folder and indexes files without zip upload', function () {
@@ -70,6 +70,22 @@ it('does not delete the user folder when deleting a local-linked project', funct
     $this->deleteJson("/api/v1/projects/{$project->id}")->assertOk();
     expect(is_dir($root))->toBeTrue()
         ->and(is_file($root.'/keep.txt'))->toBeTrue();
+
+    File::deleteDirectory($root);
+});
+
+it('rejects any local path when prefix list is empty (fail-closed)', function () {
+    asUser();
+    config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => []]);
+
+    $root = storage_path('framework/testing/empty-prefix-'.uniqid());
+    File::ensureDirectoryExists($root);
+
+    $project = Project::query()->create(['name' => 'empty-prefix']);
+
+    $this->postJson("/api/v1/projects/{$project->id}/link-local", [
+        'path' => $root,
+    ])->assertStatus(500);
 
     File::deleteDirectory($root);
 });

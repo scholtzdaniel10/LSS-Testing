@@ -59,7 +59,7 @@ final class ProjectWorkspace
         /** @var list<string> $prefixes */
         $prefixes = config('sandbox.local_path_prefixes', []);
         if ($prefixes === []) {
-            return;
+            throw new InvalidArgumentException('Local path is not under an allowed root prefix.');
         }
 
         foreach ($prefixes as $prefix) {

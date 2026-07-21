@@ -65,7 +65,7 @@ return [
     |
     */
 
-    'allow_local_link' => (bool) env('SANDBOX_ALLOW_LOCAL_LINK', true),
+    'allow_local_link' => (bool) env('SANDBOX_ALLOW_LOCAL_LINK', false),
 
     'local_path_prefixes' => array_values(array_filter(array_map(
         'trim',
