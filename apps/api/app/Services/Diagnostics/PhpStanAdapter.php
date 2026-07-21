@@ -92,7 +92,7 @@ final class PhpStanAdapter implements Analyzer
                 // default 128M under PHPStan's own analysis workers; without
                 // this, a crash silently normalizes to "0 findings" — a false
                 // "all clear" that violates the evidence-only accuracy policy
-                // (vault note 10). 1G is generous for a single-project scan.
+                // (vault note 10). 2G is generous for a single-project scan.
                 '--memory-limit='.self::MEMORY_LIMIT,
                 '-c',
                 $configPath,
@@ -101,10 +101,10 @@ final class PhpStanAdapter implements Analyzer
         $json = $result->output();
 
         if ($json === '' && $result->errorOutput() !== '') {
-            // Prefer stdout; if empty, do not invent findings from stderr.
-            $this->lastRunStatus = 'clean';
-
-            return [];
+            // PHPStan wrote nothing to stdout but produced stderr — this means
+            // the process failed to start or crashed before producing JSON output.
+            // Surface as a hard error rather than a misleading "clean" result.
+            throw new RuntimeException('PHPStan produced no output: '.trim($result->errorOutput()));
         }
 
         $findings = $this->normalize($json, $sandboxPath);
