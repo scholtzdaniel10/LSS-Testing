@@ -3,6 +3,7 @@ import { useProject } from '../state/ProjectContext';
 
 const links = [
   { to: '/health', label: 'Health' },
+  { to: '/projects', label: 'Projects' },
   { to: '/explore', label: 'Explore' },
   { to: '/diagnose', label: 'Diagnose' },
   { to: '/test', label: 'Test' },
@@ -48,8 +49,4 @@ const TopNav: React.FC = () => {
       </div>
       <span className="topnav__spacer" />
       <span className="topnav__tag">live API</span>
-    </nav>
-  );
-};
-
-export default TopNav;
+    <

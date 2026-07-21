@@ -8,6 +8,7 @@ import ExplorePage from './pages/ExplorePage';
 import DiagnosePage from './pages/DiagnosePage';
 import TestPage from './pages/TestPage';
 import SettingsPage from './pages/SettingsPage';
+import ProjectsPage from './pages/ProjectsPage';
 import { ProjectProvider } from './state/ProjectContext';
 
 /* Core CSS required for Ionic components to work properly */
@@ -33,6 +34,7 @@ const App: React.FC = () => (
           <TopNav />
           <Switch>
             <Route exact path="/health" component={HealthPage} />
+            <Route exact path="/projects" component={ProjectsPage} />
             <Route exact path="/explore" component={ExplorePage} />
             <Route exact path="/diagnose" component={DiagnosePage} />
             <Route exact path="/test" component={TestPage} />
@@ -40,11 +42,4 @@ const App: React.FC = () => (
             <Route exact path="/">
               <Redirect to="/health" />
             </Route>
-          </Switch>
-        </div>
-      </IonReactRouter>
-    </ProjectProvider>
-  </IonApp>
-);
-
-export default App;
+     
