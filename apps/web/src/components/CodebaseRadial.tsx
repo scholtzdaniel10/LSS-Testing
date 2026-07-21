@@ -2,31 +2,35 @@
  * CodebaseRadial.tsx
  *
  * Hierarchical edge-bundling radial view (mbostock-style).
- * Pure SVG — no d3 dependency. Layout computed in radialModel.ts.
+ * Pure SVG -- no d3 dependency. Layout computed in radialModel.ts.
  *
  * Layout:
- *  - One circle per connected component (largest → biggest radius).
+ *  - One circle per connected component (largest -> biggest radius).
  *  - Files are positioned on the circumference via a radial cluster derived
  *    from the folder hierarchy.
- *  - Edges drawn as cubic Bézier splines that pass through the component
- *    centre (simulating bundle β ≈ 0.85).
- *  - Unlinked files in a compact list panel below the circles.
- *  - Click-to-focus: clicking a label narrows to that file + its direct
+ *  - Edges drawn as cubic Bezier splines that pass through the component
+ *    centre (simulating bundle b ~0.85).
+ *  - Unlinked files: summary badge + collapsible filtered list (never in SVG).
+ *  - Click-to-focus: clicking a dot narrows to that file + its direct
  *    neighbours. Clicking a neighbour re-focuses on it.
  *  - Hover: highlights edges + neighbours without hiding others.
- *  - "Show all" button clears focus.
+ *  - Zoom/pan: wheel zoom (cursor-anchored), drag pan, double-click or Fit to reset.
+ *  - Label declutter: components > LABEL_THRESHOLD show dots only; labels
+ *    appear for focused/hovered node and its direct neighbours.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { RadialComponent, RadialEdge, RadialNode } from '../lib/radialModel';
 import {
   buildRadialLayout,
   collectLeaves,
   computeFocusNeighbourhood,
+  componentRadius,
+  shouldShowLabel,
 } from '../lib/radialModel';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
 
-// ── Token refs ────────────────────────────────────────────────────────────────
+// -- Token refs ----------------------------------------------------------------
 const COLOR_EDGE_HEALTHY = 'var(--ink-4)';
 const COLOR_EDGE_BROKEN = 'var(--status-critical)';
 const COLOR_NODE_DEFAULT = 'var(--ink-2)';
@@ -36,16 +40,16 @@ const COLOR_NODE_NEIGHBOUR = 'var(--neon-yellow)';
 const COLOR_NODE_FADED = 'var(--ink-4)';
 const COLOR_EDGE_HOVER = 'var(--neon-cyan)';
 
-// ── Geometry helpers ──────────────────────────────────────────────────────────
+// -- Geometry helpers ----------------------------------------------------------
 
-/** Polar → Cartesian (angle in radians, 0 = top). */
+/** Polar -> Cartesian (angle in radians, 0 = top). */
 function polar(angle: number, r: number, cx: number, cy: number): [number, number] {
   return [cx + r * Math.sin(angle), cy - r * Math.cos(angle)];
 }
 
 /**
- * Build a cubic Bézier path string that bundles through the component centre.
- * β controls "tightness" (0 = straight, 1 = fully through centre).
+ * Build a cubic Bezier path string that bundles through the component centre.
+ * beta controls tightness (0 = straight, 1 = fully through centre).
  */
 function bundlePath(
   x0: number, y0: number,
@@ -53,7 +57,6 @@ function bundlePath(
   cx: number, cy: number,
   beta = 0.85,
 ): string {
-  // Control points: lerp from endpoints toward the centre.
   const cp0x = x0 + beta * (cx - x0);
   const cp0y = y0 + beta * (cy - y0);
   const cp1x = x1 + beta * (cx - x1);
@@ -61,17 +64,17 @@ function bundlePath(
   return `M${x0},${y0} C${cp0x},${cp0y} ${cp1x},${cp1y} ${x1},${y1}`;
 }
 
-// ── Leaf position computation ─────────────────────────────────────────────────
+// -- Leaf position computation -------------------------------------------------
 
 type LeafPosition = {
   node: RadialNode;
-  angle: number; // radians
+  angle: number;
   x: number;
   y: number;
   labelX: number;
   labelY: number;
   textAnchor: 'start' | 'end';
-  rotate: number; // degrees for the label transform
+  rotate: number;
 };
 
 /**
@@ -91,20 +94,17 @@ function layoutLeaves(
   const labelR = radius + 12;
 
   return leaves.map((leaf, i) => {
-    // Spread evenly; start from the top (−π/2 offset baked into polar()).
     const angle = (2 * Math.PI * i) / n;
     const [x, y] = polar(angle, radius, cx, cy);
     const [lx, ly] = polar(angle, labelR, cx, cy);
-    // Text anchor: right half of circle → start; left half → end.
     const deg = ((angle * 180) / Math.PI + 360) % 360;
-    const textAnchor = deg <= 180 ? 'start' : 'end';
-    // Rotate label to read radially.
+    const textAnchor: 'start' | 'end' = deg <= 180 ? 'start' : 'end';
     const rotate = deg <= 180 ? deg - 90 : deg + 90;
     return { node: leaf, angle, x, y, labelX: lx, labelY: ly, textAnchor, rotate };
   });
 }
 
-// ── Component circle ──────────────────────────────────────────────────────────
+// -- Component circle ----------------------------------------------------------
 
 type ComponentCircleProps = {
   component: RadialComponent;
@@ -142,7 +142,6 @@ function ComponentCircle({
     return m;
   }, [positions]);
 
-  // Compute focus neighbourhood for dimming logic.
   const focusNb = useMemo(
     () =>
       focusFile
@@ -158,6 +157,16 @@ function ComponentCircle({
         : null,
     [hoveredFile, component.edges],
   );
+
+  const activeNeighbours = useMemo<ReadonlySet<string>>(() => {
+    const s = new Set<string>();
+    if (focusNb) for (const n of focusNb.neighbours) s.add(n);
+    if (hoverNb) for (const n of hoverNb.neighbours) s.add(n);
+    return s;
+  }, [focusNb, hoverNb]);
+
+  const memberCount = component.files.length;
+  const activeFocus = focusFile ?? hoveredFile ?? null;
 
   const isVisible = (path: string) => {
     if (!focusNb) return true;
@@ -196,10 +205,10 @@ function ComponentCircle({
       if (hoverNb) {
         return (e.from === hoverNb.focus || hoverNb.neighbours.has(e.from)) &&
                (e.to === hoverNb.focus || hoverNb.neighbours.has(e.to))
-          ? 1
-          : 0.15;
+          ? 0.85
+          : 0.12;
       }
-      return 0.55;
+      return e.broken ? 0.55 : 0.15;
     }
     return isEdgeVisible(e) ? 0.85 : 0.04;
   };
@@ -213,7 +222,6 @@ function ComponentCircle({
 
   return (
     <g>
-      {/* Subtle guide circle */}
       <circle
         cx={cx}
         cy={cy}
@@ -224,7 +232,6 @@ function ComponentCircle({
         strokeDasharray="3 6"
       />
 
-      {/* Edges */}
       {component.edges.map((e, i) => {
         const src = posMap.get(e.from);
         const tgt = posMap.get(e.to);
@@ -242,7 +249,6 @@ function ComponentCircle({
         );
       })}
 
-      {/* Node dots + labels */}
       {positions.map((pos) => {
         const path = pos.node.id;
         const hasError = errorFiles.has(path);
@@ -250,6 +256,7 @@ function ComponentCircle({
         const op = nodeOpacity(path);
         const isFocused = path === focusFile;
         const basename = pos.node.name;
+        const showLabel = shouldShowLabel(memberCount, path, activeFocus, activeNeighbours);
 
         return (
           <g
@@ -278,25 +285,25 @@ function ComponentCircle({
               stroke={isFocused ? 'var(--surface-page)' : 'none'}
               strokeWidth={isFocused ? 1.5 : 0}
             />
-            <text
-              x={pos.labelX}
-              y={pos.labelY}
-              fontSize="var(--text-xs)"
-              fontFamily="var(--font-mono)"
-              fill={color}
-              textAnchor={pos.textAnchor}
-              dominantBaseline="central"
-              transform={`rotate(${pos.rotate}, ${pos.labelX}, ${pos.labelY})`}
-              style={{ userSelect: 'none' }}
-            >
-              {basename}
-            </text>
+            {showLabel && (
+              <text
+                x={pos.labelX}
+                y={pos.labelY}
+                fontSize="var(--text-xs)"
+                fontFamily="var(--font-mono)"
+                fill={color}
+                textAnchor={pos.textAnchor}
+                dominantBaseline="central"
+                transform={`rotate(${pos.rotate}, ${pos.labelX}, ${pos.labelY})`}
+                style={{ userSelect: 'none' }}
+              >
+                {basename}
+              </text>
+            )}
           </g>
         );
       })}
 
-      {/* Selected file detail: full path + focus-URL link — rendered as a
-          small panel overlaid near the node */}
       {focusFile && positions.map((pos) => {
         if (pos.node.id !== focusFile) return null;
         return (
@@ -308,8 +315,7 @@ function ComponentCircle({
               height={56}
               style={{ pointerEvents: 'none' }}
             >
-              {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-              {/* @ts-ignore — xmlns needed for SVG foreignObject */}
+              {/* @ts-ignore -- xmlns needed for SVG foreignObject */}
               <div xmlns="http://www.w3.org/1999/xhtml"
                 style={{
                   background: 'var(--surface-raised)',
@@ -341,7 +347,7 @@ function ComponentCircle({
                   }}
                   onClick={(ev) => { ev.stopPropagation(); onFocusUrl(focusFile); }}
                 >
-                  focus in tree →
+                  focus in tree &rarr;
                 </button>
               </div>
             </foreignObject>
@@ -352,13 +358,8 @@ function ComponentCircle({
   );
 }
 
-// ── Layout packing ────────────────────────────────────────────────────────────
+// -- Layout packing -----------------------------------------------------------
 
-/**
- * Compute radius and (cx, cy) for each component.
- * Larger components get larger radii; everything is packed left-to-right
- * wrapping at a max row width.
- */
 type CirclePlacement = {
   cx: number;
   cy: number;
@@ -369,19 +370,8 @@ function packComponents(
   components: RadialComponent[],
   maxWidth: number,
 ): { placements: CirclePlacement[]; totalHeight: number } {
-  const BASE_RADIUS = 90;
-  const MIN_RADIUS = 60;
-  const LABEL_MARGIN = 80; // extra margin around radius for labels
-  const PAD = 24;
-
-  const largest = components[0]?.files.length ?? 1;
-
-  const radii = components.map((c) => {
-    // Scale radius by sqrt of file count relative to the largest.
-    const scale = Math.sqrt(c.files.length / largest);
-    return Math.max(MIN_RADIUS, Math.round(BASE_RADIUS * scale));
-  });
-
+  const PAD = 32;
+  const radii = components.map((c) => componentRadius(c.files.length));
   const placements: CirclePlacement[] = [];
   let x = 0;
   let rowTop = 0;
@@ -390,18 +380,18 @@ function packComponents(
 
   for (let i = 0; i < components.length; i++) {
     const r = radii[i];
-    const diameter = (r + LABEL_MARGIN) * 2 + PAD;
+    const lm = Math.max(48, Math.min(90, Math.round(r * 0.35)));
+    const diameter = (r + lm) * 2 + PAD;
 
     if (x + diameter > maxWidth && i > 0) {
-      // Wrap to next row.
       rowTop += rowMaxDiameter;
       x = 0;
       rowMaxDiameter = 0;
     }
 
     placements.push({
-      cx: x + r + LABEL_MARGIN + PAD / 2,
-      cy: rowTop + r + LABEL_MARGIN + PAD / 2,
+      cx: x + r + lm + PAD / 2,
+      cy: rowTop + r + lm + PAD / 2,
       radius: r,
     });
 
@@ -413,7 +403,7 @@ function packComponents(
   return { placements, totalHeight };
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// -- Main component -----------------------------------------------------------
 
 export type CodebaseRadialProps = {
   edges: GraphEdge[];
@@ -435,7 +425,61 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const [focusFile, setFocusFile] = useState<string | null>(focusParam ?? null);
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
 
-  // Keep focusFile in sync with the URL param when it changes externally.
+  // Zoom/pan state: transform a root <g> inside the fixed SVG.
+  const [zoom, setZoom] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const dragging = useRef(false);
+  const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const resetView = useCallback(() => {
+    setZoom(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
+
+  const handleWheel = useCallback((ev: React.WheelEvent<SVGSVGElement>) => {
+    ev.preventDefault();
+    const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const mx = ev.clientX - rect.left;
+    const my = ev.clientY - rect.top;
+    setZoom((z) => {
+      const nz = Math.min(8, Math.max(0.15, z * factor));
+      const scaleDiff = nz - z;
+      setPanX((px) => px - (mx * scaleDiff) / nz);
+      setPanY((py) => py - (my * scaleDiff) / nz);
+      return nz;
+    });
+  }, []);
+
+  const handleMouseDown = useCallback((ev: React.MouseEvent<SVGSVGElement>) => {
+    if ((ev.target as Element).closest('[role="button"]')) return;
+    dragging.current = true;
+    dragStart.current = { mx: ev.clientX, my: ev.clientY, px: panX, py: panY };
+    ev.preventDefault();
+  }, [panX, panY]);
+
+  const handleMouseMove = useCallback((ev: React.MouseEvent<SVGSVGElement>) => {
+    if (!dragging.current || !dragStart.current) return;
+    const dx = (ev.clientX - dragStart.current.mx) / zoom;
+    const dy = (ev.clientY - dragStart.current.my) / zoom;
+    setPanX(dragStart.current.px + dx);
+    setPanY(dragStart.current.py + dy);
+  }, [zoom]);
+
+  const handleMouseUp = useCallback(() => {
+    dragging.current = false;
+    dragStart.current = null;
+  }, []);
+
+  const handleDblClick = useCallback((ev: React.MouseEvent<SVGSVGElement>) => {
+    if ((ev.target as Element).closest('[role="button"]')) return;
+    resetView();
+  }, [resetView]);
+
   useMemo(() => {
     if (focusParam !== undefined) setFocusFile(focusParam);
   }, [focusParam]);
@@ -455,8 +499,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     [allFilePaths, edges, errorFiles],
   );
 
-  // Max SVG width — we'll use 1200 as a fixed canvas width, height is computed.
-  const SVG_WIDTH = 1200;
+  const SVG_WIDTH = 1400;
   const { placements, totalHeight } = useMemo(
     () => packComponents(layout.components, SVG_WIDTH),
     [layout.components],
@@ -483,7 +526,6 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     setHoveredFile(null);
   }, []);
 
-  // Summary counts.
   const brokenCount = useMemo(() => {
     let n = 0;
     for (const c of layout.components) {
@@ -495,6 +537,19 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const totalEdges = useMemo(() => {
     return layout.components.reduce((acc, c) => acc + c.edges.length, 0);
   }, [layout]);
+
+  const [unlinkedOpen, setUnlinkedOpen] = useState(false);
+  const [unlinkedFilter, setUnlinkedFilter] = useState('');
+
+  const filteredUnlinked = useMemo(() => {
+    if (!unlinkedFilter.trim()) return layout.unlinked.files;
+    const q = unlinkedFilter.trim().toLowerCase();
+    return layout.unlinked.files.filter((f) => f.toLowerCase().includes(q));
+  }, [layout.unlinked.files, unlinkedFilter]);
+
+  const svgDisplayHeight = typeof window !== 'undefined'
+    ? Math.min(svgHeight, window.innerHeight * 0.65)
+    : svgHeight;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
@@ -508,145 +563,215 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
         }}
       >
         <span className="panel__hint">
-          {layout.components.length} component{layout.components.length !== 1 ? 's' : ''} ·{' '}
-          {layout.unlinked.files.length} unlinked · {totalEdges} edges
+          {layout.components.length} component{layout.components.length !== 1 ? 's' : ''} &middot;{'  '}
+          {totalEdges} edge{totalEdges !== 1 ? 's' : ''}
           {brokenCount > 0 && (
             <span style={{ color: 'var(--status-critical)', marginLeft: 6 }}>
-              · {brokenCount} broken
+              &middot; {brokenCount} broken
             </span>
+          )}
+          {layout.unlinked.files.length > 0 && (
+            <button
+              type="button"
+              style={{
+                marginLeft: 8,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--ink-3)',
+                fontSize: 'inherit',
+                textDecoration: 'underline dotted',
+                padding: 0,
+              }}
+              onClick={() => setUnlinkedOpen((o) => !o)}
+              aria-expanded={unlinkedOpen}
+            >
+              {layout.unlinked.files.length.toLocaleString()} unlinked files
+            </button>
           )}
         </span>
 
-        {focusFile && (
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+          {focusFile && (
+            <button
+              type="button"
+              className="btn"
+              onClick={clearFocus}
+              style={{ fontSize: 'var(--text-sm)', padding: '2px 10px' }}
+            >
+              Show all
+            </button>
+          )}
           <button
             type="button"
             className="btn"
-            onClick={clearFocus}
+            onClick={resetView}
             style={{ fontSize: 'var(--text-sm)', padding: '2px 10px' }}
+            title="Reset zoom/pan (also double-click canvas)"
           >
-            Show all
+            Fit
           </button>
-        )}
+        </div>
 
-        {/* Legend */}
         <div style={{ display: 'flex', gap: 'var(--sp-3)', marginLeft: 'auto', alignItems: 'center' }}>
           <LegendItem color="var(--ink-4)" label="healthy edge" isDash />
-          <LegendItem color="var(--status-critical)" label="broken edge (error)" isDash />
+          <LegendItem color="var(--status-critical)" label="broken edge" isDash />
           <LegendItem color="var(--status-critical)" label="error file" />
         </div>
       </div>
 
-      {/* SVG radial canvas */}
+      {/* Unlinked files -- collapsible, never rendered in SVG */}
+      {layout.unlinked.files.length > 0 && unlinkedOpen && (
+        <div className="panel" style={{ padding: 'var(--sp-3)' }}>
+          <div className="panel__head" style={{ marginBottom: 'var(--sp-2)' }}>
+            <h3 className="panel__title" style={{ fontSize: 'var(--text-sm)' }}>
+              {layout.unlinked.files.length.toLocaleString()} unlinked files
+            </h3>
+            <span className="panel__hint">no dependency edges -- not rendered in the map</span>
+          </div>
+          <input
+            type="search"
+            placeholder="Filter by path..."
+            value={unlinkedFilter}
+            onChange={(ev) => setUnlinkedFilter(ev.target.value)}
+            aria-label="Filter unlinked files"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              marginBottom: 'var(--sp-2)',
+              padding: '4px 8px',
+              fontSize: 'var(--text-sm)',
+              fontFamily: 'var(--font-mono)',
+              background: 'var(--surface-wash)',
+              border: '1px solid var(--line-2)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--ink-1)',
+            }}
+          />
+          <ul
+            aria-label="Unlinked files list"
+            style={{
+              listStyle: 'none',
+              margin: 0,
+              padding: 0,
+              maxHeight: 240,
+              overflowY: 'auto',
+            }}
+          >
+            {filteredUnlinked.length === 0 && (
+              <li style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-4)', padding: '4px 0' }}>
+                No matches.
+              </li>
+            )}
+            {filteredUnlinked.map((f) => (
+              <li key={f}>
+                <button
+                  type="button"
+                  aria-label={`Unlinked file: ${f}`}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '3px 4px',
+                    fontSize: 'var(--text-xs)',
+                    fontFamily: 'var(--font-mono)',
+                    color: errorFiles.has(f)
+                      ? 'var(--status-critical)'
+                      : focusFile === f
+                      ? 'var(--neon-cyan)'
+                      : 'var(--ink-3)',
+                    borderRadius: 'var(--radius-sm)',
+                    outline: focusFile === f ? '1px solid var(--neon-cyan)' : 'none',
+                  }}
+                  onClick={() => {
+                    setFocusFile((prev) => (prev === f ? null : f));
+                    onFocusTree(f);
+                  }}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                      ev.preventDefault();
+                      setFocusFile((prev) => (prev === f ? null : f));
+                      onFocusTree(f);
+                    }
+                  }}
+                >
+                  {f}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* SVG radial canvas with zoom/pan */}
       <div
         style={{
-          overflowX: 'auto',
-          overflowY: 'auto',
+          overflow: 'hidden',
           maxHeight: '65vh',
           background: 'var(--surface-panel)',
           borderRadius: 'var(--radius-md)',
           border: '1px solid var(--line-1)',
+          cursor: 'grab',
         }}
         role="img"
         aria-label="Codebase radial map"
       >
-        {layout.components.length === 0 && layout.unlinked.files.length === 0 ? (
+        {layout.components.length === 0 ? (
           <div style={{ padding: 'var(--sp-5)', color: 'var(--ink-3)', fontSize: 'var(--text-sm)' }}>
-            No files to display.
+            No linked files to display.
           </div>
         ) : (
           <svg
-            width={SVG_WIDTH}
-            height={svgHeight}
-            viewBox={`0 0 ${SVG_WIDTH} ${svgHeight}`}
+            ref={svgRef}
+            width="100%"
+            height={svgDisplayHeight}
+            viewBox={`0 0 ${SVG_WIDTH} ${svgDisplayHeight}`}
             style={{ display: 'block' }}
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onDoubleClick={handleDblClick}
             onClick={(ev) => {
-              // Click on canvas background clears focus.
               if (ev.target === ev.currentTarget) clearFocus();
             }}
           >
-            {layout.components.map((component, i) => {
-              const pl = placements[i];
-              if (!pl) return null;
-              return (
-                <ComponentCircle
-                  key={component.index}
-                  component={component}
-                  cx={pl.cx}
-                  cy={pl.cy}
-                  radius={pl.radius}
-                  focusFile={focusFile}
-                  hoveredFile={hoveredFile}
-                  onFileClick={handleFileClick}
-                  onFileHover={handleHover}
-                  onFocusUrl={handleFocusUrl}
-                  errorFiles={errorFiles}
-                />
-              );
-            })}
+            <g transform={`scale(${zoom}) translate(${panX},${panY})`}>
+              {layout.components.map((component, i) => {
+                const pl = placements[i];
+                if (!pl) return null;
+                return (
+                  <ComponentCircle
+                    key={component.index}
+                    component={component}
+                    cx={pl.cx}
+                    cy={pl.cy}
+                    radius={pl.radius}
+                    focusFile={focusFile}
+                    hoveredFile={hoveredFile}
+                    onFileClick={handleFileClick}
+                    onFileHover={handleHover}
+                    onFocusUrl={handleFocusUrl}
+                    errorFiles={errorFiles}
+                  />
+                );
+              })}
+            </g>
           </svg>
         )}
       </div>
 
-      {/* Unlinked files */}
-      {layout.unlinked.files.length > 0 && (
-        <div className="panel" style={{ padding: 'var(--sp-3)' }}>
-          <div className="panel__head">
-            <h3 className="panel__title" style={{ fontSize: 'var(--text-sm)' }}>
-              Unlinked files ({layout.unlinked.files.length})
-            </h3>
-            <span className="panel__hint">no dependency edges</span>
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 'var(--sp-1)',
-              marginTop: 'var(--sp-2)',
-              maxHeight: 140,
-              overflowY: 'auto',
-            }}
-          >
-            {layout.unlinked.files.map((f) => (
-              <span
-                key={f}
-                role="button"
-                tabIndex={0}
-                aria-label={`Unlinked file: ${f}`}
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  fontFamily: 'var(--font-mono)',
-                  color: errorFiles.has(f) ? 'var(--status-critical)' : 'var(--ink-3)',
-                  background: 'var(--surface-wash)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '2px 6px',
-                  cursor: 'pointer',
-                  border: focusFile === f ? '1px solid var(--neon-cyan)' : '1px solid transparent',
-                }}
-                onClick={() => {
-                  setFocusFile((prev) => (prev === f ? null : f));
-                  onFocusTree(f);
-                }}
-                onKeyDown={(ev) => {
-                  if (ev.key === 'Enter' || ev.key === ' ') {
-                    ev.preventDefault();
-                    onFocusTree(f);
-                  }
-                }}
-              >
-                {f.split('/').pop() ?? f}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Selected file detail strip (when file is in unlinked or for context) */}
+      {/* Selected file detail strip */}
       {focusFile && (
         <div
           className="panel"
           style={{
             padding: 'var(--sp-3)',
-            borderLeft: `3px solid var(--neon-cyan)`,
+            borderLeft: '3px solid var(--neon-cyan)',
             fontSize: 'var(--text-sm)',
           }}
           role="status"
@@ -658,6 +783,11 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
           {errorFiles.has(focusFile) && (
             <span style={{ marginLeft: 8, color: 'var(--status-critical)' }}>
               has error-severity findings
+            </span>
+          )}
+          {layout.unlinked.files.includes(focusFile) && (
+            <span style={{ marginLeft: 8, color: 'var(--ink-4)', fontSize: 'var(--text-xs)' }}>
+              (unlinked)
             </span>
           )}
           <button
@@ -673,7 +803,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
             }}
             onClick={() => onFocusTree(focusFile)}
           >
-            focus in tree →
+            focus in tree &rarr;
           </button>
         </div>
       )}
@@ -681,7 +811,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   );
 };
 
-// ── Legend item ───────────────────────────────────────────────────────────────
+// -- Legend item --------------------------------------------------------------
 
 function LegendItem({
   color,

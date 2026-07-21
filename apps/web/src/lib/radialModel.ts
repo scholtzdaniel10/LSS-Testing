@@ -205,7 +205,7 @@ export function computeFocusNeighbourhood(
  * with error-severity diagnostics, produce a RadialLayout.
  *
  * @param allFiles    All file paths (from api.tree). May include files not in any edge.
- * @param edges       Raw edges from api.graph. Pass [] or call with null → handle null
+ * @param edges       Raw edges from api.graph. Pass [] or call with null -> handle null
  *                    in callers by passing [].
  * @param errorFiles  Set of file paths with at least one error-severity diagnostic.
  */
@@ -250,7 +250,7 @@ export function buildRadialLayout(
   const classifiedEdges = classifyEdges(internalEdgesFiltered, errorFiles);
 
   // 6. Build edge lookup per component representative.
-  //    We need to map file→component; find via a temp lookup.
+  //    We need to map file->component; find via a temp lookup.
   const fileToRep = new Map<string, string>();
   for (const [rep, files] of componentGroups) {
     for (const f of files) {
@@ -301,4 +301,66 @@ export function collectLeaves(root: RadialNode): RadialNode[] {
   };
   visit(root);
   return leaves;
+}
+
+// ── Radius scaling ───────────────────────────────────────────────────────────
+
+/**
+ * Minimum arc length per member (px). The circle circumference must be at
+ * least memberCount x MIN_ARC_PX so labels/dots don't crowd together.
+ */
+export const MIN_ARC_PX = 16;
+
+/** Absolute minimum radius even for 1-file components (px). */
+export const MIN_RADIUS_PX = 60;
+
+/** Absolute maximum radius cap (px). */
+export const MAX_RADIUS_PX = 320;
+
+/**
+ * Compute the display radius for a component circle based on member count.
+ *
+ * Formula: r = max(MIN_RADIUS, ceil(memberCount * MIN_ARC_PX / (2*pi))),
+ * clamped to MAX_RADIUS.
+ *
+ * @param memberCount Number of file nodes in the component.
+ */
+export function componentRadius(memberCount: number): number {
+  if (memberCount <= 0) return MIN_RADIUS_PX;
+  const fromArc = Math.ceil((memberCount * MIN_ARC_PX) / (2 * Math.PI));
+  return Math.min(MAX_RADIUS_PX, Math.max(MIN_RADIUS_PX, fromArc));
+}
+
+// ── Label declutter ──────────────────────────────────────────────────────────
+
+/**
+ * Components with more than this many members render dots only; permanent
+ * labels are suppressed to prevent overlapping rings.
+ */
+export const LABEL_THRESHOLD = 40;
+
+/**
+ * Return true when a node should show its permanent (always-visible) label.
+ *
+ * Rules:
+ *  - If memberCount <= LABEL_THRESHOLD: always show label.
+ *  - Otherwise: only show label when the node is focused or is a direct
+ *    neighbour of the focused/hovered node.
+ *
+ * @param memberCount    Total members in the component.
+ * @param path           File path of this node.
+ * @param focusFile      Currently focused file, or null.
+ * @param activeNeighbours Set of paths that are direct neighbours of the
+ *                         focused or hovered file.
+ */
+export function shouldShowLabel(
+  memberCount: number,
+  path: string,
+  focusFile: string | null,
+  activeNeighbours: ReadonlySet<string>,
+): boolean {
+  if (memberCount <= LABEL_THRESHOLD) return true;
+  if (path === focusFile) return true;
+  if (activeNeighbours.has(path)) return true;
+  return false;
 }

@@ -5,14 +5,20 @@ import {
   classifyEdges,
   computeFocusNeighbourhood,
   collectLeaves,
+  componentRadius,
+  shouldShowLabel,
+  MIN_ARC_PX,
+  MIN_RADIUS_PX,
+  MAX_RADIUS_PX,
+  LABEL_THRESHOLD,
 } from './radialModel';
 import type { GraphEdge } from '../api/client';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// -- helpers ------------------------------------------------------------------
 const edge = (from: string, to: string): GraphEdge => ({ from, to });
 const noErrors = new Set<string>();
 
-// ── buildHierarchy ────────────────────────────────────────────────────────────
+// -- buildHierarchy -----------------------------------------------------------
 describe('buildHierarchy', () => {
   it('produces a root with file children for flat paths', () => {
     const root = buildHierarchy(['a.ts', 'b.ts']);
@@ -42,7 +48,7 @@ describe('buildHierarchy', () => {
   });
 });
 
-// ── classifyEdges ─────────────────────────────────────────────────────────────
+// -- classifyEdges ------------------------------------------------------------
 describe('classifyEdges', () => {
   it('marks edges grey when no endpoint has errors', () => {
     const edges = [edge('a.ts', 'b.ts'), edge('b.ts', 'c.ts')];
@@ -63,7 +69,6 @@ describe('classifyEdges', () => {
   });
 
   it('does NOT mark edges red for warning-only files (errors set is empty)', () => {
-    // Warnings are NOT included in the errorFiles set by callers — only errors.
     const result = classifyEdges([edge('a.ts', 'b.ts')], noErrors);
     expect(result[0].broken).toBe(false);
   });
@@ -73,7 +78,7 @@ describe('classifyEdges', () => {
   });
 });
 
-// ── computeFocusNeighbourhood ─────────────────────────────────────────────────
+// -- computeFocusNeighbourhood ------------------------------------------------
 describe('computeFocusNeighbourhood', () => {
   const edges = classifyEdges(
     [edge('a.ts', 'b.ts'), edge('b.ts', 'c.ts'), edge('d.ts', 'b.ts')],
@@ -107,7 +112,7 @@ describe('computeFocusNeighbourhood', () => {
   });
 });
 
-// ── buildRadialLayout ─────────────────────────────────────────────────────────
+// -- buildRadialLayout — empty / null cases -----------------------------------
 describe('buildRadialLayout — empty / null cases', () => {
   it('returns empty layout for empty file list', () => {
     const layout = buildRadialLayout([], [], noErrors);
@@ -167,7 +172,6 @@ describe('buildRadialLayout — connected components', () => {
       edge('a.ts', 'b.ts'),
     ];
     const layout = buildRadialLayout(files, edges, noErrors);
-    // Only the internal edge matters; should be 1 component with 2 files.
     expect(layout.components).toHaveLength(1);
     expect(layout.components[0].files.sort()).toEqual(['a.ts', 'b.ts']);
   });
@@ -195,5 +199,82 @@ describe('buildRadialLayout — edge health in components', () => {
     const edges = [edge('a.ts', 'b.ts')];
     const layout = buildRadialLayout(files, edges, noErrors);
     expect(layout.components[0].edges[0].broken).toBe(false);
+  });
+});
+
+// -- componentRadius ----------------------------------------------------------
+describe('componentRadius', () => {
+  it('returns MIN_RADIUS for 0 or negative member counts', () => {
+    expect(componentRadius(0)).toBe(MIN_RADIUS_PX);
+    expect(componentRadius(-1)).toBe(MIN_RADIUS_PX);
+  });
+
+  it('returns MIN_RADIUS for very small member counts (circumference would be tiny)', () => {
+    expect(componentRadius(1)).toBe(MIN_RADIUS_PX);
+    expect(componentRadius(3)).toBe(MIN_RADIUS_PX);
+  });
+
+  it('radius grows with member count beyond the minimum arc threshold', () => {
+    const smallR = componentRadius(10);
+    const bigR   = componentRadius(80);
+    expect(bigR).toBeGreaterThan(smallR);
+  });
+
+  it('radius is capped at MAX_RADIUS_PX for very large member counts', () => {
+    expect(componentRadius(10000)).toBe(MAX_RADIUS_PX);
+  });
+
+  it('radius equals ceil(memberCount * MIN_ARC_PX / (2*PI)) for mid-range counts', () => {
+    const expected = Math.min(MAX_RADIUS_PX, Math.max(MIN_RADIUS_PX, Math.ceil((50 * MIN_ARC_PX) / (2 * Math.PI))));
+    expect(componentRadius(50)).toBe(expected);
+  });
+});
+
+// -- shouldShowLabel ----------------------------------------------------------
+describe('shouldShowLabel', () => {
+  const emptyNeighbours = new Set<string>();
+
+  it('always shows label when memberCount <= LABEL_THRESHOLD', () => {
+    expect(shouldShowLabel(LABEL_THRESHOLD, 'a.ts', null, emptyNeighbours)).toBe(true);
+    expect(shouldShowLabel(1, 'a.ts', null, emptyNeighbours)).toBe(true);
+    expect(shouldShowLabel(LABEL_THRESHOLD, 'x.ts', 'other.ts', emptyNeighbours)).toBe(true);
+  });
+
+  it('hides label when memberCount > LABEL_THRESHOLD and node is not focused/neighbour', () => {
+    expect(shouldShowLabel(LABEL_THRESHOLD + 1, 'a.ts', null, emptyNeighbours)).toBe(false);
+    expect(shouldShowLabel(100, 'z.ts', 'other.ts', emptyNeighbours)).toBe(false);
+  });
+
+  it('shows label for the focused file even in a large component', () => {
+    expect(shouldShowLabel(100, 'focus.ts', 'focus.ts', emptyNeighbours)).toBe(true);
+  });
+
+  it('shows label for a direct neighbour of the focused/hovered file in a large component', () => {
+    const neighbours = new Set(['neighbour.ts', 'other-neighbour.ts']);
+    expect(shouldShowLabel(100, 'neighbour.ts', 'focus.ts', neighbours)).toBe(true);
+    expect(shouldShowLabel(100, 'other-neighbour.ts', 'focus.ts', neighbours)).toBe(true);
+  });
+});
+
+// -- unlinked files excluded from component circles ---------------------------
+describe('buildRadialLayout — unlinked files never in components', () => {
+  it('unlinked files are not present in any component file list', () => {
+    const files = ['a.ts', 'b.ts', 'lone1.ts', 'lone2.ts', 'lone3.ts'];
+    const edges = [edge('a.ts', 'b.ts')];
+    const layout = buildRadialLayout(files, edges, noErrors);
+    const allComponentFiles = layout.components.flatMap((c) => c.files);
+    for (const u of layout.unlinked.files) {
+      expect(allComponentFiles).not.toContain(u);
+    }
+  });
+
+  it('large unlinked set does not inflate component count', () => {
+    const loneFiles = Array.from({ length: 3533 }, (_, i) => `lone/file${i}.php`);
+    const files = ['a.ts', 'b.ts', ...loneFiles];
+    const edges = [edge('a.ts', 'b.ts')];
+    const layout = buildRadialLayout(files, edges, noErrors);
+    expect(layout.components).toHaveLength(1);
+    expect(layout.unlinked.files).toHaveLength(3533);
+    expect(layout.components[0].files.sort()).toEqual(['a.ts', 'b.ts']);
   });
 });
