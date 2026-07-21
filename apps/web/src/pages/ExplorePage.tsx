@@ -174,4 +174,47 @@ const ExplorePage: React.FC = () => {
                 <DependencyGraph
                   edges={graphEdges}
                   errorFiles={errorFiles}
-                  files
+                  files={allFilePaths}
+                  selected={selected}
+                  onSelect={setSelected}
+                  onOpenFile={(path) => openFile(path)}
+                  focusPath={focusPath}
+                />
+              )}
+              {ideHint && (
+                <p role="status" className="field__hint" style={{ marginTop: 8 }}>
+                  {ideHint}
+                </p>
+              )}
+              {selected && (
+                <p className="mono" style={{ marginTop: 8, fontSize: 'var(--text-sm)' }}>
+                  Selected: {selected}
+                </p>
+              )}
+              {linkedError && (
+                <div
+                  className="panel"
+                  style={{ marginTop: 8, borderLeft: '3px solid var(--status-critical)', padding: 'var(--sp-3)' }}
+                  role="status"
+                  aria-label="Linked diagnostic finding"
+                >
+                  <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--status-critical)', fontWeight: 600 }}>
+                    {linkedError.kind} · {linkedError.ruleId}
+                  </p>
+                  <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-sm)', color: 'var(--ink-2)' }}>
+                    {linkedError.explanation ?? linkedError.message}
+                  </p>
+                  <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-xs)', color: 'var(--ink-3)' }}>
+                    {linkedError.file}:{linkedError.range.startLine}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </ScreenState>
+      </div>
+    </div>
+  );
+};
+
+export default ExplorePage;

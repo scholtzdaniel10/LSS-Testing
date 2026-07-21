@@ -334,4 +334,28 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
         enableZoomInteraction
         enablePanInteraction
         enablePointerInteraction
-        showPointerCursor={(obj) => !!o
+        showPointerCursor={(obj) => !!obj}
+        onEngineStop={() => {
+          graphRef.current?.zoomToFit(400, 40);
+          graphRef.current?.pauseAnimation();
+        }}
+        linkHoverPrecision={0}
+        onNodeClick={activateNode}
+        onNodeHover={(node) => setHoverId(node?.id ?? null)}
+        onBackgroundClick={() => onSelect(null)}
+        nodeCanvasObjectMode={() => 'replace'}
+        nodeCanvasObject={(node, ctx, globalScale) => paintNode(node, ctx, globalScale)}
+        nodePointerAreaPaint={paintPointerArea}
+        linkPointerAreaPaint={() => {
+          /* links are visual only — avoid stealing clicks from node labels */
+        }}
+      />
+      <p className="graph-wrap__hint">
+        Click a <strong>folder</strong> to drill in · click a <strong>file</strong> to open it in your IDE · hover for
+        the full path · dashed ring = external package
+      </p>
+    </div>
+  );
+};
+
+export default DependencyGraph;

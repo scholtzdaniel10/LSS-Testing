@@ -113,4 +113,9 @@ describe('Fresh seed produces no projects (DX: dummy data removal)', function ()
         asUser();
 
         $this->getJson('/api/v1/projects')
-       
+            ->assertOk()
+            ->assertJsonPath('meta.total', 0);
+
+        expect(Project::query()->count())->toBe(0);
+    });
+});

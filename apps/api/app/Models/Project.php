@@ -54,4 +54,11 @@ class Project extends Model
 
     public function healthSnapshots(): HasMany
     {
-        return $this->hasMany(HealthSnapshot::class)
+        return $this->hasMany(HealthSnapshot::class);
+    }
+
+    public function targetEnvironments(): HasMany
+    {
+        return $this->hasMany(TargetEnvironment::class);
+    }
+}

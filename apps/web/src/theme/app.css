@@ -787,4 +787,22 @@ body {
 
 .skeleton-line {
   height: 12px;
-  bor
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface-wash), var(--surface-raised), var(--surface-wash));
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.panel--error {
+  border-color: var(--status-critical);
+}
+
+.import-drop {
+  border-style: dashed;
+  margin-bottom: var(--sp-4);
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}

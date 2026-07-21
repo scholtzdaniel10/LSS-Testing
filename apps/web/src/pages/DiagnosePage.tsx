@@ -170,4 +170,54 @@ const DiagnosePage: React.FC = () => {
                     <strong style={{ color: 'var(--ink-1)' }}>{active.kind}</strong> —{' '}
                     {active.explanation ?? active.message}
                   </p>
-                  {fileError && <p
+                  {fileError && <p className="field__hint">{fileError}</p>}
+                  <div className="code-pane">
+                    {lines.map((row) => {
+                      const hl = row.line >= active.range.startLine && row.line <= active.range.endLine;
+                      return (
+                        <div
+                          key={row.line}
+                          className={`code-pane__line ${hl ? 'code-pane__line--hl' : ''}`}
+                          onMouseEnter={hl ? (e) => setPopover({ top: e.currentTarget.offsetTop - 8 }) : undefined}
+                          role={hl ? 'button' : undefined}
+                          tabIndex={hl ? 0 : undefined}
+                        >
+                          <span className="code-pane__num">{row.line}</span>
+                          <span>{row.text || ' '}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {popover && (
+                    <div
+                      className="chain-popover"
+                      style={{ right: 24, top: popover.top }}
+                      onMouseLeave={() => setPopover(null)}
+                    >
+                      <h4>Upstream</h4>
+                      <ul>
+                        {(active.upstream.length ? active.upstream : ['—']).map((f) => (
+                          <li key={f}>{f}</li>
+                        ))}
+                      </ul>
+                      <h4>Downstream</h4>
+                      <ul>
+                        {(active.downstream.length ? active.downstream : ['—']).map((f) => (
+                          <li key={f}>{f}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="page__subtitle">Select a finding.</p>
+              )}
+            </div>
+          </div>
+        </ScreenState>
+      </div>
+    </div>
+  );
+};
+
+export default DiagnosePage;

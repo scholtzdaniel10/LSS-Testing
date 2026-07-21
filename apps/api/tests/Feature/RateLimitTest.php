@@ -15,4 +15,5 @@ describe('Rate limiting', function () {
         $this->postJson("/api/v1/projects/{$project->id}/snapshot")
             ->assertStatus(429)
             ->assertHeader('Retry-After');
-    })
+    });
+});

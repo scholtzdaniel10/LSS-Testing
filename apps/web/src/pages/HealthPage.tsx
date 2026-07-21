@@ -182,4 +182,22 @@ const HealthPage: React.FC = () => {
                       >
                         <span className="row-list__grow mono">{h.file}</span>
                         <span className="row-list__meta">
-         
+                          c={h.centrality} · e={h.errorDensity}
+                        </span>
+                      </div>
+                    ))}
+                    {health.metrics.hotspots.length === 0 && (
+                      <p className="page__subtitle">No hotspots above threshold.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </ScreenState>
+      </div>
+    </div>
+  );
+};
+
+export default HealthPage;

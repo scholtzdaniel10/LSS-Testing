@@ -26,4 +26,12 @@ class GraphSnapshot extends Model
     {
         return [
             'scanned_at' => 'datetime',
-            'edges
+            'edges' => 'array',
+        ];
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+}

@@ -24,4 +24,12 @@ class UsageReport extends Model
     protected function casts(): array
     {
         return [
-            'report' 
+            'report' => 'array',
+        ];
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+}

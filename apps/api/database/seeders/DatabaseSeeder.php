@@ -15,4 +15,7 @@ class DatabaseSeeder extends Seeder
             }
         }
 
-        // No demo projects — real linked programs li
+        // No demo projects — real linked programs live in C:\Icarus and are
+        // registered at runtime via the Explore import flow or link-local.
+    }
+}

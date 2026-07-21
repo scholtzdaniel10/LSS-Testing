@@ -26,4 +26,18 @@ class Scan extends Model
 
     protected function casts(): array
     {
-        retu
+        return [
+            'analyser_status' => 'array',
+        ];
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+
+    public function errors(): HasMany
+    {
+        return $this->hasMany(DiagnosticError::class);
+    }
+}

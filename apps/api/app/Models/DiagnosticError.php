@@ -37,4 +37,12 @@ class DiagnosticError extends Model
         return [
             'range' => 'array',
             'upstream' => 'array',
-            'do
+            'downstream' => 'array',
+        ];
+    }
+
+    public function scan(): BelongsTo
+    {
+        return $this->belongsTo(Scan::class);
+    }
+}
