@@ -338,4 +338,12 @@ const ImportDropzone: React.FC = () => {
       )}
       {project?.sourceType === 'local' && project.localSourcePath && (
         <p className="field__hint" style={{ marginTop: 8 }}>
-          Active project is linked 
+          Active project is linked to <span className="mono">{project.localSourcePath}</span>. Re-scan from
+          Diagnose or click Analyze on disk after edits.
+        </p>
+      )}
+    </div>
+  );
+};
+
+export default ImportDropzone;

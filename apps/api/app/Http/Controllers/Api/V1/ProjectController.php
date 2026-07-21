@@ -196,4 +196,27 @@ class ProjectController extends Controller
         }
 
         $sandboxPath = $project->sandbox_path;
-       
+        if (!$sandboxPath) {
+            return 0;
+        }
+
+        $root = app(PathJail::class)->projectRoot($project->id);
+
+        if (!is_dir($root)) {
+            return 0;
+        }
+
+        $total = 0;
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
+        );
+        foreach ($iterator as $file) {
+            /** @var \SplFileInfo $file */
+            if ($file->isFile()) {
+                $total += (int) $file->getSize();
+            }
+        }
+
+        return $total;
+    }
+}

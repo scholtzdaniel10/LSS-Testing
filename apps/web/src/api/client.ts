@@ -210,7 +210,7 @@ export const api = {
     form.append('archive', archive);
     form.append('name', name);
     if (resumeToken) form.append('resumeToken', resumeToken);
-    return request<{ jobId: string; status: string; projectId: string }>(`/projects/${projectId}/import`, {
+    return request<{ jobId: string; status: string; projectId: string; message?: string }>(`/projects/${projectId}/import`, {
       method: 'POST',
       body: form,
     });
@@ -262,4 +262,12 @@ export async function pollJob(
   onUpdate?: (job: JobStatus) => void,
   timeoutMs = 120_000,
 ): Promise<JobStatus> {
-  const start 
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const { data } = await api.job(jobId);
+    onUpdate?.(data);
+    if (data.status === 'done' || data.status === 'failed') return data;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  throw new ApiError('Job timed out', 408);
+}
