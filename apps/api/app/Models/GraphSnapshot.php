@@ -3,12 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GraphSnapshot extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<\Database\Factories\GraphSnapshotFactory> */
+    use HasFactory, HasUuids;
 
     public $incrementing = false;
 
@@ -24,12 +26,4 @@ class GraphSnapshot extends Model
     {
         return [
             'scanned_at' => 'datetime',
-            'edges' => 'array',
-        ];
-    }
-
-    public function project(): BelongsTo
-    {
-        return $this->belongsTo(Project::class);
-    }
-}
+            'edges

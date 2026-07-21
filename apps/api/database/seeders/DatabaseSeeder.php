@@ -15,6 +15,4 @@ class DatabaseSeeder extends Seeder
             }
         }
 
-        $this->call(DemoProjectSeeder::class);
-    }
-}
+        // No demo projects — real linked programs li

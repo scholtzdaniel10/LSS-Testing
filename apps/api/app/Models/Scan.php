@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Scan extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<\Database\Factories\ScanFactory> */
+    use HasFactory, HasUuids;
 
     public $incrementing = false;
 
@@ -24,18 +26,4 @@ class Scan extends Model
 
     protected function casts(): array
     {
-        return [
-            'analyser_status' => 'array',
-        ];
-    }
-
-    public function project(): BelongsTo
-    {
-        return $this->belongsTo(Project::class);
-    }
-
-    public function errors(): HasMany
-    {
-        return $this->hasMany(DiagnosticError::class);
-    }
-}
+        retu

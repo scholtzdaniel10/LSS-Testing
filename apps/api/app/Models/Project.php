@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Project extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<\Database\Factories\ProjectFactory> */
+    use HasFactory, HasUuids;
 
     public $incrementing = false;
 
@@ -52,11 +54,4 @@ class Project extends Model
 
     public function healthSnapshots(): HasMany
     {
-        return $this->hasMany(HealthSnapshot::class);
-    }
-
-    public function targetEnvironments(): HasMany
-    {
-        return $this->hasMany(TargetEnvironment::class);
-    }
-}
+        return $this->hasMany(HealthSnapshot::class)

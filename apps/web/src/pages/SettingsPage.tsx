@@ -176,20 +176,13 @@ const SettingsPage: React.FC = () => {
               <button
                 type="button"
                 className="btn"
-                disabled={deleting || project.name === 'lexpro-portal'}
+                disabled={deleting}
                 onClick={() => void removeProject()}
-                title={
-                  project.name === 'lexpro-portal'
-                    ? 'The seeded demo project cannot be deleted'
-                    : 'Remove project and sandbox from the API'
-                }
+                title="Remove project and sandbox from the API"
               >
                 {deleting ? 'Deleting…' : 'Delete project'}
               </button>
-              {project.name === 'lexpro-portal' && (
-                <span className="field__hint">Demo project is protected.</span>
-              )}
-              {!project.lastImportedAt && project.name !== 'lexpro-portal' && (
+              {!project.lastImportedAt && (
                 <span className="field__hint">Never imported — safe to delete failed attempts.</span>
               )}
             </div>
@@ -310,3 +303,4 @@ const SettingsPage: React.FC = () => {
 };
 
 export default SettingsPage;
+                                                                                                                                                                                                                                                                                                                                                                                                    

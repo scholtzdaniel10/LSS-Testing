@@ -3,12 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class UsageReport extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<\Database\Factories\UsageReportFactory> */
+    use HasFactory, HasUuids;
 
     public $incrementing = false;
 
@@ -22,12 +24,4 @@ class UsageReport extends Model
     protected function casts(): array
     {
         return [
-            'report' => 'array',
-        ];
-    }
-
-    public function project(): BelongsTo
-    {
-        return $this->belongsTo(Project::class);
-    }
-}
+            'report' 

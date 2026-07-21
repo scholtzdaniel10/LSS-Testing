@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Project;
-use Database\Seeders\DemoProjectSeeder;
 use Illuminate\Testing\Fluent\AssertableJson;
 
 describe('API envelope (contract C7)', function () {
@@ -35,8 +34,8 @@ describe('API envelope (contract C7)', function () {
     });
 
     it('paginates list endpoints with meta.total', function () {
-        $this->seed();
         asUser();
+        Project::factory()->create(['name' => 'pagination-fixture']);
 
         $this->getJson('/api/v1/projects?per_page=1')
             ->assertOk()
@@ -53,64 +52,65 @@ describe('API envelope (contract C7)', function () {
 
 describe('Projects API', function () {
     beforeEach(function () {
-        $this->seed();
         asUser();
     });
 
-    it('lists seeded demo projects', function () {
+    it('lists projects created at runtime', function () {
+        Project::factory()->create(['name' => 'my-real-app']);
+
         $this->getJson('/api/v1/projects')
             ->assertOk()
-            ->assertJsonPath('data.0.id', DemoProjectSeeder::DEMO_PROJECT_ID)
-            ->assertJsonPath('data.0.name', 'lexpro-portal');
+            ->assertJsonPath('data.0.name', 'my-real-app');
     });
 
     it('returns a single project', function () {
-        $project = Project::query()->firstOrFail();
+        $project = Project::factory()->create(['name' => 'sample-app', 'sandbox_path' => 'sandboxes/sample-app']);
 
         $this->getJson("/api/v1/projects/{$project->id}")
             ->assertOk()
-            ->assertJsonPath('data.name', 'lexpro-portal')
-            ->assertJsonPath('data.sandboxPath', 'sandboxes/lexpro-portal');
+            ->assertJsonPath('data.name', 'sample-app')
+            ->assertJsonPath('data.sandboxPath', 'sandboxes/sample-app');
     });
 
-    it('deletes a user project but protects the seeded demo', function () {
-        $demo = Project::query()->findOrFail(DemoProjectSeeder::DEMO_PROJECT_ID);
-        $extra = Project::query()->create(['name' => 'throwaway-import']);
+    it('deletes a project', function () {
+        $project = Project::factory()->create(['name' => 'throwaway-import']);
 
-        $this->deleteJson("/api/v1/projects/{$demo->id}")
-            ->assertStatus(409)
-            ->assertJsonPath('errors.0.detail', 'The seeded demo project cannot be deleted.');
-
-        $this->deleteJson("/api/v1/projects/{$extra->id}")
+        $this->deleteJson("/api/v1/projects/{$project->id}")
             ->assertOk()
             ->assertJsonPath('data.deleted', true);
 
-        expect(Project::query()->find($extra->id))->toBeNull();
+        expect(Project::query()->find($project->id))->toBeNull();
     });
 });
 
 describe('Health report API', function () {
     beforeEach(function () {
-        $this->seed();
         asUser();
     });
 
-    it('returns the latest C2 health snapshot', function () {
-        $project = Project::query()->firstOrFail();
+    it('returns null for a project with no snapshot', function () {
+        $project = Project::factory()->create(['name' => 'unscan-app']);
 
         $this->getJson("/api/v1/projects/{$project->id}/health-report")
             ->assertOk()
-            ->assertJsonPath('data.projectId', $project->id)
-            ->assertJsonPath('data.scores.overall', 63)
-            ->assertJsonPath('data.metrics.filesAnalysed', 1842);
+            ->assertJsonPath('data', null);
     });
 
-    it('returns health snapshot history', function () {
-        $project = Project::query()->firstOrFail();
+    it('returns an empty history for a project with no snapshots', function () {
+        $project = Project::factory()->create(['name' => 'no-history-app']);
 
         $this->getJson("/api/v1/projects/{$project->id}/health-report/history")
             ->assertOk()
-            ->assertJsonPath('meta.total', 1)
-            ->assertJsonPath('data.0.scores.overall', 63);
+            ->assertJsonPath('meta.total', 0);
     });
 });
+
+describe('Fresh seed produces no projects (DX: dummy data removal)', function () {
+    it('yields zero projects after migrate --seed', function () {
+        // The global seeder no longer calls DemoProjectSeeder; a freshly seeded
+        // DB must have no projects so real linked programs are not contaminated.
+        $this->seed();
+        asUser();
+
+        $this->getJson('/api/v1/projects')
+       

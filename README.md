@@ -57,7 +57,7 @@ php artisan migrate --seed
 
 **Postgres without Docker (Daniel's machine — done, Postgres 16):** install [PostgreSQL 16+](https://www.postgresql.org/download/windows/), then as the postgres superuser: `CREATE ROLE lss LOGIN PASSWORD 'lss'; CREATE DATABASE lss OWNER lss;` and set the `DB_*` values in `apps/api/.env` (`DB_CONNECTION=pgsql`, host 127.0.0.1:5432, db/user/password `lss`).
 
-Seeded demo project: `lexpro-portal` (matches the v0 preview mock data shapes).
+No demo data is seeded — the app starts empty and real projects are registered at runtime via the Explore import flow or **Link & analyze on disk** in Settings.
 
 ### Run the apps
 
@@ -98,24 +98,4 @@ PHPStan runs from the **Maintain API**, not from each linked program:
 
 ```sh
 cd apps/api
-composer install   # installs vendor/bin/phpstan (already in composer.json)
-```
-
-After linking/importing a project, use **Re-scan** on Health. Diagnose distinguishes:
-
-- **missing binary** — `composer install` was not run in `apps/api`
-- **clean** — PHPStan ran and found nothing (static analysis only)
-- **findings** — real analyser output with ruleId + file + line
-
-Optional (not required for Maintain): to run PHPStan yourself inside a company program:
-
-```sh
-cd <your-program>
-composer require --dev phpstan/phpstan
-```
-
-## Workflow
-
-Tasks, acceptance criteria and the claim convention are in the vault Roadmap
-("How agents work this project"). Commits reference task IDs. Definition of done
-includes the pre-merge checklist in vault note `09 Engineering Standards`.
+composer install   # installs vendor/bin/phpsta
