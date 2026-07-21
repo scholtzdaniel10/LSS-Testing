@@ -242,13 +242,14 @@ const ImportDropzone: React.FC = () => {
       data-animate
     >
       <div className="panel__head">
-        <h2 className="panel__title">Import program</h2>
-        <span className="panel__hint">analyze on your PC — no upload</span>
+        <h2 className="panel__title">Link or import program</h2>
+        <span className="panel__hint">link folder (recommended) · no upload, no copy</span>
       </div>
       <p className="page__subtitle">
-        Point the API at the folder on this machine. Drop or pick a folder for a quick browser preview,
-        then enter the full path and analyze. Ignore rules strip node_modules/vendor/dist/.git before
-        scanning.
+        <strong>Recommended:</strong> enter the folder path below and click{' '}
+        <strong>Link folder on disk</strong> — zero copy, no upload, the API reads your folder in place.
+        Drop or pick a folder first for a quick browser preview (optional).
+        Ignore rules strip node_modules/vendor/dist/.git before scanning.
       </p>
 
       <div className="field">
@@ -274,10 +275,10 @@ const ImportDropzone: React.FC = () => {
           disabled={!canAnalyze}
           onClick={() => void linkLocal(manifestForLink, diskPath)}
         >
-          Analyze on disk
+          Link folder on disk
         </button>
         <button type="button" className="btn" onClick={() => void pickDirectory()} disabled={!!busy}>
-          Choose folder (preview)
+          Choose folder (preview only)
         </button>
         <input
           ref={inputRef}
@@ -291,11 +292,11 @@ const ImportDropzone: React.FC = () => {
         <button
           type="button"
           className="btn"
-          style={{ marginLeft: 'auto' }}
+          style={{ marginLeft: 'auto', color: 'var(--ink-4)', borderColor: 'var(--line-1)' }}
           disabled={!!busy}
           onClick={() => setShowZipUpload((v) => !v)}
         >
-          {showZipUpload ? 'Hide zip upload' : 'Legacy zip upload…'}
+          {showZipUpload ? 'Hide zip upload' : 'Zip upload (copies to sandbox)…'}
         </button>
       </div>
 
@@ -337,13 +338,4 @@ const ImportDropzone: React.FC = () => {
       )}
       {project?.sourceType === 'local' && project.localSourcePath && (
         <p className="field__hint" style={{ marginTop: 8 }}>
-          Active project is linked to <span className="mono">{project.localSourcePath}</span>. Re-scan from
-          Diagnose or click Analyze on disk after edits.
-        </p>
-      )}
-    </div>
-  );
-};
-
-export default ImportDropzone;
-
+          Active project is linked 

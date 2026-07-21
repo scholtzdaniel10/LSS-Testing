@@ -177,10 +177,23 @@ class ProjectController extends Controller
             'sourceType' => $project->source_type ?? 'import',
             'localSourcePath' => $project->local_source_path,
             'sandboxPath' => $project->sandbox_path,
+            'sandboxSizeBytes' => $this->sandboxSizeBytes($project),
             'lastImportedAt' => $project->last_imported_at?->toIso8601String(),
             'createdAt' => $project->created_at?->toIso8601String(),
             'updatedAt' => $project->updated_at?->toIso8601String(),
             'fileCount' => $project->files()->count(),
         ];
     }
-}
+
+    /**
+     * Recursive directory size of the jail root for imported projects.
+     * Returns null for local-linked projects (zero copy — reads from user's folder).
+     */
+    private function sandboxSizeBytes(Project $project): ?int
+    {
+        if (($project->source_type ?? 'import') === 'local') {
+            return null;
+        }
+
+        $sandboxPath = $project->sandbox_path;
+       

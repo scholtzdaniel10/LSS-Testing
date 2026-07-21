@@ -31,6 +31,7 @@ export type Project = {
   sourceType?: 'import' | 'local';
   localSourcePath?: string | null;
   sandboxPath: string | null;
+  sandboxSizeBytes?: number | null;
   lastImportedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -261,12 +262,4 @@ export async function pollJob(
   onUpdate?: (job: JobStatus) => void,
   timeoutMs = 120_000,
 ): Promise<JobStatus> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const { data } = await api.job(jobId);
-    onUpdate?.(data);
-    if (data.status === 'done' || data.status === 'failed') return data;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new ApiError('Job timed out', 408);
-}
+  const start 
