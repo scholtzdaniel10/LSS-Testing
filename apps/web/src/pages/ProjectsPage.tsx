@@ -4,7 +4,7 @@ import { useEntrance } from '../lib/anim';
 import ScreenState from '../components/ScreenState';
 import { useProject } from '../state/ProjectContext';
 import { relativeTime } from '../lib/timeFormat';
-import { api, ApiError } from '../api/client';
+import { api, ApiError, pollJob } from '../api/client';
 import { linkLocalFolder } from '../lib/linkLocalProject';
 import type { Project } from '../api/client';
 
@@ -14,7 +14,7 @@ type WizardStep = 'idle' | 'name' | 'method' | 'link' | 'uploading';
 const ProjectsPage: React.FC = () => {
   const ref = useEntrance();
   const history = useHistory();
-  const { projects, selectProject, rescan, deleteProject, refreshProjects, status, errorMessage, jobMessage } =
+  const { projects, selectProject, deleteProject, refreshProjects, status, errorMessage, jobMessage } =
     useProject();
 
   // Wizard
@@ -46,13 +46,33 @@ const ProjectsPage: React.FC = () => {
   const handleRescan = async (p: Project) => {
     setCardBusy((prev) => ({ ...prev, [p.id]: 'Queuing re-scan…' }));
     try {
-      await rescan();
-    } finally {
-      setCardBusy((prev) => {
-        const next = { ...prev };
-        delete next[p.id];
-        return next;
-      });
+      const { data } = await api.rescan(p.id);
+      setCardBusy((prev) => ({ ...prev, [p.id]: `Analyze job ${data.analyzeJobId}…` }));
+      await pollJob(data.analyzeJobId, (j) =>
+        setCardBusy((prev) => ({ ...prev, [p.id]: `Analyze: ${j.status} ${j.progress}%` })),
+      );
+      await pollJob(data.snapshotJobId, (j) =>
+        setCardBusy((prev) => ({ ...prev, [p.id]: `Snapshot: ${j.status} ${j.progress}%` })),
+      );
+      await refreshProjects();
+      setCardBusy((prev) => ({ ...prev, [p.id]: 'Re-scan complete' }));
+      setTimeout(() => {
+        setCardBusy((prev) => {
+          const next = { ...prev };
+          delete next[p.id];
+          return next;
+        });
+      }, 2000);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Re-scan failed';
+      setCardBusy((prev) => ({ ...prev, [p.id]: msg }));
+      setTimeout(() => {
+        setCardBusy((prev) => {
+          const next = { ...prev };
+          delete next[p.id];
+          return next;
+        });
+      }, 4000);
     }
   };
 

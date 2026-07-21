@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
-import ImportDropzone from '../components/ImportDropzone';
 import DependencyGraph from '../components/DependencyGraph';
 import ScreenState from '../components/ScreenState';
 import {
@@ -94,11 +93,6 @@ const ExplorePage: React.FC = () => {
     return map;
   }, [graphEdges]);
 
-  const localOnly = useMemo(() => {
-    const serverReady = tree.length > 0 && project?.lastImportedAt;
-    return !!localManifest && !serverReady;
-  }, [tree, localManifest, project?.lastImportedAt]);
-
   // Build the visible tree rows from the expanded set.
   const treeNodes = useMemo(
     () => buildFileTree(allFilePaths, expandedFolders, linkCount, errorCount),
@@ -148,7 +142,7 @@ const ExplorePage: React.FC = () => {
         <div data-animate>
           <h1 className="page__title">Explore</h1>
           <p className="page__subtitle">
-            Drag a program in locally, then explore the node tree and dependency graph.
+            Node tree and dependency graph for the active project.
             {project ? (
               <>
                 {' '}
@@ -165,19 +159,10 @@ const ExplorePage: React.FC = () => {
           </p>
         </div>
 
-        <ImportDropzone />
-
-        {localOnly && (
-          <p className="v0-banner" role="status" data-animate>
-            Browser preview only — enter your folder path above and click <strong>Link folder on disk</strong>{' '}
-            for links and PHPStan (no upload).
-          </p>
-        )}
-
         <ScreenState
           status={status === 'ready' && treeNodes.length === 0 && !localManifest ? 'empty' : status === 'error' ? 'error' : treeNodes.length || localManifest ? 'ready' : status}
           errorMessage={errorMessage}
-          emptyHint="No files yet — link a folder above, or switch project in the header."
+          emptyHint="No project open yet."
         >
           <div className="split" data-animate>
             <div className="panel">
@@ -185,7 +170,7 @@ const ExplorePage: React.FC = () => {
                 <h2 className="panel__title">Node tree</h2>
                 <span className="panel__hint">
                   {allFilePaths.length.toLocaleString()} files
-                  {localOnly ? ' · local preview' : ' · from API'}
+                  {localManifest && !(tree.length > 0 && project?.lastImportedAt) ? ' · local preview' : ' · from API'}
                 </span>
               </div>
               <div className="tree" role="tree">
@@ -198,9 +183,9 @@ const ExplorePage: React.FC = () => {
                     <div
                       key={node.path}
                       ref={isFocused ? focusRowRef : undefined}
-                      className={`tree__row${isSelected ? ' tree__row--selected' : ''}`}
+                      className={`tree__row${isSelected ? ' tree__row--selected' : ''}${node.kind === 'folder' ? ' tree__row--folder' : ''}`}
                       style={{ paddingLeft: 6 + node.depth * 14 }}
-                      role={node.kind === 'folder' ? 'treeitem' : 'treeitem'}
+                      role="treeitem"
                       aria-expanded={node.kind === 'folder' ? isExpanded : undefined}
                       tabIndex={0}
                       onClick={() => {
@@ -222,10 +207,7 @@ const ExplorePage: React.FC = () => {
                       }}
                     >
                       {node.kind === 'folder' ? (
-                        <span
-                          className="tree__chevron"
-                          aria-hidden="true"
-                        >
+                        <span className="tree__chevron" aria-hidden="true">
                           {isExpanded ? '▾' : '▸'}
                         </span>
                       ) : (
@@ -238,7 +220,6 @@ const ExplorePage: React.FC = () => {
                       <span title={node.path} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {node.name}{node.kind === 'folder' ? '/' : ''}
                       </span>
-                      {/* Only show badges when non-zero (declutter) */}
                       {node.errors > 0 && (
                         <span className="tree__badge tree__badge--err" aria-label={`${node.errors} error${node.errors !== 1 ? 's' : ''}`}>
                           {node.errors} err
@@ -261,7 +242,7 @@ const ExplorePage: React.FC = () => {
                 <span className="panel__hint">folder view · drill down on click</span>
               </div>
               {graphEdges.length === 0 && allFilePaths.length === 0 ? (
-                <p className="page__subtitle">No graph yet — import a program or switch project in the header.</p>
+                <p className="page__subtitle">No graph yet — open a project from <NavLink to="/projects" className="topnav__link" style={{ fontSize: 'var(--text-base)' }}>Projects</NavLink>.</p>
               ) : (
                 <DependencyGraph
                   edges={graphEdges}
@@ -304,6 +285,19 @@ const ExplorePage: React.FC = () => {
             </div>
           </div>
         </ScreenState>
+
+        {/* Slim empty-state pointer when no project is open */}
+        {status !== 'loading' && status !== 'idle' && !project && (
+          <div className="panel" data-animate>
+            <p className="page__subtitle">
+              No project open.{' '}
+              <NavLink to="/projects" className="topnav__link" style={{ fontSize: 'var(--text-base)', position: 'static' }}>
+                Go to Projects
+              </NavLink>{' '}
+              to link a folder or upload a zip.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
