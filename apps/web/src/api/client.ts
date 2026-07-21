@@ -66,6 +66,10 @@ export type HealthSnapshot = {
   }>;
 };
 
+export type AnalyserStatus = 'missing_binary' | 'clean' | 'ok' | string;
+
+export type AnalyserStatuses = Record<string, AnalyserStatus>;
+
 export type DiagnosticFinding = {
   id: string;
   source: string;
@@ -219,7 +223,11 @@ export const api = {
     request<{ projectId: string; report: UsageReport; createdAt: string | null } | null>(
       `/projects/${id}/usage-report`,
     ),
-  errors: (id: string) => request<DiagnosticFinding[]>(`/projects/${id}/errors`),
+  errors: (id: string) =>
+    request<DiagnosticFinding[]>(`/projects/${id}/errors`).then((env) => ({
+      ...env,
+      analysers: (env.meta?.analysers as AnalyserStatuses | undefined) ?? {},
+    })),
   tree: (id: string) => request<TreeFile[]>(`/projects/${id}/tree`),
   file: (id: string, path: string) =>
     request<{

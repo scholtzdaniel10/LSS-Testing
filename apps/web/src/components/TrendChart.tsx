@@ -8,9 +8,9 @@ const SERIES_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 
 const W = 760;
 const H = 240;
 const PAD = { top: 16, right: 96, bottom: 28, left: 40 };
-const Y_MIN = 30;
-const Y_MAX = 90;
-const TICKS = [40, 60, 80];
+const Y_MIN = 0;
+const Y_MAX = 100;
+const TICKS = [0, 20, 40, 60, 80, 100];
 
 const sx = (i: number, n: number) => PAD.left + (i * (W - PAD.left - PAD.right)) / Math.max(n - 1, 1);
 const sy = (v: number) => PAD.top + ((Y_MAX - v) * (H - PAD.top - PAD.bottom)) / (Y_MAX - Y_MIN);

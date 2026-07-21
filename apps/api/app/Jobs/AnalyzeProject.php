@@ -55,11 +55,19 @@ class AnalyzeProject implements ShouldQueue
         $status->markRunning(70);
         $result = $runner->run($project, $sandbox);
 
+        $analyserNote = '';
+        if (($result['analysers']['phpstan'] ?? null) === 'missing_binary') {
+            $analyserNote = ' · PHPStan missing on Maintain API (composer install in apps/api)';
+        } elseif (($result['analysers']['phpstan'] ?? null) === 'clean') {
+            $analyserNote = ' · PHPStan clean';
+        }
+
         $status->markDone(sprintf(
-            'Scan %s: %d findings (%d rejected by evidence gate)',
+            'Scan %s: %d findings (%d rejected by evidence gate)%s',
             $result['scan']->id,
             $result['accepted'],
             $result['rejected'],
+            $analyserNote,
         ));
     }
 

@@ -19,7 +19,10 @@ class ErrorController extends Controller
         $scan = $project->scans()->orderByDesc('created_at')->first();
 
         if ($scan === null) {
-            return $this->respond([], ['reason' => 'not-scanned-yet']);
+            return $this->respond([], [
+                'reason' => 'not-scanned-yet',
+                'analysers' => [],
+            ]);
         }
 
         $filters = $request->validated();
@@ -47,6 +50,9 @@ class ErrorController extends Controller
                 'downstream' => $error->downstream,
             ]);
 
-        return ApiResponse::cursorPaginated($paginator, ['scanId' => $scan->id]);
+        return ApiResponse::cursorPaginated($paginator, [
+            'scanId' => $scan->id,
+            'analysers' => $scan->analyser_status ?? [],
+        ]);
     }
 }

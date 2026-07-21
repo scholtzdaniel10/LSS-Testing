@@ -92,6 +92,28 @@ The API scans that folder in place (ignore rules apply). No size limit beyond di
 
 Optional: restrict paths with `LOCAL_PATH_PREFIXES=C:\LSS;C:\Projects` in `apps/api/.env`.
 
+## Diagnostics (PHPStan)
+
+PHPStan runs from the **Maintain API**, not from each linked program:
+
+```sh
+cd apps/api
+composer install   # installs vendor/bin/phpstan (already in composer.json)
+```
+
+After linking/importing a project, use **Re-scan** on Health. Diagnose distinguishes:
+
+- **missing binary** — `composer install` was not run in `apps/api`
+- **clean** — PHPStan ran and found nothing (static analysis only)
+- **findings** — real analyser output with ruleId + file + line
+
+Optional (not required for Maintain): to run PHPStan yourself inside a company program:
+
+```sh
+cd <your-program>
+composer require --dev phpstan/phpstan
+```
+
 ## Workflow
 
 Tasks, acceptance criteria and the claim convention are in the vault Roadmap

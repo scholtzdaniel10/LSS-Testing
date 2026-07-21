@@ -19,7 +19,15 @@ class Scan extends Model
         'project_id',
         'scan_hash',
         'status',
+        'analyser_status',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'analyser_status' => 'array',
+        ];
+    }
 
     public function project(): BelongsTo
     {

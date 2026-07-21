@@ -9,11 +9,25 @@ import type { DiagnosticFinding } from '../api/client';
 
 const DiagnosePage: React.FC = () => {
   const ref = useEntrance();
-  const { project, errors, status, errorMessage } = useProject();
+  const { project, errors, analysers, status, errorMessage } = useProject();
   const [active, setActive] = useState<DiagnosticFinding | null>(null);
   const [lines, setLines] = useState<{ line: number; text: string }[]>([]);
   const [popover, setPopover] = useState<{ top: number } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+
+  const diagnoseEmptyHint = (() => {
+    const phpstan = analysers.phpstan;
+    if (phpstan === 'missing_binary') {
+      return 'PHPStan is not installed on the Maintain API. From apps/api run composer install, then Re-scan on Health. (Optional: to use PHPStan inside your own program, cd to that folder and run composer require --dev phpstan/phpstan — not required for Diagnose.)';
+    }
+    if (phpstan === 'clean') {
+      return 'PHPStan ran and reported no findings (static analysis only). Hit Re-scan on Health to refresh.';
+    }
+    if (!phpstan) {
+      return 'No scan yet. Link or import a program, then Re-scan on Health. PHPStan runs from the Maintain API (apps/api/vendor), not from each program.';
+    }
+    return 'No findings in the latest scan. Hit Re-scan on Health to refresh.';
+  })();
 
   useEffect(() => {
     if (errors[0] && !active) setActive(errors[0]);
@@ -74,7 +88,7 @@ const DiagnosePage: React.FC = () => {
         <ScreenState
           status={status === 'ready' && errors.length === 0 ? 'empty' : status}
           errorMessage={errorMessage}
-          emptyHint="No findings yet. After import we run PHPStan if vendor/bin/phpstan exists in the API — clean code may legitimately show zero. Hit Re-scan on Health to refresh."
+          emptyHint={diagnoseEmptyHint}
         >
           <div className="split" data-animate>
             <div className="panel">

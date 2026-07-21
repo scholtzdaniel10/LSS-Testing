@@ -25,6 +25,8 @@ final class PhpStanAdapter implements Analyzer
     /** @var callable(string): string|null */
     private $jsonRunner;
 
+    private ?string $lastRunStatus = null;
+
     public function __construct(
         private readonly Taxonomy $taxonomy = new Taxonomy,
         private readonly ?string $binary = null,
@@ -43,16 +45,38 @@ final class PhpStanAdapter implements Analyzer
         return 'phpstan';
     }
 
+    /** True when the Maintain API has a PHPStan binary (or a test json runner). */
+    public function binaryAvailable(): bool
+    {
+        if ($this->jsonRunner !== null) {
+            return true;
+        }
+
+        return $this->resolveBinary() !== null;
+    }
+
+    /**
+     * Status for the last {@see run()} call: missing_binary | clean | ok.
+     */
+    public function lastRunStatus(): ?string
+    {
+        return $this->lastRunStatus;
+    }
+
     public function run(string $sandboxPath): array
     {
         if ($this->jsonRunner !== null) {
             $json = ($this->jsonRunner)($sandboxPath);
+            $findings = $this->normalize($json, $sandboxPath);
+            $this->lastRunStatus = $findings === [] ? 'clean' : 'ok';
 
-            return $this->normalize($json, $sandboxPath);
+            return $findings;
         }
 
         $binary = $this->resolveBinary();
         if ($binary === null) {
+            $this->lastRunStatus = 'missing_binary';
+
             return [];
         }
 
@@ -78,10 +102,15 @@ final class PhpStanAdapter implements Analyzer
 
         if ($json === '' && $result->errorOutput() !== '') {
             // Prefer stdout; if empty, do not invent findings from stderr.
+            $this->lastRunStatus = 'clean';
+
             return [];
         }
 
-        return $this->normalize($json, $sandboxPath);
+        $findings = $this->normalize($json, $sandboxPath);
+        $this->lastRunStatus = $findings === [] ? 'clean' : 'ok';
+
+        return $findings;
     }
 
     /**
@@ -171,8 +200,9 @@ final class PhpStanAdapter implements Analyzer
 
     private function resolveBinary(): ?string
     {
-        if ($this->binary !== null && is_file($this->binary)) {
-            return $this->binary;
+        // Explicit override (including tests forcing a missing path) skips vendor discovery.
+        if ($this->binary !== null) {
+            return is_file($this->binary) ? $this->binary : null;
         }
 
         $candidates = [

@@ -26,7 +26,7 @@ final class AnalysisRunner
     }
 
     /**
-     * @return array{scan: Scan, accepted: int, rejected: int}
+     * @return array{scan: Scan, accepted: int, rejected: int, analysers: array<string, string>}
      */
     public function run(Project $project, string $sandboxPath): array
     {
@@ -38,9 +38,24 @@ final class AnalysisRunner
 
         $accepted = 0;
         $rejected = 0;
+        /** @var array<string, string> $analyserStatus */
+        $analyserStatus = [];
 
         foreach ($this->analyzers as $analyzer) {
-            foreach ($analyzer->run($sandboxPath) as $raw) {
+            $source = $analyzer->source();
+            $findings = $analyzer->run($sandboxPath);
+
+            if ($analyzer instanceof PhpStanAdapter) {
+                $analyserStatus[$source] = $analyzer->lastRunStatus() ?? (
+                    $analyzer->binaryAvailable()
+                        ? ($findings === [] ? 'clean' : 'ok')
+                        : 'missing_binary'
+                );
+            } else {
+                $analyserStatus[$source] = $findings === [] ? 'clean' : 'ok';
+            }
+
+            foreach ($findings as $raw) {
                 try {
                     $finding = $this->gate->accept($raw);
                 } catch (\InvalidArgumentException) {
@@ -67,8 +82,16 @@ final class AnalysisRunner
             }
         }
 
-        $scan->update(['status' => 'done']);
+        $scan->update([
+            'status' => 'done',
+            'analyser_status' => $analyserStatus,
+        ]);
 
-        return ['scan' => $scan->fresh(), 'accepted' => $accepted, 'rejected' => $rejected];
+        return [
+            'scan' => $scan->fresh(),
+            'accepted' => $accepted,
+            'rejected' => $rejected,
+            'analysers' => $analyserStatus,
+        ];
     }
 }

@@ -105,6 +105,14 @@ it('refuses to report a clean scan when PHPStan crashed (DX-15/17 honesty)', fun
     expect(fn () => $adapter->run('/sandbox'))->toThrow(RuntimeException::class, 'memory limit');
 });
 
+it('reports missing_binary when Maintain API has no PHPStan (DX-2 honesty)', function () {
+    $adapter = new PhpStanAdapter(new \App\Services\Diagnostics\Taxonomy, '/nonexistent/phpstan-binary');
+
+    expect($adapter->binaryAvailable())->toBeFalse();
+    expect($adapter->run(sys_get_temp_dir()))->toBe([]);
+    expect($adapter->lastRunStatus())->toBe('missing_binary');
+});
+
 it('writes CI3 PHPStan bootstrap without composer (DX-16)', function () {
     $fixture = base_path('tests/fixtures/ci3-mini');
     $adapter = new PhpStanAdapter;
