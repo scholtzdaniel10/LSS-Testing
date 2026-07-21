@@ -1,0 +1,10 @@
+# Normalise line endings to LF in the repo; check out as native on each OS.
+* text=auto
+
+# Binaries — never touch line endings.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.woff2 binary
+*.phar binary

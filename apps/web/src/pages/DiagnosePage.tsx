@@ -167,28 +167,4 @@ const DiagnosePage: React.FC = () => {
                     >
                       <h4>Upstream</h4>
                       <ul>
-                        {(active.upstream.length ? active.upstream : ['—']).map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
-                      </ul>
-                      <h4>Downstream</h4>
-                      <ul>
-                        {(active.downstream.length ? active.downstream : ['—']).map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="page__subtitle">Select a finding.</p>
-              )}
-            </div>
-          </div>
-        </ScreenState>
-      </div>
-    </div>
-  );
-};
-
-export default DiagnosePage;
+                        {(active.upstream.length ? active.upstream : ['—']).map((f) =>

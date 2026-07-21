@@ -50,9 +50,4 @@ class ErrorController extends Controller
                 'downstream' => $error->downstream,
             ]);
 
-        return ApiResponse::cursorPaginated($paginator, [
-            'scanId' => $scan->id,
-            'analysers' => $scan->analyser_status ?? [],
-        ]);
-    }
-}
+        return ApiRespon

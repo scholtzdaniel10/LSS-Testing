@@ -63,16 +63,4 @@ class AnalyzeProject implements ShouldQueue
         }
 
         $status->markDone(sprintf(
-            'Scan %s: %d findings (%d rejected by evidence gate)%s',
-            $result['scan']->id,
-            $result['accepted'],
-            $result['rejected'],
-            $analyserNote,
-        ));
-    }
-
-    public function failed(Throwable $exception): void
-    {
-        JobStatus::query()->find($this->jobStatusId)?->markFailed($exception->getMessage());
-    }
-}
+        
