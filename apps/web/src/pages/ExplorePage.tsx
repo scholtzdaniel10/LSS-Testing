@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useHistory, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
 import DependencyGraph from '../components/DependencyGraph';
+import CodebaseRadial from '../components/CodebaseRadial';
 import ScreenState from '../components/ScreenState';
 import {
   buildFileTree,
@@ -10,6 +11,67 @@ import {
 } from '../lib/graphModel';
 import { useProject } from '../state/ProjectContext';
 import { loadEditorSettings, openInIde } from '../types';
+import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
+import type { LocalProjectManifest } from '../lib/localProjectStore';
+
+// ── RadialPanel — inner component to keep complex ternaries out of JSX attrs ──
+type RadialPanelProps = {
+  status: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+  errorMessage: string | null;
+  allFilePaths: string[];
+  localManifest: LocalProjectManifest | null;
+  graphEdges: GraphEdge[];
+  errors: DiagnosticFinding[];
+  tree: TreeFile[];
+  focusPath: string | null;
+  onFocusTree: (path: string) => void;
+};
+
+function RadialPanel({
+  status,
+  errorMessage,
+  allFilePaths,
+  localManifest,
+  graphEdges,
+  errors,
+  tree,
+  focusPath,
+  onFocusTree,
+}: RadialPanelProps) {
+  const hasData = allFilePaths.length > 0 || localManifest != null;
+  let screenStatus: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+  if (status === 'error') {
+    screenStatus = 'error';
+  } else if (status === 'ready' && !hasData) {
+    screenStatus = 'empty';
+  } else if (hasData) {
+    screenStatus = 'ready';
+  } else {
+    screenStatus = status;
+  }
+
+  const treeFiles: TreeFile[] = tree.length > 0
+    ? tree
+    : (localManifest?.files ?? []).map((f) => ({ path: f.path, size: 0, lang: null as string | null }));
+
+  return (
+    <ScreenState
+      status={screenStatus}
+      errorMessage={errorMessage}
+      emptyHint="No snapshot yet — run Analyze or Re-scan from the Projects page."
+    >
+      <CodebaseRadial
+        edges={graphEdges}
+        findings={errors}
+        files={treeFiles}
+        focusParam={focusPath}
+        onFocusTree={onFocusTree}
+      />
+    </ScreenState>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const SERIES: Record<string, string> = {
   app: 'var(--series-1)',
@@ -22,12 +84,16 @@ const SERIES: Record<string, string> = {
   other: 'var(--series-other)',
 };
 
+type ExploreView = 'map' | 'graph';
+
 const ExplorePage: React.FC = () => {
   const ref = useEntrance();
   const location = useLocation();
+  const history = useHistory();
   const { tree, graphEdges, errors, localManifest, status, errorMessage, usage, project } = useProject();
   const [selected, setSelected] = useState<string | null>(null);
   const [ideHint, setIdeHint] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<ExploreView>('map');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const didInitExpand = useRef(false);
 
@@ -136,6 +202,21 @@ const ExplorePage: React.FC = () => {
     }
   });
 
+  // Sync radial map focus -> URL ?focus= param (keeps tree in step).
+  const handleFocusTree = useCallback(
+    (path: string) => {
+      history.push(`/explore?focus=${encodeURIComponent(path)}`);
+    },
+    [history],
+  );
+
+  const outerScreenStatus = (
+    status === 'ready' && treeNodes.length === 0 && !localManifest ? 'empty'
+    : status === 'error' ? 'error'
+    : treeNodes.length > 0 || localManifest ? 'ready'
+    : status
+  ) as 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+
   return (
     <div className="page">
       <div className="page__inner" ref={ref} style={{ maxWidth: 1320 }}>
@@ -146,13 +227,14 @@ const ExplorePage: React.FC = () => {
             {project ? (
               <>
                 {' '}
-                · active <span className="mono">{project.name}</span>
+                {'·'} active <span className="mono">{project.name}</span>
               </>
             ) : null}
             {usage?.uses ? (
               <>
                 {' '}
-                · Uses: {(usage.uses.frameworks ?? []).join(', ') || '—'} · languages:{' '}
+                {'·'} Uses: {(usage.uses.frameworks ?? []).join(', ') || '—'}{' '}
+                {'·'} languages:{' '}
                 {(usage.uses.languages ?? []).join(', ') || '—'}
               </>
             ) : null}
@@ -160,7 +242,7 @@ const ExplorePage: React.FC = () => {
         </div>
 
         <ScreenState
-          status={status === 'ready' && treeNodes.length === 0 && !localManifest ? 'empty' : status === 'error' ? 'error' : treeNodes.length || localManifest ? 'ready' : status}
+          status={outerScreenStatus}
           errorMessage={errorMessage}
           emptyHint="No project open yet."
         >
@@ -238,55 +320,120 @@ const ExplorePage: React.FC = () => {
 
             <div className="panel">
               <div className="panel__head">
-                <h2 className="panel__title">Dependency graph</h2>
-                <span className="panel__hint">folder view · drill down on click</span>
-              </div>
-              {graphEdges.length === 0 && allFilePaths.length === 0 ? (
-                <p className="page__subtitle">No graph yet — open a project from <NavLink to="/projects" className="topnav__link" style={{ fontSize: 'var(--text-base)' }}>Projects</NavLink>.</p>
-              ) : (
-                <DependencyGraph
-                  edges={graphEdges}
-                  errorFiles={errorFiles}
-                  files={allFilePaths}
-                  selected={selected}
-                  onSelect={setSelected}
-                  onOpenFile={(path) => openFile(path)}
-                  focusPath={focusPath}
-                />
-              )}
-              {ideHint && (
-                <p role="status" className="field__hint" style={{ marginTop: 8 }}>
-                  {ideHint}
-                </p>
-              )}
-              {selected && (
-                <p className="mono" style={{ marginTop: 8, fontSize: 'var(--text-sm)' }}>
-                  Selected: {selected}
-                </p>
-              )}
-              {linkedError && (
-                <div
-                  className="panel"
-                  style={{ marginTop: 8, borderLeft: '3px solid var(--status-critical)', padding: 'var(--sp-3)' }}
-                  role="status"
-                  aria-label="Linked diagnostic finding"
-                >
-                  <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--status-critical)', fontWeight: 600 }}>
-                    {linkedError.kind} · {linkedError.ruleId}
-                  </p>
-                  <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-sm)', color: 'var(--ink-2)' }}>
-                    {linkedError.explanation ?? linkedError.message}
-                  </p>
-                  <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-xs)', color: 'var(--ink-3)' }}>
-                    {linkedError.file}:{linkedError.range.startLine}
-                  </p>
+                <h2 className="panel__title">
+                  {activeView === 'map' ? 'Codebase map' : 'Dependency graph'}
+                </h2>
+                <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+                  <span className="panel__hint">
+                    {activeView === 'map' ? 'radial · edge bundling' : 'folder view · drill down on click'}
+                  </span>
+                  <div
+                    role="group"
+                    aria-label="View toggle"
+                    style={{ display: 'flex', gap: '2px', background: 'var(--surface-raised)', borderRadius: 'var(--radius-sm)', padding: '2px' }}
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={activeView === 'map'}
+                      onClick={() => setActiveView('map')}
+                      style={{
+                        fontSize: 'var(--text-xs)',
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: activeView === 'map' ? 'var(--surface-wash)' : 'none',
+                        color: activeView === 'map' ? 'var(--ink-1)' : 'var(--ink-3)',
+                      }}
+                    >
+                      Map
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={activeView === 'graph'}
+                      onClick={() => setActiveView('graph')}
+                      style={{
+                        fontSize: 'var(--text-xs)',
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: activeView === 'graph' ? 'var(--surface-wash)' : 'none',
+                        color: activeView === 'graph' ? 'var(--ink-1)' : 'var(--ink-3)',
+                      }}
+                    >
+                      Graph
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              {activeView === 'map' ? (
+                <RadialPanel
+                  status={status}
+                  errorMessage={errorMessage}
+                  allFilePaths={allFilePaths}
+                  localManifest={localManifest}
+                  graphEdges={graphEdges}
+                  errors={errors}
+                  tree={tree}
+                  focusPath={focusPath}
+                  onFocusTree={handleFocusTree}
+                />
+              ) : (
+                <>
+                  {graphEdges.length === 0 && allFilePaths.length === 0 ? (
+                    <p className="page__subtitle">
+                      No graph yet — open a project from{' '}
+                      <NavLink to="/projects" className="topnav__link" style={{ fontSize: 'var(--text-base)' }}>
+                        Projects
+                      </NavLink>.
+                    </p>
+                  ) : (
+                    <DependencyGraph
+                      edges={graphEdges}
+                      errorFiles={errorFiles}
+                      files={allFilePaths}
+                      selected={selected}
+                      onSelect={setSelected}
+                      onOpenFile={(path) => openFile(path)}
+                      focusPath={focusPath}
+                    />
+                  )}
+                  {ideHint && (
+                    <p role="status" className="field__hint" style={{ marginTop: 8 }}>
+                      {ideHint}
+                    </p>
+                  )}
+                  {selected && (
+                    <p className="mono" style={{ marginTop: 8, fontSize: 'var(--text-sm)' }}>
+                      Selected: {selected}
+                    </p>
+                  )}
+                  {linkedError && (
+                    <div
+                      className="panel"
+                      style={{ marginTop: 8, borderLeft: '3px solid var(--status-critical)', padding: 'var(--sp-3)' }}
+                      role="status"
+                      aria-label="Linked diagnostic finding"
+                    >
+                      <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--status-critical)', fontWeight: 600 }}>
+                        {linkedError.kind} {'·'} {linkedError.ruleId}
+                      </p>
+                      <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-sm)', color: 'var(--ink-2)' }}>
+                        {linkedError.explanation ?? linkedError.message}
+                      </p>
+                      <p style={{ margin: 'var(--sp-1) 0 0', fontSize: 'var(--text-xs)', color: 'var(--ink-3)' }}>
+                        {linkedError.file}:{linkedError.range.startLine}
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
         </ScreenState>
 
-        {/* Slim empty-state pointer when no project is open */}
         {status !== 'loading' && status !== 'idle' && !project && (
           <div className="panel" data-animate>
             <p className="page__subtitle">
@@ -304,3 +451,4 @@ const ExplorePage: React.FC = () => {
 };
 
 export default ExplorePage;
+            
