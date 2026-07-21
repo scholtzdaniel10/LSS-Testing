@@ -84,6 +84,7 @@ final class PhpStanAdapter implements Analyzer
         $result = Process::path($sandboxPath)
             ->timeout(600)
             ->run([
+                PHP_BINARY,
                 $binary,
                 'analyse',
                 '--error-format=json',
@@ -198,6 +199,19 @@ final class PhpStanAdapter implements Analyzer
         return $findings;
     }
 
+    /**
+     * Resolve the PHPStan PHP entry-point script (not a .bat shim).
+     *
+     * Candidate order:
+     *   1. vendor/phpstan/phpstan/phpstan — the real Composer package entry-point (a PHP file).
+     *   2. vendor/bin/phpstan             — the bash proxy Composer installs in bin/.
+     *
+     * The .bat shim (vendor/bin/phpstan.bat) is intentionally excluded: it
+     * re-invokes plain `php` from PATH, which is not guaranteed to exist in the
+     * environment the API / queue worker runs under on Windows (PATH-less service
+     * accounts, etc.).  We invoke the resolved script via PHP_BINARY in run(),
+     * so any PHP file is sufficient — no shell PATH lookup required.
+     */
     private function resolveBinary(): ?string
     {
         // Explicit override (including tests forcing a missing path) skips vendor discovery.
@@ -206,8 +220,8 @@ final class PhpStanAdapter implements Analyzer
         }
 
         $candidates = [
+            base_path('vendor/phpstan/phpstan/phpstan'),
             base_path('vendor/bin/phpstan'),
-            base_path('vendor/bin/phpstan.bat'),
         ];
         foreach ($candidates as $candidate) {
             if (is_file($candidate)) {
