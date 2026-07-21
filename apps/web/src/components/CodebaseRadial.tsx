@@ -19,7 +19,7 @@
  *    appear for focused/hovered node and its direct neighbours.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RadialComponent, RadialEdge, RadialNode } from '../lib/radialModel';
 import {
   buildRadialLayout,
@@ -230,6 +230,7 @@ function ComponentCircle({
         stroke="var(--line-1)"
         strokeWidth={0.5}
         strokeDasharray="3 6"
+        pointerEvents="none"
       />
 
       {component.edges.map((e, i) => {
@@ -244,6 +245,7 @@ function ComponentCircle({
             stroke={edgeStroke(e)}
             strokeWidth={focusNb && isEdgeVisible(e) ? 1.5 : 1}
             opacity={edgeOpacity(e)}
+            pointerEvents="none"
             style={{ transition: 'opacity 0.15s, stroke 0.15s' }}
           />
         );
@@ -284,6 +286,15 @@ function ComponentCircle({
               fill={color}
               stroke={isFocused ? 'var(--surface-page)' : 'none'}
               strokeWidth={isFocused ? 1.5 : 0}
+              pointerEvents="none"
+            />
+            {/* Invisible hit target — larger than the visual dot */}
+            <circle
+              cx={pos.x}
+              cy={pos.y}
+              r={10}
+              fill="transparent"
+              pointerEvents="all"
             />
             {showLabel && (
               <text
@@ -295,7 +306,7 @@ function ComponentCircle({
                 textAnchor={pos.textAnchor}
                 dominantBaseline="central"
                 transform={`rotate(${pos.rotate}, ${pos.labelX}, ${pos.labelY})`}
-                style={{ userSelect: 'none' }}
+                style={{ userSelect: 'none', pointerEvents: 'none' }}
               >
                 {basename}
               </text>
@@ -430,6 +441,8 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const dragging = useRef(false);
+  /** true only when the pointer has moved beyond the click-vs-pan threshold */
+  const didPan = useRef(false);
   const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -439,25 +452,34 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     setPanY(0);
   }, []);
 
-  const handleWheel = useCallback((ev: React.WheelEvent<SVGSVGElement>) => {
-    ev.preventDefault();
-    const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const mx = ev.clientX - rect.left;
-    const my = ev.clientY - rect.top;
-    setZoom((z) => {
-      const nz = Math.min(8, Math.max(0.15, z * factor));
-      const scaleDiff = nz - z;
-      setPanX((px) => px - (mx * scaleDiff) / nz);
-      setPanY((py) => py - (my * scaleDiff) / nz);
-      return nz;
-    });
+  // Native (non-passive) wheel listener so preventDefault() actually works.
+  // React registers synthetic onWheel as passive, which ignores preventDefault.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const rect = svg.getBoundingClientRect();
+      const mx = ev.clientX - rect.left;
+      const my = ev.clientY - rect.top;
+      setZoom((z) => {
+        const nz = Math.min(8, Math.max(0.15, z * factor));
+        const scaleDiff = nz - z;
+        setPanX((px) => px - (mx * scaleDiff) / nz);
+        setPanY((py) => py - (my * scaleDiff) / nz);
+        return nz;
+      });
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
   }, []);
 
   const handleMouseDown = useCallback((ev: React.MouseEvent<SVGSVGElement>) => {
     if ((ev.target as Element).closest('[role="button"]')) return;
     dragging.current = true;
+    didPan.current = false;
     dragStart.current = { mx: ev.clientX, my: ev.clientY, px: panX, py: panY };
     ev.preventDefault();
   }, [panX, panY]);
@@ -466,12 +488,18 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     if (!dragging.current || !dragStart.current) return;
     const dx = (ev.clientX - dragStart.current.mx) / zoom;
     const dy = (ev.clientY - dragStart.current.my) / zoom;
+    // Only start panning after moving beyond a 3px threshold.
+    const rawDx = ev.clientX - dragStart.current.mx;
+    const rawDy = ev.clientY - dragStart.current.my;
+    if (!didPan.current && Math.sqrt(rawDx * rawDx + rawDy * rawDy) < 3) return;
+    didPan.current = true;
     setPanX(dragStart.current.px + dx);
     setPanY(dragStart.current.py + dy);
   }, [zoom]);
 
   const handleMouseUp = useCallback(() => {
     dragging.current = false;
+    didPan.current = false;
     dragStart.current = null;
   }, []);
 
@@ -715,6 +743,8 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
           borderRadius: 'var(--radius-md)',
           border: '1px solid var(--line-1)',
           cursor: 'grab',
+          overscrollBehavior: 'contain',
+          touchAction: 'none',
         }}
         role="img"
         aria-label="Codebase radial map"
@@ -729,8 +759,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
             width="100%"
             height={svgDisplayHeight}
             viewBox={`0 0 ${SVG_WIDTH} ${svgDisplayHeight}`}
-            style={{ display: 'block' }}
-            onWheel={handleWheel}
+            style={{ display: 'block', touchAction: 'none' }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
