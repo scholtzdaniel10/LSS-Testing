@@ -19,6 +19,7 @@ implementation. Agents: read `CLAUDE.md` first.
 | `apps/web` | Ionic + React frontend (dashboard, graph explorer, diagnostics, test composer) |
 | `apps/api` | Laravel backend (`/api/v1`) — import, analysis, health snapshots, test runner |
 | `packages/schemas` | JSON Schemas for contracts C1–C7 |
+| `packages/smoke` | `lss-smoke` CLI — Playwright/Chromium smoke-crawl, navigate-only |
 
 ## Security model (one paragraph, non-negotiable)
 
@@ -94,28 +95,4 @@ Optional: restrict paths with `LOCAL_PATH_PREFIXES=C:\LSS;C:\Projects` in `apps/
 
 ## Diagnostics (PHPStan)
 
-PHPStan runs from the **Maintain API**, not from each linked program:
-
-```sh
-cd apps/api
-composer install   # installs vendor/bin/phpstan (already in composer.json)
-```
-
-After linking/importing a project, use **Re-scan** on Health. Diagnose distinguishes:
-
-- **missing binary** — `composer install` was not run in `apps/api`
-- **clean** — PHPStan ran and found nothing (static analysis only)
-- **findings** — real analyser output with ruleId + file + line
-
-Optional (not required for Maintain): to run PHPStan yourself inside a company program:
-
-```sh
-cd <your-program>
-composer require --dev phpstan/phpstan
-```
-
-## Workflow
-
-Tasks, acceptance criteria and the claim convention are in the vault Roadmap
-("How agents work this project"). Commits reference task IDs. Definition of done
-includes the pre-merge checklist in vault note `09 Engineering Standards`.
+PHPStan runs from the **Maintain API**, not from 

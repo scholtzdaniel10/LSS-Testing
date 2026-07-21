@@ -1,0 +1,24 @@
+{
+  "name": "@lss/smoke",
+  "version": "0.1.0",
+  "description": "Lightweight smoke-crawl CLI — BFS-crawls a live app URL, reports page errors, console errors, failed responses, broken internal links, slow pages, missing titles.",
+  "type": "module",
+  "bin": {
+    "lss-smoke": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "playwright": "1.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
