@@ -5,19 +5,50 @@ namespace App\Services\Graph;
 use App\Support\Sandbox\IgnoreRules;
 
 /**
- * IG-8/9/10 minimal: extract file-level import/require edges from PHP and JS/TS.
+ * IG-8/9/10/22: extract file-level import/require edges from project source.
+ *
+ * IG-22: language dispatch is driven by a FileParser registry — adding support
+ * for a new language requires only registering a new FileParser; this class
+ * needs no edit. The match($ext) hardcode is gone.
+ *
  * Emits C3 edges; symbol omitted when unknown (file-level fallback).
  */
 final class DependencyGraphBuilder
 {
     private const MAX_FILES = 4000;
 
-    /** @var list<string> */
-    private const EXTENSIONS = ['php', 'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'html', 'htm'];
+    /** @var array<string, FileParser> keyed by lowercase extension */
+    private array $parserByExt = [];
 
+    /**
+     * @param  list<FileParser>  $parsers  If empty, defaults to PHP + JS + HTML.
+     */
     public function __construct(
         private readonly IgnoreRules $ignore,
-    ) {}
+        array $parsers = [],
+    ) {
+        $defaults = $parsers !== [] ? $parsers : [
+            new PhpFileParser,
+            new JsFileParser,
+            new HtmlFileParser,
+        ];
+        foreach ($defaults as $parser) {
+            foreach ($parser->extensions() as $ext) {
+                $this->parserByExt[strtolower($ext)] = $parser;
+            }
+        }
+    }
+
+    /**
+     * Register an additional FileParser. Overwrites if extension already mapped.
+     * IG-22: adding a parser needs no runner edit.
+     */
+    public function registerParser(FileParser $parser): void
+    {
+        foreach ($parser->extensions() as $ext) {
+            $this->parserByExt[strtolower($ext)] = $parser;
+        }
+    }
 
     /**
      * Walk the sandbox tree (legacy zip imports). Prefer {@see buildIndexed} when file list exists.
@@ -67,9 +98,13 @@ final class DependencyGraphBuilder
             }
 
             $ext = strtolower(pathinfo($relative, PATHINFO_EXTENSION));
-            if (! in_array($ext, self::EXTENSIONS, true)) {
+
+            // IG-22: registry dispatch — no match($ext) hardcode
+            $parser = $this->parserByExt[$ext] ?? null;
+            if ($parser === null) {
                 continue;
             }
+
             if (++$count > self::MAX_FILES) {
                 break;
             }
@@ -84,121 +119,11 @@ final class DependencyGraphBuilder
                 continue;
             }
 
-            foreach (match ($ext) {
-                'php' => $this->phpEdges($relative, $source),
-                'html', 'htm' => $this->htmlEdges($relative, $source),
-                default => $this->jsEdges($relative, $source),
-            } as $edge) {
+            foreach ($parser->parse($relative, $source) as $edge) {
                 $edges[] = $edge;
             }
         }
 
         return $edges;
-    }
-
-    /**
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
-     */
-    private function phpEdges(string $from, string $source): array
-    {
-        $edges = [];
-        $lines = preg_split("/\r\n|\n|\r/", $source) ?: [];
-        foreach ($lines as $i => $line) {
-            $lineNo = $i + 1;
-            if (preg_match('/^\s*use\s+([A-Za-z0-9_\\\\]+)/', $line, $m)) {
-                $edges[] = [
-                    'from' => $from,
-                    'to' => 'php:'.$m[1],
-                    'kind' => 'import',
-                    'line' => $lineNo,
-                ];
-            }
-            if (preg_match('/\b(?:require|include)(?:_once)?\s*\(?\s*[\'"]([^\'"]+)[\'"]/', $line, $m)) {
-                $edges[] = [
-                    'from' => $from,
-                    'to' => $this->resolveRelative($from, $m[1]),
-                    'kind' => 'import',
-                    'line' => $lineNo,
-                ];
-            }
-        }
-
-        return $edges;
-    }
-
-    /**
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
-     */
-    private function jsEdges(string $from, string $source): array
-    {
-        $edges = [];
-        $lines = preg_split("/\r\n|\n|\r/", $source) ?: [];
-        foreach ($lines as $i => $line) {
-            $lineNo = $i + 1;
-            if (preg_match('/\bfrom\s+[\'"]([^\'"]+)[\'"]/', $line, $m)
-                || preg_match('/\bimport\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)/', $line, $m)
-                || preg_match('/\brequire\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)/', $line, $m)) {
-                $target = $m[1];
-                $to = str_starts_with($target, '.') || str_starts_with($target, '/')
-                    ? $this->resolveRelative($from, $target)
-                    : 'pkg:'.$target;
-                $edges[] = [
-                    'from' => $from,
-                    'to' => $to,
-                    'kind' => 'import',
-                    'line' => $lineNo,
-                ];
-            }
-        }
-
-        return $edges;
-    }
-
-    /**
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
-     */
-    private function htmlEdges(string $from, string $source): array
-    {
-        $edges = [];
-        if (preg_match_all('/\b(?:src|href)\s*=\s*[\'"]([^\'"#?]+)[\'"]/i', $source, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $m) {
-                $target = $m[1];
-                if ($target === '' || str_starts_with($target, 'data:') || str_starts_with($target, 'mailto:')) {
-                    continue;
-                }
-                $to = str_starts_with($target, 'http://') || str_starts_with($target, 'https://') || str_starts_with($target, '//')
-                    ? 'pkg:'.$target
-                    : $this->resolveRelative($from, $target);
-                // Contract C3's kind enum has no 'link'; an HTML src/href
-                // reference is the page including another resource.
-                $edges[] = [
-                    'from' => $from,
-                    'to' => $to,
-                    'kind' => 'include',
-                ];
-            }
-        }
-
-        return $edges;
-    }
-
-    private function resolveRelative(string $from, string $ref): string
-    {
-        $dir = str_replace('\\', '/', dirname($from));
-        $parts = explode('/', $dir.'/'.$ref);
-        $stack = [];
-        foreach ($parts as $part) {
-            if ($part === '' || $part === '.') {
-                continue;
-            }
-            if ($part === '..') {
-                array_pop($stack);
-
-                continue;
-            }
-            $stack[] = $part;
-        }
-
-        return implode('/', $stack);
     }
 }

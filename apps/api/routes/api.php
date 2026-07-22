@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
 use App\Http\Controllers\Api\V1\SnapshotController;
 use App\Http\Controllers\Api\V1\TargetEnvironmentController;
+use App\Http\Controllers\Api\V1\IgnoreRulesController;
 use App\Http\Controllers\Api\V1\UsageReportController;
 use Illuminate\Support\Facades\Route;
 
@@ -18,6 +19,9 @@ use Illuminate\Support\Facades\Route;
 // unauthenticated endpoint. Response envelope: { data, meta, errors }.
 Route::prefix('v1')->middleware('throttle:api')->group(function () {
     Route::get('/health', HealthController::class);
+    // DX-25: unauthenticated — ignore rules are not sensitive; the web fetches
+    // them before a token is configured so it can filter the local file tree.
+    Route::get('/ignore-rules', IgnoreRulesController::class);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/projects', [ProjectController::class, 'index']);

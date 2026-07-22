@@ -3,8 +3,9 @@
 namespace App\Services\Diagnostics;
 
 /**
- * DX-1: analyser adapter contract. Implementations must return evidence-complete
- * C5 findings (minus optional chain fields) — never invent errors.
+ * DX-1/DX-20: analyser adapter contract. Implementations must return
+ * evidence-complete C5 findings (minus optional chain fields) — never invent
+ * errors.
  *
  * @phpstan-type Finding array{
  *   source: string,
@@ -28,4 +29,11 @@ interface Analyzer
      * @return list<Finding>
      */
     public function run(string $sandboxPath): array;
+
+    /**
+     * DX-20: return the status of the most recent run() call.
+     * Possible values: 'missing_binary' | 'clean' | 'ok'.
+     * Returns null before run() has been called.
+     */
+    public function runStatus(): ?string;
 }

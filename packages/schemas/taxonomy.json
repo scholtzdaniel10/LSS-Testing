@@ -17,7 +17,7 @@
   },
   "phpstan:class.notFound": {
     "kind": "missing-dep",
-    "explanation": "Referenced class cannot be resolved — missing autoload or undeclared dependency."
+    "explanation": "Referenced class cannot be resolved \u2014 missing autoload or undeclared dependency."
   },
   "phpstan:function.notFound": {
     "kind": "missing-dep",
@@ -25,6 +25,58 @@
   },
   "phpstan:variable.undefined": {
     "kind": "type-error",
-    "explanation": "Undefined variable — will raise a notice or Error depending on PHP version."
+    "explanation": "Undefined variable \u2014 will raise a notice or Error depending on PHP version."
+  },
+  "eslint:no-unused-vars": {
+    "kind": "unused",
+    "explanation": "Variable declared but never used \u2014 dead code that inflates the module's surface area."
+  },
+  "eslint:no-undef": {
+    "kind": "missing-dep",
+    "explanation": "Reference to an undeclared variable \u2014 likely a missing import or a global not listed in env."
+  },
+  "eslint:@typescript-eslint/no-explicit-any": {
+    "kind": "type-error",
+    "explanation": "Explicit `any` disables type checking for this expression; prefer a concrete type."
+  },
+  "eslint:@typescript-eslint/no-unsafe-assignment": {
+    "kind": "type-error",
+    "explanation": "Assigning an `any`-typed value bypasses type safety; the receiving variable is effectively untyped."
+  },
+  "eslint:@typescript-eslint/no-unsafe-call": {
+    "kind": "type-error",
+    "explanation": "Calling an `any`-typed value \u2014 the call may fail at runtime if the value is not a function."
+  },
+  "eslint:import/no-unresolved": {
+    "kind": "missing-dep",
+    "explanation": "Import target could not be resolved \u2014 missing package, wrong path, or missing type declaration."
+  },
+  "tsc:TS2304": {
+    "kind": "missing-dep",
+    "explanation": "Cannot find name \u2014 the identifier is not declared in scope; check imports or tsconfig paths."
+  },
+  "tsc:TS2307": {
+    "kind": "missing-dep",
+    "explanation": "Cannot find module \u2014 the import path cannot be resolved; may need to install types or fix the path."
+  },
+  "tsc:TS2322": {
+    "kind": "type-error",
+    "explanation": "Type mismatch \u2014 assigned or returned type is incompatible with the declared type."
+  },
+  "tsc:TS2345": {
+    "kind": "type-error",
+    "explanation": "Argument of wrong type \u2014 the passed value does not satisfy the parameter's type constraint."
+  },
+  "tsc:TS2339": {
+    "kind": "type-error",
+    "explanation": "Property does not exist on this type \u2014 the object shape does not include this member."
+  },
+  "tsc:TS2540": {
+    "kind": "type-error",
+    "explanation": "Cannot assign to a read-only property \u2014 the property is declared readonly."
+  },
+  "tsc:TS7006": {
+    "kind": "type-error",
+    "explanation": "Parameter implicitly has `any` type \u2014 enable noImplicitAny or add an explicit type annotation."
   }
 }

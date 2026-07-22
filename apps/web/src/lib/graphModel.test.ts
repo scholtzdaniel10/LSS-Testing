@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps } from './graphModel';
+import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef } from './graphModel';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -205,5 +205,57 @@ describe('defaultExpandedFolders', () => {
     const paths = ['README.md', 'app/Foo.php'];
     const expanded = defaultExpandedFolders(paths);
     expect(expanded.has('README.md')).toBe(false);
+  });
+});
+
+
+// ── IG-22: StackProfile + folderColor tests ──────────────────────────────────
+
+describe('buildStackProfile', () => {
+  it('returns token var for known folder keys', () => {
+    const profile = buildStackProfile([]);
+    expect(folderColor('app', profile)).toBe('var(--series-1)');
+    expect(folderColor('routes', profile)).toBe('var(--series-2)');
+    expect(folderColor('unknown', profile)).toBe('var(--series-other)');
+  });
+
+  it('CI3 profile maps application to series-1, system to series-2', () => {
+    const profile = buildStackProfile(['codeigniter-3']);
+    expect(folderColor('application', profile)).toBe('var(--series-1)');
+    expect(folderColor('system', profile)).toBe('var(--series-2)');
+  });
+
+  it('React profile maps src and components', () => {
+    const profile = buildStackProfile(['react']);
+    expect(folderColor('src', profile)).toBe('var(--series-1)');
+    expect(folderColor('components', profile)).toBe('var(--series-3)');
+  });
+
+  it('buildGraphView accepts a StackProfile and uses its colors', () => {
+    const files = ['application/controllers/A.php'];
+    const profile = buildStackProfile(['codeigniter-3']);
+    const view = buildGraphView([], files, new Map(), new Set(), false, profile);
+    // The "application" folder node should use CI3 series-1
+    const folderNode = view.nodes.find((n) => n.kind === 'folder');
+    expect(folderNode?.color).toBe('var(--series-1)');
+  });
+});
+
+describe('parseExternalRef (IG-22)', () => {
+  it('parses php: prefix', () => {
+    const r = parseExternalRef('php:App\\Models\\User');
+    expect(r.external).toBe(true);
+    if (r.external) expect(r.label).toBe('User');
+  });
+
+  it('parses pkg: prefix', () => {
+    const r = parseExternalRef('pkg:guzzlehttp/guzzle');
+    expect(r.external).toBe(true);
+    if (r.external) expect(r.label).toBe('guzzlehttp/guzzle');
+  });
+
+  it('returns non-external for plain file paths', () => {
+    const r = parseExternalRef('src/utils.ts');
+    expect(r.external).toBe(false);
   });
 });

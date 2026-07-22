@@ -8,7 +8,11 @@ use App\Models\Scan;
 use Illuminate\Support\Str;
 
 /**
- * DX-1/3: run registered analysers, gate evidence, persist a Scan + errors.
+ * DX-1/3/20/22: run registered analysers, gate evidence, persist a Scan + errors.
+ *
+ * DX-20: status is read via the polymorphic Analyzer::runStatus() — no instanceof.
+ * DX-22: builds an AnalyzerRegistry from the adapter list and passes it to
+ *         EvidenceGate so unregistered source ids are rejected.
  */
 final class AnalysisRunner
 {
@@ -22,7 +26,20 @@ final class AnalysisRunner
 
     public static function withDefaults(?Analyzer $phpstan = null): self
     {
-        return new self(new EvidenceGate, [$phpstan ?? new PhpStanAdapter]);
+        $adapters = [$phpstan ?? new PhpStanAdapter];
+        $registry = new AnalyzerRegistry($adapters);
+
+        return new self(new EvidenceGate($registry), $adapters);
+    }
+
+    /**
+     * @param  list<Analyzer>  $adapters
+     */
+    public static function withAdapters(array $adapters): self
+    {
+        $registry = new AnalyzerRegistry($adapters);
+
+        return new self(new EvidenceGate($registry), $adapters);
     }
 
     /**
@@ -45,15 +62,9 @@ final class AnalysisRunner
             $source = $analyzer->source();
             $findings = $analyzer->run($sandboxPath);
 
-            if ($analyzer instanceof PhpStanAdapter) {
-                $analyserStatus[$source] = $analyzer->lastRunStatus() ?? (
-                    $analyzer->binaryAvailable()
-                        ? ($findings === [] ? 'clean' : 'ok')
-                        : 'missing_binary'
-                );
-            } else {
-                $analyserStatus[$source] = $findings === [] ? 'clean' : 'ok';
-            }
+            // DX-20: read status via the interface method — no instanceof check.
+            $status = $analyzer->runStatus();
+            $analyserStatus[$source] = $status ?? ($findings === [] ? 'clean' : 'ok');
 
             foreach ($findings as $raw) {
                 try {
@@ -74,10 +85,11 @@ final class AnalysisRunner
                     'file' => $finding['file'],
                     'range' => $finding['range'],
                     'message' => $finding['message'],
-                    'explanation' => $finding['explanation'],
-                    'upstream' => $finding['upstream'],
-                    'downstream' => $finding['downstream'],
+                    'explanation' => $finding['explanation'] ?? null,
+                    'upstream' => $finding['upstream'] ?? [],
+                    'downstream' => $finding['downstream'] ?? [],
                 ]);
+
                 $accepted++;
             }
         }
@@ -88,7 +100,7 @@ final class AnalysisRunner
         ]);
 
         return [
-            'scan' => $scan->fresh(),
+            'scan' => $scan,
             'accepted' => $accepted,
             'rejected' => $rejected,
             'analysers' => $analyserStatus,

@@ -5,11 +5,18 @@ namespace App\Services\Diagnostics;
 use InvalidArgumentException;
 
 /**
- * DX-15: reject any finding that lacks analyser source, ruleId, file, and range.
+ * DX-15/DX-22: reject any finding that lacks analyser source, ruleId, file,
+ * and range. DX-22 additionally rejects findings whose source is not
+ * registered in the AnalyzerRegistry (when one is provided).
+ *
  * Nothing without reproducible evidence may enter the errors table.
  */
 final class EvidenceGate
 {
+    public function __construct(
+        private readonly ?AnalyzerRegistry $registry = null,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $finding
      * @return array{
@@ -36,6 +43,15 @@ final class EvidenceGate
         if (! is_string($source) || $source === '') {
             throw new InvalidArgumentException('Finding rejected: missing source analyser.');
         }
+
+        // DX-22: when a registry is provided, source must match a registered adapter.
+        if ($this->registry !== null && ! $this->registry->isRegistered($source)) {
+            $known = implode(', ', $this->registry->registeredIds()) ?: '(none)';
+            throw new InvalidArgumentException(
+                "Finding rejected: source '{$source}' is not a registered adapter. Known: {$known}.",
+            );
+        }
+
         if (! is_string($ruleId) || $ruleId === '') {
             throw new InvalidArgumentException('Finding rejected: missing ruleId.');
         }

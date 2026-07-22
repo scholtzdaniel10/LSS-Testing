@@ -46,13 +46,16 @@ class ErrorController extends Controller
                 'range' => $error->range,
                 'message' => $error->message,
                 'explanation' => $error->explanation,
-                'upstream' => $error->upstream,
-                'downstream' => $error->downstream,
+                'upstream' => $error->upstream ?? [],
+                'downstream' => $error->downstream ?? [],
             ]);
+
+        /** @var array<string, string> $analyserStatus */
+        $analyserStatus = is_array($scan->analyser_status) ? $scan->analyser_status : [];
 
         return ApiResponse::cursorPaginated($paginator, [
             'scanId' => $scan->id,
-            'analysers' => $scan->analyser_status ?? [],
+            'analysers' => $analyserStatus,
         ]);
     }
 }

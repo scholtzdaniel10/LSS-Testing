@@ -1,23 +1,111 @@
 import type { GraphEdge } from '../api/client';
+import type { IgnoreRulesPayload } from './ignoreRules';
+
+// ── IG-22: StackProfile ───────────────────────────────────────────────────────
+
+/**
+ * IG-22: Lightweight stack profile derived from the UsageReport.
+ * Consumed by the graph model to drive folder grouping and colors so that
+ * a CI3 project's "application/" folder gets the same treatment as Laravel's
+ * "app/", and colors come from the profile rather than a hardcoded map.
+ */
+export type StackProfile = {
+  frameworks: string[];
+  /** Folder → design-token variable name (e.g. 'app' → '--series-1'). */
+  folderTokens: Record<string, string>;
+};
+
+/**
+ * Build a StackProfile from a UsageReport frameworks list.
+ * Falls back to sensible defaults for unknown stacks.
+ */
+export function buildStackProfile(frameworks: string[]): StackProfile {
+  // Base token map — extended per stack below
+  const folderTokens: Record<string, string> = {
+    app: '--series-1',
+    application: '--series-1',
+    routes: '--series-2',
+    resources: '--series-3',
+    database: '--series-4',
+    src: '--series-1',
+    system: '--series-2',
+    lib: '--series-2',
+    components: '--series-3',
+    pages: '--series-3',
+    services: '--series-4',
+    other: '--series-other',
+  };
+
+  // Laravel: use app/ as primary
+  if (frameworks.includes('laravel')) {
+    folderTokens['app'] = '--series-1';
+    folderTokens['routes'] = '--series-2';
+    folderTokens['resources'] = '--series-3';
+    folderTokens['database'] = '--series-4';
+  }
+
+  // CI3: application/ = primary, system/ = secondary
+  if (frameworks.includes('codeigniter-3')) {
+    folderTokens['application'] = '--series-1';
+    folderTokens['system'] = '--series-2';
+  }
+
+  // React/Ionic: src/components, src/pages prominent
+  if (frameworks.includes('react') || frameworks.includes('ionic')) {
+    folderTokens['src'] = '--series-1';
+    folderTokens['components'] = '--series-3';
+    folderTokens['pages'] = '--series-3';
+  }
+
+  return { frameworks, folderTokens };
+}
+
+/**
+ * Resolve the CSS variable string for a given folder using the StackProfile.
+ * Returns 'var(--series-other)' for unrecognised folders.
+ */
+export function folderColor(folderKey: string, profile: StackProfile): string {
+  const token = profile.folderTokens[folderKey] ?? '--series-other';
+  return `var(${token})`;
+}
+
+// ── Legacy FOLDER_COLORS constant for backward compat with existing graph tests ─
+
+/** @deprecated Use folderColor(key, profile) for new code. */
+export const FOLDER_COLORS: Record<string, string> = {
+  app: 'var(--series-1)',
+  application: 'var(--series-1)',
+  routes: 'var(--series-2)',
+  resources: 'var(--series-3)',
+  database: 'var(--series-4)',
+  src: 'var(--series-1)',
+  system: 'var(--series-2)',
+  other: 'var(--series-other)',
+};
+
+// ── existing graph logic (unchanged except color resolution) ─────────────────
 
 export const folderOf = (path: string) => {
   const top = path.split('/')[0] ?? 'other';
-  if (['app', 'application', 'routes', 'resources', 'database', 'src', 'system'].includes(top)) return top;
+  if (['app', 'application', 'routes', 'resources', 'database', 'src', 'system',
+       'lib', 'components', 'pages', 'services'].includes(top)) return top;
   return 'other';
 };
 
-export const isExternalRef = (id: string) => id.startsWith('pkg:') || id.startsWith('php:');
+export const isExternalRef = (id: string) =>
+  id.startsWith('pkg:') || id.startsWith('php:') || id.startsWith('npm:') || id.startsWith('ext:');
 
-export const FOLDER_COLORS: Record<string, string> = {
-  app: '#4584d3',
-  application: '#4584d3',
-  routes: '#678838',
-  resources: '#c256a0',
-  database: '#8a5bd3',
-  src: '#4584d3',
-  system: '#678838',
-  other: '#706e69',
-};
+/**
+ * IG-22: parse a raw edge `to` field and categorise it.
+ * Handles pkg:, php:, npm: prefixes and bare package names.
+ */
+export function parseExternalRef(to: string): { external: true; label: string } | { external: false } {
+  if (to.startsWith('php:')) return { external: true, label: to.slice(4).split('\\').pop() ?? to };
+  if (to.startsWith('pkg:') || to.startsWith('npm:') || to.startsWith('ext:')) {
+    return { external: true, label: to.slice(4) };
+  }
+  return { external: false };
+}
 
 export type GraphNodeKind = 'file' | 'folder' | 'external';
 
@@ -55,20 +143,11 @@ export type GraphView = {
   hiddenExternal: number;
 };
 
-// A folder view stays clean because it collapses thousands of files into a
-// handful of module nodes; only when the total (after drill-down) blows past
-// this do we rank file nodes by importance and trim, so expanding a huge folder
-// can't re-clutter the canvas.
 const MAX_NODES = 320;
-
 const FOLDER_PREFIX = 'dir:';
 
-/**
- * Map a file path to the node it belongs to given the set of expanded folders.
- * With nothing expanded, `application/controllers/Foo.php` collapses to the
- * `application` folder node; expanding `application` drops it to
- * `application/controllers`; expanding that too yields the file itself.
- */
+const DEFAULT_PROFILE = buildStackProfile([]);
+
 function collapseFile(
   path: string,
   expanded: Set<string>,
@@ -90,6 +169,7 @@ export function buildGraphView(
   errorFiles: Map<string, number>,
   expandedFolders: Set<string>,
   showExternal: boolean,
+  profile: StackProfile = DEFAULT_PROFILE,
 ): GraphView {
   const nodes = new Map<string, ForceGraphNode>();
 
@@ -110,7 +190,8 @@ export function buildGraphView(
         inDegree: 0,
         degree: 0,
         fileCount: 0,
-        color: FOLDER_COLORS[bucket] ?? FOLDER_COLORS.other,
+        // IG-22: color from StackProfile token
+        color: folderColor(bucket, profile),
       };
       nodes.set(id, node);
     }
@@ -131,7 +212,7 @@ export function buildGraphView(
         inDegree: 0,
         degree: 0,
         fileCount: 1,
-        color: FOLDER_COLORS[bucket] ?? FOLDER_COLORS.other,
+        color: folderColor(bucket, profile),
       };
       nodes.set(path, node);
     }
@@ -141,7 +222,9 @@ export function buildGraphView(
   const ensureExternal = (id: string) => {
     let node = nodes.get(id);
     if (!node) {
-      const label = id.startsWith('php:') ? (id.slice(4).split('\\').pop() ?? id) : id.slice(4);
+      // IG-22: use parseExternalRef to derive a human label
+      const parsed = parseExternalRef(id);
+      const label = parsed.external ? parsed.label : id;
       node = {
         id,
         name: label,
@@ -152,14 +235,13 @@ export function buildGraphView(
         inDegree: 0,
         degree: 0,
         fileCount: 1,
-        color: '#302e2c',
+        color: 'var(--surface-raised)',
       };
       nodes.set(id, node);
     }
     return node;
   };
 
-  // 1. Roll every known file up to its current folder/file node.
   for (const path of allFiles) {
     const target = collapseFile(path, expandedFolders);
     if (target.kind === 'folder' && target.folderPath) {
@@ -171,7 +253,6 @@ export function buildGraphView(
     }
   }
 
-  // 2. Aggregate edges between the resulting nodes.
   const mapEndpoint = (id: string): ForceGraphNode | null => {
     if (isExternalRef(id)) return showExternal ? ensureExternal(id) : null;
     const target = collapseFile(id, expandedFolders);
@@ -189,7 +270,7 @@ export function buildGraphView(
     }
     const src = mapEndpoint(e.from);
     const tgt = mapEndpoint(e.to);
-    if (!src || !tgt || src.id === tgt.id) continue; // drop self / intra-node edges
+    if (!src || !tgt || src.id === tgt.id) continue;
 
     const key = `${src.id} ${tgt.id}`;
     const existing = linkWeights.get(key);
@@ -205,7 +286,6 @@ export function buildGraphView(
     }
   }
 
-  // 3. Degrees from the aggregated links (drives node size + ranking).
   for (const link of linkWeights.values()) {
     const s = nodes.get(link.source);
     const t = nodes.get(link.target);
@@ -216,7 +296,6 @@ export function buildGraphView(
     }
   }
 
-  // 4. Cap: keep folders/externals, rank files by errors then degree.
   let nodeList = [...nodes.values()];
   if (nodeList.length > MAX_NODES) {
     const keep = new Set<string>();
@@ -242,7 +321,6 @@ export function buildGraphView(
   };
 }
 
-/** Collapsing a folder also collapses anything expanded beneath it. */
 export function collapseFolder(expanded: Set<string>, folderPath: string): Set<string> {
   const next = new Set<string>();
   for (const f of expanded) {
@@ -251,18 +329,10 @@ export function collapseFolder(expanded: Set<string>, folderPath: string): Set<s
   return next;
 }
 
-/**
- * Returns the set of folder paths that must be expanded so that `filePath` is
- * visible as its own file node in the graph.
- *
- * Example: "application/controllers/Foo.php"
- *   -> Set { "application", "application/controllers" }
- */
 export function expansionChainForFile(filePath: string): Set<string> {
   const parts = filePath.split('/');
   const chain = new Set<string>();
   let acc = '';
-  // Walk every directory segment except the filename (last part).
   for (let i = 0; i < parts.length - 1; i++) {
     acc = i === 0 ? parts[i] : `${acc}/${parts[i]}`;
     chain.add(acc);
@@ -270,10 +340,6 @@ export function expansionChainForFile(filePath: string): Set<string> {
   return chain;
 }
 
-/**
- * Merge a per-file error count map (path -> count) into an existing
- * `errorFiles` map, returning a new map (does not mutate either input).
- */
 export function mergeErrorMaps(
   base: Map<string, number>,
   overlay: Map<string, number>,
@@ -285,54 +351,35 @@ export function mergeErrorMaps(
   return result;
 }
 
-// ── Collapsible file-tree model ─────────────────────────────────────────────────
+// ── Collapsible file-tree model ──────────────────────────────────────────────
 
 export type TreeNodeKind = 'folder' | 'file';
 
 export type TreeNode = {
-  /** Slash-separated path (folders: without trailing slash). */
   path: string;
   name: string;
   kind: TreeNodeKind;
   depth: number;
-  /** Folder-series key from folderOf(). */
   folder: string;
-  /** Aggregate error count (files: direct; folders: sum of children under them). */
   errors: number;
-  /** Direct link-edge count for file nodes; 0 for folders. */
   links: number;
-  /** Number of direct child nodes (folders only). */
   childCount: number;
 };
 
-/**
- * Build a sorted, hierarchical tree from a flat list of file paths.
- *
- * Rules:
- *  - Intermediate folder nodes are synthesized from path segments.
- *  - Children within each folder are sorted folders-first, then alphabetically.
- *  - `expandedFolders` controls which folders expose their children.
- *    By default top-level folders are expanded; everything else is collapsed.
- *  - Only visible nodes (ancestors expanded) are emitted so the caller can
- *    render them directly as a flat list with indented rows.
- */
 export function buildFileTree(
   paths: string[],
   expandedFolders: Set<string>,
   linkCount: Map<string, number>,
   errorCount: Map<string, number>,
 ): TreeNode[] {
-  // 1. Collect all unique folder paths and file paths.
   const allFolders = new Set<string>();
   for (const p of paths) {
     const parts = p.split('/');
-    // Walk all ancestor directories.
     for (let i = 1; i < parts.length; i++) {
       allFolders.add(parts.slice(0, i).join('/'));
     }
   }
 
-  // 2. Build a children map: parent -> sorted children.
   const children = new Map<string | null, string[]>();
   const addChild = (parent: string | null, child: string) => {
     let arr = children.get(parent);
@@ -354,7 +401,6 @@ export function buildFileTree(
     addChild(parent, p);
   }
 
-  // Sort each children list: folders first, then alphabetical within each kind.
   const sortChildren = (list: string[]) => {
     list.sort((a, b) => {
       const aIsFolder = allFolders.has(a);
@@ -367,9 +413,7 @@ export function buildFileTree(
     sortChildren(list);
   }
 
-  // 3. Pre-compute aggregate error counts for folders.
   const folderErrors = new Map<string, number>();
-  // Process in reverse depth order (deepest first) for correct aggregation.
   const sortedFolders = [...allFolders].sort((a, b) => b.split('/').length - a.split('/').length);
   for (const folder of sortedFolders) {
     let total = 0;
@@ -383,17 +427,14 @@ export function buildFileTree(
     folderErrors.set(folder, total);
   }
 
-  // 4. Walk in DFS order, only emitting visible nodes.
   const result: TreeNode[] = [];
-
   const visit = (path: string | null, depth: number) => {
     const list = children.get(path) ?? [];
     for (const child of list) {
       const isFolder = allFolders.has(child);
       const name = child.split('/').pop() ?? child;
       const folderKey = folderOf(child);
-
-      const node: TreeNode = {
+      result.push({
         path: child,
         name,
         kind: isFolder ? 'folder' : 'file',
@@ -402,22 +443,16 @@ export function buildFileTree(
         errors: isFolder ? (folderErrors.get(child) ?? 0) : (errorCount.get(child) ?? 0),
         links: isFolder ? 0 : (linkCount.get(child) ?? 0),
         childCount: children.get(child)?.length ?? 0,
-      };
-      result.push(node);
-
+      });
       if (isFolder && expandedFolders.has(child)) {
         visit(child, depth + 1);
       }
     }
   };
-
   visit(null, 0);
   return result;
 }
 
-/**
- * Default expanded set: only top-level folders are expanded.
- */
 export function defaultExpandedFolders(paths: string[]): Set<string> {
   const topLevel = new Set<string>();
   for (const p of paths) {

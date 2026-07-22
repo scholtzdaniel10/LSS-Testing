@@ -200,3 +200,29 @@ it('path-jails traversal attempts (PLT-8)', function () {
     rmdir($jail->projectRoot($id));
     rmdir($root);
 });
+
+// ── DX-22 schema: source is now an open string ───────────────────────────────
+
+it('EvidenceGate rejects unregistered source even when fields are otherwise valid (DX-22)', function () {
+    $registry = new \App\Services\Diagnostics\AnalyzerRegistry([new \App\Services\Diagnostics\PhpStanAdapter]);
+    $gate = new \App\Services\Diagnostics\EvidenceGate($registry);
+
+    expect(fn () => $gate->accept([
+        'source' => 'ruby-critic',
+        'ruleId' => 'Style/LineLength',
+        'file' => 'app/models/user.rb',
+        'range' => ['startLine' => 10, 'startCol' => 0, 'endLine' => 10, 'endCol' => 0],
+        'message' => 'Line is too long.',
+    ]))->toThrow(InvalidArgumentException::class);
+
+    // After registering a second adapter, the same source is accepted.
+    $registry->register(new \App\Services\Diagnostics\JsAnalyzerAdapter);
+    $ok = $gate->accept([
+        'source' => 'js',
+        'ruleId' => 'no-unused-vars',
+        'file' => 'src/a.ts',
+        'range' => ['startLine' => 1, 'startCol' => 0, 'endLine' => 1, 'endCol' => 0],
+        'message' => 'unused',
+    ]);
+    expect($ok['source'])->toBe('js');
+});

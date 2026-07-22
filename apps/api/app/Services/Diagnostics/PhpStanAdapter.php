@@ -2,13 +2,15 @@
 
 namespace App\Services\Diagnostics;
 
+use App\Services\Import\StackDetector;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
 
 /**
- * DX-2 / DX-16: run PHPStan analysis-only against a sandbox.
+ * DX-2 / DX-16 / DX-20 / DX-21: run PHPStan analysis-only against a sandbox.
  * For CodeIgniter 3 (no composer), writes a temporary neon config with
  * scanDirectories for application/ + system/ and a low analysis level.
+ * DX-21: CI3 detection is delegated to StackDetector (single source of truth).
  *
  * When PHPStan binary is unavailable, returns an empty list (never fabricates).
  * Tests inject findings via {@see PhpStanAdapter::withJsonRunner()}.
@@ -31,6 +33,7 @@ final class PhpStanAdapter implements Analyzer
         private readonly Taxonomy $taxonomy = new Taxonomy,
         private readonly ?string $binary = null,
         ?callable $jsonRunner = null,
+        private readonly StackDetector $stackDetector = new StackDetector,
     ) {
         $this->jsonRunner = $jsonRunner;
     }
@@ -57,8 +60,19 @@ final class PhpStanAdapter implements Analyzer
 
     /**
      * Status for the last {@see run()} call: missing_binary | clean | ok.
+     *
+     * @deprecated Use runStatus() (Analyzer interface). Kept for backward compat.
      */
     public function lastRunStatus(): ?string
+    {
+        return $this->lastRunStatus;
+    }
+
+    /**
+     * DX-20: polymorphic run status — satisfies the Analyzer interface.
+     * Delegates to lastRunStatus(); may be null before the first run().
+     */
+    public function runStatus(): ?string
     {
         return $this->lastRunStatus;
     }
@@ -200,6 +214,53 @@ final class PhpStanAdapter implements Analyzer
     }
 
     /**
+     * Return (or create) the PHPStan neon config path for this sandbox.
+     *
+     * DX-21: CI3 detection uses StackDetector — no duplicate hasComposer /
+     * is_dir logic here. For a CI3 project, writes a temporary neon that
+     * sets scanDirectories to application/ + system/ at level 0 so PHPStan
+     * doesn't choke on legacy globals.
+     */
+    public function ensureConfig(string $sandboxPath): string
+    {
+        $sep = DIRECTORY_SEPARATOR;
+        $existing = $sandboxPath.$sep.'.lss-phpstan.neon';
+
+        if (is_file($existing)) {
+            return $existing;
+        }
+
+        // DX-21: single CI3 detection via StackDetector
+        $profile = $this->stackDetector->detect($sandboxPath);
+
+        if ($profile->isCi3) {
+            // CI3 projects have no autoloader; use scanDirectories instead of
+            // paths so PHPStan reads the raw files without requiring autoload.
+            $neon = <<<NEON
+parameters:
+    level: 0
+    scanDirectories:
+        - application
+        - system
+    reportUnmatchedIgnoredErrors: false
+NEON;
+        } else {
+            $neon = <<<NEON
+parameters:
+    level: 1
+    paths:
+        - .
+    reportUnmatchedIgnoredErrors: false
+NEON;
+        }
+
+        $configPath = $sandboxPath.$sep.'.lss-phpstan.neon';
+        file_put_contents($configPath, $neon);
+
+        return $configPath;
+    }
+
+    /**
      * Resolve the PHPStan PHP entry-point script (not a .bat shim).
      *
      * Candidate order:
@@ -230,63 +291,5 @@ final class PhpStanAdapter implements Analyzer
         }
 
         return null;
-    }
-
-    /**
-     * DX-16: write a CI3-friendly config when no composer.json / phpstan.neon exists.
-     */
-    public function ensureConfig(string $sandboxPath): string
-    {
-        foreach (['phpstan.neon', 'phpstan.neon.dist'] as $name) {
-            $existing = $sandboxPath.DIRECTORY_SEPARATOR.$name;
-            if (is_file($existing)) {
-                return $existing;
-            }
-        }
-
-        $isCi3 = is_dir($sandboxPath.DIRECTORY_SEPARATOR.'application')
-            && is_dir($sandboxPath.DIRECTORY_SEPARATOR.'system')
-            && ! is_file($sandboxPath.DIRECTORY_SEPARATOR.'composer.json');
-
-        $configPath = $sandboxPath.DIRECTORY_SEPARATOR.'.lss-phpstan.neon';
-        if ($isCi3) {
-            $neon = <<<'NEON'
-includes: []
-parameters:
-    level: 0
-    paths:
-        - application
-    excludePaths:
-        - application/cache/*
-        - application/logs/*
-    scanDirectories:
-        - system
-    reportUnmatchedIgnoredErrors: false
-NEON;
-        } else {
-            $paths = [];
-            foreach (['app', 'src', 'application'] as $dir) {
-                if (is_dir($sandboxPath.DIRECTORY_SEPARATOR.$dir)) {
-                    $paths[] = $dir;
-                }
-            }
-            if ($paths === []) {
-                $paths[] = '.';
-            }
-            $pathLines = implode("\n", array_map(fn (string $p): string => "        - {$p}", $paths));
-            $neon = <<<NEON
-parameters:
-    level: 1
-    paths:
-{$pathLines}
-    reportUnmatchedIgnoredErrors: false
-NEON;
-        }
-
-        if (file_put_contents($configPath, $neon) === false) {
-            throw new RuntimeException('Unable to write PHPStan config.');
-        }
-
-        return $configPath;
     }
 }

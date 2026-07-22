@@ -6,7 +6,32 @@ import ScreenState from '../components/ScreenState';
 import { api } from '../api/client';
 import { useProject } from '../state/ProjectContext';
 import { loadEditorSettings, openInIde } from '../types';
-import type { DiagnosticFinding } from '../api/client';
+import type { DiagnosticFinding, AnalyserStatuses } from '../api/client';
+
+// DX-24: derive per-analyser panel metadata from API-supplied analyser statuses.
+// No analyser names are hardcoded — the panel titles and empty-state copy come
+// from the registry keys the API returns.
+
+function analyserEmptyHint(analysers: AnalyserStatuses): string {
+  const entries = Object.entries(analysers);
+
+  if (entries.length === 0) {
+    return 'No scan yet. Link or import a program, then Re-scan on Health.';
+  }
+
+  // If any analyser reports missing_binary, surface that first.
+  const missing = entries.find(([, s]) => s === 'missing_binary');
+  if (missing) {
+    return `Analyser "${missing[0]}" binary not found on the Maintain API. Run composer/npm install, then Re-scan on Health.`;
+  }
+
+  // All clean
+  if (entries.every(([, s]) => s === 'clean')) {
+    return `All analysers (${entries.map(([k]) => k).join(', ')}) ran and reported no findings. Hit Re-scan on Health to refresh.`;
+  }
+
+  return 'No findings in the latest scan. Hit Re-scan on Health to refresh.';
+}
 
 const DiagnosePage: React.FC = () => {
   const history = useHistory();
@@ -17,19 +42,15 @@ const DiagnosePage: React.FC = () => {
   const [popover, setPopover] = useState<{ top: number } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  const diagnoseEmptyHint = (() => {
-    const phpstan = analysers.phpstan;
-    if (phpstan === 'missing_binary') {
-      return 'PHPStan is not installed on the Maintain API. From apps/api run composer install, then Re-scan on Health. (Optional: to use PHPStan inside your own program, cd to that folder and run composer require --dev phpstan/phpstan — not required for Diagnose.)';
-    }
-    if (phpstan === 'clean') {
-      return 'PHPStan ran and reported no findings (static analysis only). Hit Re-scan on Health to refresh.';
-    }
-    if (!phpstan) {
-      return 'No scan yet. Link or import a program, then Re-scan on Health. PHPStan runs from the Maintain API (apps/api/vendor), not from each program.';
-    }
-    return 'No findings in the latest scan. Hit Re-scan on Health to refresh.';
-  })();
+  // DX-24: generic empty hint derived from registry — no "PHPStan" hardcode.
+  const diagnoseEmptyHint = analyserEmptyHint(analysers);
+
+  // DX-24: build analyser panel summaries from registry metadata
+  const analyserPanels = Object.entries(analysers).map(([id, s]) => ({
+    id,
+    label: id.charAt(0).toUpperCase() + id.slice(1),
+    status: s,
+  }));
 
   useEffect(() => {
     if (errors[0] && !active) setActive(errors[0]);
@@ -81,11 +102,41 @@ const DiagnosePage: React.FC = () => {
       <div className="page__inner" ref={ref} style={{ maxWidth: 1320 }}>
         <div data-animate>
           <h1 className="page__title">Diagnose</h1>
+          {/* DX-24: subtitle lists actual registered analysers from API metadata */}
           <p className="page__subtitle">
-            Evidence-only findings from real analysers (PHPStan). Recall is bounded by static analysis —
-            we never invent errors.
+            Evidence-only findings from static analysers
+            {analyserPanels.length > 0 && (
+              <> ({analyserPanels.map((a) => a.label).join(', ')})</>
+            )}
+            . Recall is bounded by static analysis — we never invent errors.
           </p>
         </div>
+
+        {/* DX-24: per-analyser status pills driven from registry */}
+        {analyserPanels.length > 0 && (
+          <div data-animate style={{ display: 'flex', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            {analyserPanels.map((a) => (
+              <span
+                key={a.id}
+                style={{
+                  padding: '2px 10px',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  background: a.status === 'missing_binary'
+                    ? 'var(--accent-wash)'
+                    : a.status === 'ok'
+                      ? 'var(--status-good)'
+                      : 'var(--surface-raised)',
+                  color: a.status === 'ok' ? 'var(--surface-page)' : 'var(--ink-2)',
+                  border: '1px solid var(--line-2)',
+                }}
+                aria-label={`${a.label}: ${a.status}`}
+              >
+                {a.label}: {a.status}
+              </span>
+            ))}
+          </div>
+        )}
 
         <ScreenState
           status={status === 'ready' && errors.length === 0 ? 'empty' : status}
@@ -129,7 +180,7 @@ const DiagnosePage: React.FC = () => {
                         >
                           {c.file}:{c.range.startLine}
                         </button>
-                        {' · '}{c.kind} · {c.ruleId} · {c.source}
+                        {' \xb7 '}{c.kind} \xb7 {c.ruleId} \xb7 {c.source}
                       </div>
                     </div>
                   </div>

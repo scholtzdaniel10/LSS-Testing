@@ -8,30 +8,28 @@ use Illuminate\Support\Facades\File;
 
 /**
  * IG-5 minimal: scan manifests in the sandbox for a C4 uses/needs report.
+ * DX-21: stack detection is delegated to StackDetector (single source of truth).
  * Evidence-only — only claims what files show.
  */
 final class UsageReportBuilder
 {
+    public function __construct(
+        private readonly StackDetector $detector = new StackDetector,
+    ) {}
+
     /**
      * @return array<string, mixed>
      */
     public function build(string $sandboxPath): array
     {
+        $profile = $this->detector->detect($sandboxPath);
+
         $languages = [];
         $frameworks = [];
         $deps = [];
         $missingDeps = [];
         $envVars = [];
         $services = [];
-
-        $hasComposer = is_file($sandboxPath.DIRECTORY_SEPARATOR.'composer.json');
-        $hasPackage = is_file($sandboxPath.DIRECTORY_SEPARATOR.'package.json');
-        $hasAngular = is_file($sandboxPath.DIRECTORY_SEPARATOR.'angular.json');
-        $hasPlaywright = is_file($sandboxPath.DIRECTORY_SEPARATOR.'playwright.config.ts')
-            || is_file($sandboxPath.DIRECTORY_SEPARATOR.'playwright.config.js');
-        $isCi3 = is_dir($sandboxPath.DIRECTORY_SEPARATOR.'application')
-            && is_dir($sandboxPath.DIRECTORY_SEPARATOR.'system')
-            && ! $hasComposer;
 
         if ($this->hasPhp($sandboxPath)) {
             $languages[] = 'php';
@@ -43,30 +41,27 @@ final class UsageReportBuilder
             $languages[] = 'typescript';
         }
 
-        if ($isCi3) {
+        if ($profile->isCi3) {
             $frameworks[] = 'codeigniter-3';
             $missingDeps[] = 'composer.json (CodeIgniter 3 codebase has no Composer autoloader)';
         }
-        if ($hasAngular) {
+        if ($profile->hasAngular) {
             $frameworks[] = 'angular';
         }
-        if ($hasPlaywright) {
+        if ($profile->hasPlaywright) {
             $frameworks[] = 'playwright';
         }
-        if ($hasComposer) {
+        if ($profile->hasComposer) {
             $frameworks = array_merge($frameworks, $this->composerFrameworks($sandboxPath));
             $deps = array_merge($deps, $this->composerDeps($sandboxPath));
         }
-        if ($hasPackage) {
+        if ($profile->hasPackage) {
             $deps = array_merge($deps, $this->npmDeps($sandboxPath));
-            if (! $hasAngular && $this->packageHas($sandboxPath, '@ionic')) {
+            if (! $profile->hasAngular && $this->packageHas($sandboxPath, '@ionic')) {
                 $frameworks[] = 'ionic';
             }
             if ($this->packageHas($sandboxPath, 'react')) {
                 $frameworks[] = 'react';
-            }
-            if ($this->packageHas($sandboxPath, 'laravel-vite-plugin') || $this->packageHas($sandboxPath, 'vite')) {
-                // not a framework claim beyond tooling — skip
             }
         }
 
@@ -74,7 +69,6 @@ final class UsageReportBuilder
         if (is_file($envExample)) {
             $envVars = $this->envKeys($envExample);
         } elseif (is_file($sandboxPath.DIRECTORY_SEPARATOR.'.env')) {
-            // Presence of .env without .env.example is a need signal, not a secret dump.
             $envVars[] = '(present .env but missing .env.example)';
         }
 
