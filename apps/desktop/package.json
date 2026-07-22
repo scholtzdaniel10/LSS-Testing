@@ -20,19 +20,14 @@
     },
     "files": [
       "main.js",
+      "preload.js",
       "server.js",
       "../web/dist/**"
     ],
     "win": {
       "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        },
-        {
-          "target": "portable",
-          "arch": ["x64"]
-        }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
       ]
     },
     "nsis": {
