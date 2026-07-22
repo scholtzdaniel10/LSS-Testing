@@ -100,9 +100,4 @@ the Projects page walks the user through the whole flow:
 
 ### Environment variables (ops / dev)
 
-- `SANDBOX_ALLOW_LOCAL_LINK` (default: `true`) — master kill-switch. Set to
-  `false` to block *all* local-folder linking on this API, regardless of
-  registered roots or env prefixes.
-- `LOCAL_PATH_PREFIXES` — optional colon/semicolon-separated list of
-  additional allowed root prefixes for dev/ops overrides. Merged with the
-  DB-consented roots; end users don't need this.
+- `SANDBOX_ALLOW_LOCAL_LINK` (default: `true`) — master kill-
