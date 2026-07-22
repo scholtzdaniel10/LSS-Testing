@@ -40,6 +40,15 @@ type ProjectContextValue = {
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
+// DSK-3: if the desktop launcher injected an API token, adopt it immediately
+// (overwrite any stored token — previous launches' tokens are revoked).
+// This runs once at module load time so the getApiToken() initialiser below
+// always sees the fresh value.
+{
+  const injected = window.lssDesktop?.apiToken;
+  if (injected) setApiToken(injected);
+}
+
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState(getApiToken);
   const [projects, setProjects] = useState<Project[]>([]);

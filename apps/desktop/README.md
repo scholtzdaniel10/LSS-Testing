@@ -13,9 +13,10 @@ source are needed.
 ## One-click launch (Windows)
 
 Run `desktop.bat` from the repo root (double-click it in Explorer or call it
-from cmd). It installs Electron deps on first run, builds the web app, starts
-the Laravel API in a separate cmd window if it is not already running, then
-launches the Electron desktop app — all in one step.
+from cmd). It installs Electron deps on first run, builds the web app, migrates
+the database, auto-issues a Sanctum API token, starts the Laravel API in a
+separate cmd window if it is not already running, then launches the Electron
+desktop app — all in one step, no manual token setup needed.
 
 ## Quick start
 
@@ -107,25 +108,35 @@ the Projects page walks the user through the whole flow:
   additional allowed root prefixes for dev/ops overrides. Merged with the
   DB-consented roots; end users don't need this.
 
-### Per-launch session token (DSK-3)
+### Per-launch session token and auto-provisioning (DSK-3)
 
-`desktop.bat` generates a fresh random token (`LSS_LOCAL_LINK_TOKEN`) on every
-launch using PowerShell's `[guid]::NewGuid()`. The token flows into both the
-API process (started by `desktop.bat` in its own cmd window) and the Electron
-proxy server via the inherited environment — no manual configuration is needed.
+`desktop.bat` now does four things automatically before launching Electron:
 
-The `RequireLocalLinkToken` middleware in the API rejects any request to the
-local-folder-linking surfaces (`/local-roots` and `/projects/{id}/link-local`)
-that does not carry the matching value in the `X-LSS-Local-Token` header.
-`server.js` injects this header automatically for all proxied `/api/*` requests
-when the env var is set.
+1. **Generates `LSS_LOCAL_LINK_TOKEN`** — a fresh GUID on every launch via
+   PowerShell.  Both the API process and the Electron proxy inherit it; the
+   `RequireLocalLinkToken` middleware rejects any local-folder-linking request
+   that does not carry the matching `X-LSS-Local-Token` header.
 
-The practical effect: a page hosted outside this desktop session cannot trigger
-local disk reads, even if it somehow reaches the API port. Each `desktop.bat`
-launch issues a new token, so a captured token from a previous session is
-immediately invalid.
+2. **Runs `php artisan migrate --force`** — ensures the SQLite (or Postgres)
+   schema is up to date before any API requests are made.
+
+3. **Issues the Sanctum API token** — runs `php artisan desktop:token`, which
+   find-or-creates `desktop@lss.local`, deletes any leftover tokens labelled
+   `desktop` from previous launches, and creates a fresh one.  The plain token
+   is captured into the `LSS_API_TOKEN` environment variable; Electron inherits
+   it and `preload.js` exposes it to the renderer as `window.lssDesktop.apiToken`.
+
+4. **Web app adopts the token at boot** — `ProjectContext.tsx` reads
+   `window.lssDesktop?.apiToken` at module-load time and calls `setApiToken()`
+   before any React state is initialised, so every API request is authenticated
+   from the first render.  SettingsPage shows a hint when the desktop token is
+   active; manual entry remains possible for overrides.
+
+The practical effect: a user can double-click `desktop.bat` and the app is
+immediately usable — no `db:seed`, no `token:issue`, no Settings paste needed.
 
 **Dev note:** running `php artisan serve` manually (without `desktop.bat`) leaves
-`LSS_LOCAL_LINK_TOKEN` unset, which disables enforcement entirely — the
-middleware passes all requests through so local development keeps working without
-any extra setup.
+both env vars unset. `LSS_LOCAL_LINK_TOKEN` absent disables the local-link
+enforcement; `LSS_API_TOKEN` absent means the web app falls back to any token
+stored in `localStorage` — the same behaviour as before. Browser dev workflow
+is unchanged; `php artisan token:issue <email>` is still used there.

@@ -13,6 +13,9 @@ import {
   type EditorSettings,
 } from '../types';
 
+// DSK-3: true when the token in use was auto-issued by desktop.bat.
+const desktopInjectedToken = !!(window.lssDesktop?.apiToken);
+
 const SettingsPage: React.FC = () => {
   const ref = useEntrance();
   const { project, targets, setToken, reloadAll, projects, selectProject, deleteProject, jobMessage } =
@@ -172,6 +175,11 @@ const SettingsPage: React.FC = () => {
             <h2 className="panel__title">API token</h2>
             <span className="panel__hint">Sanctum bearer · never commit this</span>
           </div>
+          {desktopInjectedToken && (
+            <p className="panel__hint" style={{ marginBottom: 'var(--sp-2)' }}>
+              Auto-issued by the desktop launcher — manual entry not needed.
+            </p>
+          )}
           <div className="field">
             <label htmlFor="api-token">Bearer token</label>
             <input
@@ -327,7 +335,7 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* ── Allowed folders (DSK-7) ───────────────────────────────────── */}
+        {/* ── Allowed folders (DSK-7) ───────────────────────────────────────────── */}
         <div className="panel" data-animate>
           <div className="panel__head">
             <h2 className="panel__title">Allowed folders</h2>
