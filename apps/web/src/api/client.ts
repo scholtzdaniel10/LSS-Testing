@@ -111,6 +111,13 @@ export type TargetEnvironment = {
 
 export type TreeFile = { path: string; size: number; lang: string | null };
 
+export type LocalRoot = {
+  id: string;
+  path: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -255,6 +262,15 @@ export const api = {
       `/projects/${projectId}/target-environments/${envId}/probe`,
       { method: 'POST' },
     ),
+  localRoots: () => request<LocalRoot[]>('/local-roots'),
+  addLocalRoot: (path: string) =>
+    request<LocalRoot>('/local-roots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }),
+  removeLocalRoot: (id: string) =>
+    request<null>(`/local-roots/${id}`, { method: 'DELETE' }),
 };
 
 export async function pollJob(

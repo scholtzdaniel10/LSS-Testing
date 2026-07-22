@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useEntrance } from '../lib/anim';
 import { api, setApiToken, getApiToken } from '../api/client';
 import { useProject } from '../state/ProjectContext';
 import { linkLocalFolder } from '../lib/linkLocalProject';
+import type { LocalRoot } from '../api/client';
 import {
   defaultEditorSettings,
   loadEditorSettings,
@@ -26,6 +27,13 @@ const SettingsPage: React.FC = () => {
   const [linking, setLinking] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Allowed folders (DSK-7)
+  type RootsStatus = 'loading' | 'error' | 'empty' | 'ready';
+  const [roots, setRoots] = useState<LocalRoot[]>([]);
+  const [rootsStatus, setRootsStatus] = useState<RootsStatus>('loading');
+  const [rootsError, setRootsError] = useState<string | null>(null);
+  const [removingRoot, setRemovingRoot] = useState<string | null>(null);
+
   useEffect(() => {
     const first = targets[0];
     if (first) {
@@ -34,6 +42,34 @@ const SettingsPage: React.FC = () => {
       setEnvNotes(first.notes ?? '');
     }
   }, [targets]);
+
+  const loadRoots = useCallback(() => {
+    setRootsStatus('loading');
+    setRootsError(null);
+    api.localRoots()
+      .then(({ data }) => {
+        setRoots(data);
+        setRootsStatus(data.length === 0 ? 'empty' : 'ready');
+      })
+      .catch((e: unknown) => {
+        setRootsError(e instanceof Error ? e.message : 'Failed to load allowed folders');
+        setRootsStatus('error');
+      });
+  }, []);
+
+  useEffect(() => { loadRoots(); }, [loadRoots]);
+
+  const handleRemoveRoot = async (id: string) => {
+    setRemovingRoot(id);
+    try {
+      await api.removeLocalRoot(id);
+      await loadRoots();
+    } catch (e) {
+      setRootsError(e instanceof Error ? e.message : 'Remove failed');
+    } finally {
+      setRemovingRoot(null);
+    }
+  };
 
   const saveToken = () => {
     setApiToken(token.trim());
@@ -289,6 +325,65 @@ const SettingsPage: React.FC = () => {
               Test launch
             </button>
           </div>
+        </div>
+
+        {/* ── Allowed folders (DSK-7) ───────────────────────────────────── */}
+        <div className="panel" data-animate>
+          <div className="panel__head">
+            <h2 className="panel__title">Allowed folders</h2>
+            <span className="panel__hint">Folders the engine may read for local-linked projects</span>
+          </div>
+
+          {rootsStatus === 'loading' && (
+            <p className="panel__hint">Loading…</p>
+          )}
+
+          {rootsStatus === 'error' && (
+            <p role="alert" style={{ color: 'var(--status-critical)', fontSize: 'var(--text-sm)' }}>
+              {rootsError}
+            </p>
+          )}
+
+          {rootsStatus === 'empty' && (
+            <p className="panel__hint">
+              No allowed folders yet. Folders are added automatically when you confirm the consent
+              prompt during a Link folder operation.
+            </p>
+          )}
+
+          {rootsStatus === 'ready' && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 var(--sp-2)' }}>
+              {roots.map((r) => (
+                <li
+                  key={r.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--sp-2)',
+                    padding: 'var(--sp-1) 0',
+                    borderBottom: '1px solid var(--line-1)',
+                  }}
+                >
+                  <span className="mono" style={{ flex: 1, fontSize: 'var(--text-sm)', wordBreak: 'break-all' }}>
+                    {r.path}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={removingRoot === r.id}
+                    style={{ color: 'var(--status-critical)', borderColor: 'var(--status-critical)', flexShrink: 0 }}
+                    onClick={() => void handleRemoveRoot(r.id)}
+                  >
+                    {removingRoot === r.id ? 'Removing…' : 'Remove'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <button type="button" className="btn" onClick={loadRoots} disabled={rootsStatus === 'loading'}>
+            Refresh
+          </button>
         </div>
 
         {message && <p className="v0-banner" data-animate>{message}</p>}

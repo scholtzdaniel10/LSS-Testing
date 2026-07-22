@@ -6,6 +6,7 @@ import { useProject } from '../state/ProjectContext';
 import { relativeTime } from '../lib/timeFormat';
 import { api, ApiError, pollJob } from '../api/client';
 import { linkLocalFolder } from '../lib/linkLocalProject';
+import { isNotUnderAllowedRootError } from '../lib/localRootErrors';
 import type { Project } from '../api/client';
 
 // ── New-project wizard state ──────────────────────────────────────────────────
@@ -23,6 +24,10 @@ const ProjectsPage: React.FC = () => {
   const [linkPath, setLinkPath] = useState('');
   const [wizardBusy, setWizardBusy] = useState<string | null>(null);
   const [wizardError, setWizardError] = useState<string | null>(null);
+  // Consent card: shown when link fails because path is not under an allowed root
+  const [consentPath, setConsentPath] = useState<string | null>(null);
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
 
   // Per-card state
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -36,6 +41,9 @@ const ProjectsPage: React.FC = () => {
     setLinkPath('');
     setWizardBusy(null);
     setWizardError(null);
+    setConsentPath(null);
+    setConsentBusy(false);
+    setConsentError(null);
   };
 
   const handleOpen = (p: Project) => {
@@ -93,14 +101,16 @@ const ProjectsPage: React.FC = () => {
   };
 
   // ── Wizard: link local ────────────────────────────────────────────────────
-  const handleLinkLocal = async () => {
-    const trimmed = linkPath.trim();
+  const handleLinkLocal = async (pathOverride?: string) => {
+    const trimmed = (pathOverride ?? linkPath).trim();
     if (!trimmed) {
       setWizardError('Enter the full folder path on this machine.');
       return;
     }
     setWizardBusy('Creating project…');
     setWizardError(null);
+    setConsentPath(null);
+    setConsentError(null);
     try {
       await linkLocalFolder(trimmed, {
         projectName: newName.trim() || undefined,
@@ -110,11 +120,36 @@ const ProjectsPage: React.FC = () => {
       resetWizard();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Link failed';
-      setWizardError(
-        `${msg}\n\nHint: the API must have SANDBOX_ALLOW_LOCAL_LINK=true and the folder's prefix in LOCAL_PATH_PREFIXES in apps/api/.env.`,
-      );
       setWizardBusy(null);
+      if (isNotUnderAllowedRootError(msg)) {
+        setConsentPath(trimmed);
+      } else {
+        setWizardError(msg);
+      }
     }
+  };
+
+  // ── Consent card handlers ─────────────────────────────────────────────────
+  const handleConsentAllow = async () => {
+    if (!consentPath) return;
+    setConsentBusy(true);
+    setConsentError(null);
+    try {
+      await api.addLocalRoot(consentPath);
+      setConsentPath(null);
+      // Retry the link automatically now that the root is registered.
+      await handleLinkLocal(consentPath);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Failed to register root';
+      setConsentError(msg);
+      setConsentBusy(false);
+    }
+  };
+
+  const handleConsentCancel = () => {
+    setConsentPath(null);
+    setConsentError(null);
+    setConsentBusy(false);
   };
 
   // ── Wizard: zip upload ────────────────────────────────────────────────────
@@ -263,21 +298,81 @@ const ProjectsPage: React.FC = () => {
             </div>
             <div className="field">
               <label htmlFor="link-path">Full folder path on this machine</label>
-              <input
-                id="link-path"
-                value={linkPath}
-                onChange={(e) => setLinkPath(e.target.value)}
-                placeholder="C:\Projects\my-app"
-                autoFocus
-                disabled={!!wizardBusy}
-                onKeyDown={(e) => e.key === 'Enter' && !wizardBusy && void handleLinkLocal()}
-              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  id="link-path"
+                  value={linkPath}
+                  onChange={(e) => setLinkPath(e.target.value)}
+                  placeholder="C:\Projects\my-app"
+                  autoFocus
+                  disabled={!!wizardBusy}
+                  style={{ flex: 1 }}
+                  onKeyDown={(e) => e.key === 'Enter' && !wizardBusy && void handleLinkLocal()}
+                />
+                {typeof window !== 'undefined' && window.lssDesktop?.pickFolder && (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={!!wizardBusy}
+                    onClick={() => {
+                      void window.lssDesktop!.pickFolder().then((p) => {
+                        if (p) setLinkPath(p);
+                      });
+                    }}
+                  >
+                    Browse…
+                  </button>
+                )}
+              </div>
               <span className="field__hint">
                 Must be accessible from the machine running{' '}
-                <span className="mono">php artisan serve</span>. Requires{' '}
-                <span className="mono">SANDBOX_ALLOW_LOCAL_LINK=true</span> in apps/api/.env.
+                <span className="mono">php artisan serve</span>. Folders must be allowed once
+                before linking — you can manage allowed folders in Settings.
               </span>
             </div>
+
+            {/* Consent card — shown when link fails due to missing root registration */}
+            {consentPath && !wizardBusy && (
+              <div
+                role="alertdialog"
+                style={{
+                  margin: '8px 0',
+                  padding: 'var(--sp-3)',
+                  border: '1px solid var(--status-warn)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--surface-page)',
+                }}
+              >
+                <p style={{ margin: '0 0 var(--sp-2)', fontSize: 'var(--text-sm)', color: 'var(--ink-1)' }}>
+                  Allow the engine to read everything under{' '}
+                  <span className="mono" style={{ wordBreak: 'break-all' }}>{consentPath}</span>?
+                </p>
+                {consentError && (
+                  <p role="alert" style={{ color: 'var(--status-critical)', fontSize: 'var(--text-sm)', margin: '0 0 var(--sp-2)' }}>
+                    {consentError}
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn--accent"
+                    disabled={consentBusy}
+                    onClick={() => void handleConsentAllow()}
+                  >
+                    {consentBusy ? 'Allowing…' : 'Allow'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={consentBusy}
+                    onClick={handleConsentCancel}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {wizardBusy && (
               <p className="panel__hint" style={{ marginBottom: 8 }}>
                 {wizardBusy}
