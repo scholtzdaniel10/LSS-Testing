@@ -52,7 +52,7 @@ it('rejects local paths outside configured prefixes', function () {
 
     $this->postJson("/api/v1/projects/{$project->id}/link-local", [
         'path' => $root,
-    ])->assertStatus(500);
+    ])->assertStatus(422);
 
     File::deleteDirectory($root);
 });
@@ -85,7 +85,7 @@ it('rejects any local path when prefix list is empty (fail-closed)', function ()
 
     $this->postJson("/api/v1/projects/{$project->id}/link-local", [
         'path' => $root,
-    ])->assertStatus(500);
+    ])->assertStatus(422);
 
     File::deleteDirectory($root);
 });
