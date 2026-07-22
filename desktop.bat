@@ -6,6 +6,15 @@ setlocal
 cd /d %~dp0
 
 rem ============================================================================
+rem DSK-3: generate a per-launch session token.
+rem Both the API cmd window (started below) and the Electron process inherit
+rem LSS_LOCAL_LINK_TOKEN automatically via the environment. The API middleware
+rem rejects local-folder-linking calls that lack this token, so a rogue page
+rem cannot trigger local disk reads outside this launch session.
+rem ============================================================================
+for /f %%i in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString(''N'')"') do set "LSS_LOCAL_LINK_TOKEN=%%i"
+
+rem ============================================================================
 rem Phase 1: install Electron deps ^(one-time, skipped when node_modules exist^)
 rem ============================================================================
 if not exist apps\desktop\node_modules (

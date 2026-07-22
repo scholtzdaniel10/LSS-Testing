@@ -72,4 +72,21 @@ return [
         explode(';', (string) env('LOCAL_PATH_PREFIXES', '')),
     ))),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Per-launch local-link session token (DSK-3)
+    |--------------------------------------------------------------------------
+    |
+    | desktop.bat generates a fresh UUID token on each launch and sets
+    | LSS_LOCAL_LINK_TOKEN in the environment. Both the API process and the
+    | Electron proxy inherit it, so the API can reject local-folder-linking
+    | requests that did not originate from this launch session.
+    |
+    | When null/empty (e.g. manual `php artisan serve` for dev), the
+    | RequireLocalLinkToken middleware passes all requests through.
+    |
+    */
+
+    'local_link_token' => env('LSS_LOCAL_LINK_TOKEN'),
+
 ];

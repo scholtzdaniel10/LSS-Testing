@@ -100,4 +100,32 @@ the Projects page walks the user through the whole flow:
 
 ### Environment variables (ops / dev)
 
-- `SANDBOX_ALLOW_LOCAL_LINK` (default: `true`) — master kill-
+- `SANDBOX_ALLOW_LOCAL_LINK` (default: `true`) — master kill-switch. Set to
+  `false` to block *all* local-folder linking on this API, regardless of
+  registered roots or env prefixes.
+- `LOCAL_PATH_PREFIXES` — optional colon/semicolon-separated list of
+  additional allowed root prefixes for dev/ops overrides. Merged with the
+  DB-consented roots; end users don't need this.
+
+### Per-launch session token (DSK-3)
+
+`desktop.bat` generates a fresh random token (`LSS_LOCAL_LINK_TOKEN`) on every
+launch using PowerShell's `[guid]::NewGuid()`. The token flows into both the
+API process (started by `desktop.bat` in its own cmd window) and the Electron
+proxy server via the inherited environment — no manual configuration is needed.
+
+The `RequireLocalLinkToken` middleware in the API rejects any request to the
+local-folder-linking surfaces (`/local-roots` and `/projects/{id}/link-local`)
+that does not carry the matching value in the `X-LSS-Local-Token` header.
+`server.js` injects this header automatically for all proxied `/api/*` requests
+when the env var is set.
+
+The practical effect: a page hosted outside this desktop session cannot trigger
+local disk reads, even if it somehow reaches the API port. Each `desktop.bat`
+launch issues a new token, so a captured token from a previous session is
+immediately invalid.
+
+**Dev note:** running `php artisan serve` manually (without `desktop.bat`) leaves
+`LSS_LOCAL_LINK_TOKEN` unset, which disables enforcement entirely — the
+middleware passes all requests through so local development keeps working without
+any extra setup.

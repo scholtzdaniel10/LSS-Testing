@@ -1,6 +1,7 @@
 <?php
 
 use App\Exceptions\ApiExceptionRenderer;
+use App\Http\Middleware\RequireLocalLinkToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // API-only app: guests are never redirected to a login page — they get
         // the 401 envelope from ApiExceptionRenderer regardless of Accept header.
         $middleware->redirectGuestsTo(fn (): null => null);
+
+        // DSK-3: route middleware alias for per-launch local-link session token.
+        $middleware->alias([
+            'local.token' => RequireLocalLinkToken::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         ApiExceptionRenderer::register($exceptions);

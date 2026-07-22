@@ -57,16 +57,26 @@ function resolveSafe(distDir, reqPath) {
 
 /**
  * Proxy an /api request to apiUrl, streaming bodies and forwarding headers.
+ * DSK-3: if LSS_LOCAL_LINK_TOKEN is set in the environment, forward it as the
+ * X-LSS-Local-Token header so the API middleware can verify the session token.
  * On ECONNREFUSED / ECONNRESET returns 502 with a JSON error body.
  */
 function proxyApi(req, res, apiUrl) {
   const target = new url.URL(req.url, apiUrl);
+
+  const outHeaders = Object.assign({}, req.headers, { host: target.host });
+
+  // DSK-3: inject per-launch session token when present.
+  if (process.env.LSS_LOCAL_LINK_TOKEN) {
+    outHeaders['x-lss-local-token'] = process.env.LSS_LOCAL_LINK_TOKEN;
+  }
+
   const options = {
     hostname: target.hostname,
     port    : target.port || (target.protocol === 'https:' ? 443 : 80),
     path    : target.pathname + (target.search || ''),
     method  : req.method,
-    headers : Object.assign({}, req.headers, { host: target.host }),
+    headers : outHeaders,
   };
 
   const proto = target.protocol === 'https:' ? require('https') : http;
