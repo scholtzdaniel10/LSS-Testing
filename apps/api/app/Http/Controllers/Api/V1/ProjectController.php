@@ -26,6 +26,7 @@ class ProjectController extends Controller
 
         return $this->respondPaginated(
             Project::query()
+                ->withCount('files')
                 ->orderBy('name')
                 ->paginate($perPage)
                 ->through(fn (Project $project): array => $this->serializeProject($project)),
@@ -34,6 +35,8 @@ class ProjectController extends Controller
 
     public function show(Project $project): JsonResponse
     {
+        $project->loadCount('files');
+
         return $this->respond($this->serializeProject($project));
     }
 
@@ -181,7 +184,7 @@ class ProjectController extends Controller
             'lastImportedAt' => $project->last_imported_at?->toIso8601String(),
             'createdAt' => $project->created_at?->toIso8601String(),
             'updatedAt' => $project->updated_at?->toIso8601String(),
-            'fileCount' => $project->files()->count(),
+            'fileCount' => $project->files_count ?? $project->files()->count(),
         ];
     }
 

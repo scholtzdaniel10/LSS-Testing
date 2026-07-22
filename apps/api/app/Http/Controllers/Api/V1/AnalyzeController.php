@@ -8,6 +8,7 @@ use App\Models\JobStatus;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 
 class AnalyzeController extends Controller
 {
@@ -49,16 +50,20 @@ class AnalyzeController extends Controller
             );
         }
 
-        $analyze = JobStatus::query()->create([
-            'type' => 'analyze',
-            'project_id' => $project->id,
-            'status' => JobStatus::STATUS_QUEUED,
-        ]);
-        $snapshot = JobStatus::query()->create([
-            'type' => 'build-health-snapshot',
-            'project_id' => $project->id,
-            'status' => JobStatus::STATUS_QUEUED,
-        ]);
+        [$analyze, $snapshot] = DB::transaction(function () use ($project): array {
+            $analyze = JobStatus::query()->create([
+                'type' => 'analyze',
+                'project_id' => $project->id,
+                'status' => JobStatus::STATUS_QUEUED,
+            ]);
+            $snapshot = JobStatus::query()->create([
+                'type' => 'build-health-snapshot',
+                'project_id' => $project->id,
+                'status' => JobStatus::STATUS_QUEUED,
+            ]);
+
+            return [$analyze, $snapshot];
+        });
 
         $chain = Bus::chain([
             new AnalyzeProject($project->id, $analyze->id),

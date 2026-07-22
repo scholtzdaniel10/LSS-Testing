@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Requests\HealthReportHistoryRequest;
 use App\Models\HealthSnapshot;
 use App\Models\Project;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class HealthReportController extends Controller
 {
@@ -26,21 +26,25 @@ class HealthReportController extends Controller
         return $this->respond($snapshot->snapshot, ['formula' => config('health.formula')]);
     }
 
-    public function history(Request $request, Project $project): JsonResponse
+    public function history(HealthReportHistoryRequest $request, Project $project): JsonResponse
     {
+        $filters = $request->validated();
+
         $query = HealthSnapshot::query()
             ->where('project_id', $project->id)
             ->orderByDesc('taken_at');
 
-        if ($request->filled('from')) {
-            $query->where('taken_at', '>=', Carbon::parse((string) $request->query('from')));
+        if (! empty($filters['from'])) {
+            $query->where('taken_at', '>=', Carbon::parse($filters['from']));
         }
 
-        if ($request->filled('to')) {
-            $query->where('taken_at', '<=', Carbon::parse((string) $request->query('to')));
+        if (! empty($filters['to'])) {
+            $query->where('taken_at', '<=', Carbon::parse($filters['to']));
         }
 
-        $perPage = min(max((int) $request->integer('per_page', 25), 1), 100);
+        $perPage = isset($filters['per_page'])
+            ? (int) $filters['per_page']
+            : 25;
 
         return $this->respondPaginated(
             $query->paginate($perPage)->through(

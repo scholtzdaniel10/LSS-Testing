@@ -103,13 +103,17 @@ class ProjectFileController extends Controller
         $size = filesize($absolute) ?: 0;
         $isBinary = $this->looksBinary($absolute);
 
+        // PLT-13 perf: reuse the $record already fetched above to avoid a
+        // second query for the lang column.
+        $lang = $record?->lang ?? $project->files()->where('path', $path)->value('lang');
+
         if ($isBinary) {
             return $this->respond([
                 'path' => $path,
                 'binary' => true,
                 'content' => null,
                 'size' => $size,
-                'lang' => $project->files()->where('path', $path)->value('lang'),
+                'lang' => $lang,
             ]);
         }
 
@@ -122,7 +126,7 @@ class ProjectFileController extends Controller
             'content' => $truncated && is_string($content) ? substr($content, 0, $max) : $content,
             'truncated' => $truncated,
             'size' => $size,
-            'lang' => $project->files()->where('path', $path)->value('lang'),
+            'lang' => $lang,
         ]);
     }
 
