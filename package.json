@@ -1,0 +1,8 @@
+{
+  "name": "lss-testing",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "desktop": "npm --prefix apps/web run build && npm --prefix apps/desktop start"
+  }
+}
