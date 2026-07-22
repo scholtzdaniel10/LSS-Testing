@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Services\Diagnostics\AnalysisRunner;
+use App\Services\Diagnostics\ImpactResolver;
 use App\Services\Graph\DependencyGraphBuilder;
 use App\Services\Import\UsageReportBuilder;
 use App\Support\Sandbox\ProjectWorkspace;
@@ -54,6 +55,17 @@ class AnalyzeProject implements ShouldQueue
 
         $status->markRunning(70);
         $result = $runner->run($project, $sandbox);
+
+        // DX-7: join errors onto the edge list — upstream = possible causes,
+        // downstream = blast radius. $edges is already in memory here.
+        $status->markRunning(85);
+        $resolver = new ImpactResolver($edges);
+        foreach ($result['scan']->errors()->get() as $error) {
+            $error->update([
+                'upstream' => $resolver->upstream($error->file),
+                'downstream' => $resolver->downstream($error->file),
+            ]);
+        }
 
         $analyserNote = '';
         if (($result['analysers']['phpstan'] ?? null) === 'missing_binary') {
