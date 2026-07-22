@@ -2,6 +2,7 @@
 
 namespace App\Support\Sandbox;
 
+use App\Models\LocalRoot;
 use App\Models\Project;
 use InvalidArgumentException;
 use RuntimeException;
@@ -56,25 +57,66 @@ final class ProjectWorkspace
 
     private function assertAllowlisted(string $real): void
     {
-        /** @var list<string> $prefixes */
-        $prefixes = config('sandbox.local_path_prefixes', []);
+        $prefixes = $this->allAllowedPrefixes();
+
         if ($prefixes === []) {
-            throw new InvalidArgumentException('Local path is not under an allowed root prefix.');
+            throw new InvalidArgumentException(
+                'Local path is not under an allowed root. Add the folder as an allowed root first.',
+            );
         }
 
+        if (self::pathIsUnderAnyPrefix($real, $prefixes)) {
+            return;
+        }
+
+        throw new InvalidArgumentException(
+            'Local path is not under an allowed root. Add the folder as an allowed root first.',
+        );
+    }
+
+    /**
+     * Merged prefix list: DB-registered roots first, then env extras.
+     *
+     * @return list<string>
+     */
+    private function allAllowedPrefixes(): array
+    {
+        $dbRoots = LocalRoot::query()->pluck('path')->map('strval')->all();
+
+        /** @var list<string> $envPrefixes */
+        $envPrefixes = config('sandbox.local_path_prefixes', []);
+
+        return array_values(array_merge($dbRoots, $envPrefixes));
+    }
+
+    /**
+     * Case-insensitive, separator-safe prefix check.
+     *
+     * Normalise both sides: replace backslashes with forward slashes,
+     * strip trailing slashes, then lowercase.
+     * A path is "under" a prefix iff it equals the prefix OR starts with
+     * prefix + '/'.  This prevents C:\LSS matching C:\LSSX.
+     *
+     * @param  list<string>  $prefixes
+     */
+    public static function pathIsUnderAnyPrefix(string $real, array $prefixes): bool
+    {
+        $normalReal = strtolower(rtrim(str_replace('\\', '/', $real), '/'));
+
         foreach ($prefixes as $prefix) {
-            $prefix = trim($prefix);
+            $prefix = trim((string) $prefix);
             if ($prefix === '') {
                 continue;
             }
-            $prefixReal = realpath($prefix) ?: $prefix;
-            $prefixReal = rtrim(str_replace('\\', '/', $prefixReal), '/');
-            $normalized = str_replace('\\', '/', $real);
-            if ($normalized === $prefixReal || str_starts_with($normalized, $prefixReal.'/')) {
-                return;
+            $resolved = realpath($prefix) ?: $prefix;
+            $normalPfx = strtolower(rtrim(str_replace('\\', '/', $resolved), '/'));
+
+            if ($normalReal === $normalPfx
+                || str_starts_with($normalReal, $normalPfx . '/')) {
+                return true;
             }
         }
 
-        throw new InvalidArgumentException('Local path is not under an allowed root prefix.');
+        return false;
     }
 }

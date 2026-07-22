@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\GraphController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\HealthReportController;
 use App\Http\Controllers\Api\V1\JobStatusController;
+use App\Http\Controllers\Api\V1\LocalRootController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
 use App\Http\Controllers\Api\V1\SnapshotController;
@@ -43,6 +44,11 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::post('/projects/{project}/target-environments/{targetEnvironment}/probe', [TargetEnvironmentController::class, 'probe']);
 
         Route::get('/jobs/{jobStatus}', [JobStatusController::class, 'show']);
+
+        // DSK-7: consented local roots
+        Route::get('/local-roots', [LocalRootController::class, 'index']);
+        Route::post('/local-roots', [LocalRootController::class, 'store']);
+        Route::delete('/local-roots/{localRoot}', [LocalRootController::class, 'destroy']);
 
         Route::post('/projects/{project}/snapshot', [SnapshotController::class, 'store'])
             ->middleware('throttle:expensive');
