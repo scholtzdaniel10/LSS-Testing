@@ -5,9 +5,11 @@
  *
  * Starts a local HTTP server (server.js) that serves apps/web/dist
  * and proxies /api/* to the Laravel API, then opens a BrowserWindow.
+ *
+ * DSK-7: wires preload.js + ipcMain handler for native folder picker.
  */
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const { createServer } = require('./server');
 
@@ -32,13 +34,13 @@ function createWindow(port) {
     webPreferences: {
       contextIsolation : true,
       nodeIntegration  : false,
-      sandbox          : true,
+      sandbox          : false,  // must be false to allow preload IPC
+      preload          : path.join(__dirname, 'preload.js'),
     },
   });
 
   // Block new windows opened by the renderer (window.open, target="_blank")
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Open external links in the default system browser
     if (url.startsWith('http://127.0.0.1:' + port)) return { action: 'allow' };
     shell.openExternal(url);
     return { action: 'deny' };
@@ -72,10 +74,9 @@ app.whenReady().then(async () => {
     const srv = await createServer(DIST_DIR, API_URL);
     port = srv.port;
   } catch (err) {
-    // If the server itself fails (e.g. dist missing), show an error dialog and quit
     const { dialog } = require('electron');
     dialog.showErrorBox(
-      'LSS – startup error',
+      'LSS startup error',
       'Could not start the file server:\n\n' + err.message +
       '\n\nMake sure you have run `npm run build` in apps/web first.'
     );
@@ -84,13 +85,24 @@ app.whenReady().then(async () => {
   }
 
   createWindow(port);
+
+  // DSK-7: native folder picker — exposed to renderer via preload.js
+  ipcMain.handle('lss:pick-folder', async () => {
+    const { dialog } = require('electron');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Select project folder',
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? null
+      : result.filePaths[0];
+  });
 });
 
 // Standard macOS behaviour: re-create window on activate if none exist
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && mainWindow === null) {
-    // We don't have the port here; user should restart.
-    // For v0 this edge case is macOS-only and acceptable.
+    // Port is not available here; user should restart the app.
   }
 });
 

@@ -2,6 +2,10 @@ export type ApiProblem = {
   status?: number;
   title?: string;
   detail?: string;
+  /** DSK-7 machine-readable code for stable client-side branching. */
+  code?: string;
+  /** DSK-7: for `code === 'path_not_allowed'` — the path the server refused. */
+  rejectedPath?: string;
   violations?: Array<{ field: string; message: string }>;
 };
 

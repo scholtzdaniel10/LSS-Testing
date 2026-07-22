@@ -11,6 +11,7 @@ use App\Models\JobStatus;
 use App\Models\Project;
 use App\Support\Api\ApiResponse;
 use App\Support\Sandbox\PathJail;
+use App\Support\Sandbox\PathNotAllowedException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -123,6 +124,25 @@ class ProjectController extends Controller
                 $data['path'],
                 $data['name'] ?? null,
             );
+        } catch (PathNotAllowedException $e) {
+            // Machine-readable failure — the client shows an in-app consent card.
+            $status->refresh();
+            if ($status->status !== JobStatus::STATUS_FAILED) {
+                $status->markFailed($e->getMessage());
+            }
+
+            return ApiResponse::failure([
+                ApiResponse::problem(
+                    title: 'Path not allowed',
+                    detail: $e->getMessage(),
+                    status: 422,
+                    type: 'about:blank',
+                    extensions: [
+                        'code' => PathNotAllowedException::CODE,
+                        'rejectedPath' => $e->rejectedPath,
+                    ],
+                ),
+            ], status: 422);
         } catch (\Throwable $e) {
             $status->refresh();
             if ($status->status !== JobStatus::STATUS_FAILED) {

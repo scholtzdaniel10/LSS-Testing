@@ -59,19 +59,17 @@ final class ProjectWorkspace
     {
         $prefixes = $this->allAllowedPrefixes();
 
+        $message = 'Local path is not under an allowed root. Allow the folder in Settings, or use the in-app consent card when linking.';
+
         if ($prefixes === []) {
-            throw new InvalidArgumentException(
-                'Local path is not under an allowed root. Add the folder as an allowed root first.',
-            );
+            throw new PathNotAllowedException($message, $real);
         }
 
         if (self::pathIsUnderAnyPrefix($real, $prefixes)) {
             return;
         }
 
-        throw new InvalidArgumentException(
-            'Local path is not under an allowed root. Add the folder as an allowed root first.',
-        );
+        throw new PathNotAllowedException($message, $real);
     }
 
     /**

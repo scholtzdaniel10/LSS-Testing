@@ -101,7 +101,7 @@ it('link-local succeeds when path is under a registered root', function () {
     File::deleteDirectory($root);
 });
 
-it('link-local fails when path is outside all registered roots', function () {
+it('link-local fails with 422 + path_not_allowed code when path is outside all registered roots', function () {
     asUser();
     config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => []]);
 
@@ -109,10 +109,15 @@ it('link-local fails when path is outside all registered roots', function () {
     File::ensureDirectoryExists($outsideDir);
 
     // No root registered at all.
-    $project = Project::query()->create(['name' => 'blocked']);
-    $this->postJson("/api/v1/projects/{$project->id}/link-local", ['path' => $outsideDir])
-        ->assertStatus(500)
-        ->assertJsonPath('data.message', fn ($msg) => str_contains($msg, 'allowed root'));
+    $project  = Project::query()->create(['name' => 'blocked']);
+    $response = $this->postJson("/api/v1/projects/{$project->id}/link-local", ['path' => $outsideDir]);
+
+    $response->assertStatus(422)
+        ->assertJsonPath('errors.0.code', 'path_not_allowed')
+        ->assertJsonPath('errors.0.title', 'Path not allowed');
+
+    // rejectedPath extension echoes the (real) path that was refused.
+    expect($response->json('errors.0.rejectedPath'))->toBeString();
 
     File::deleteDirectory($outsideDir);
 });
@@ -139,7 +144,8 @@ it('delete removes root and blocks new links but does not affect existing projec
     // A second project can no longer link to that directory.
     $project2 = Project::query()->create(['name' => 'dbl-test-2']);
     $this->postJson("/api/v1/projects/{$project2->id}/link-local", ['path' => $subdir])
-        ->assertStatus(500);
+        ->assertStatus(422)
+        ->assertJsonPath('errors.0.code', 'path_not_allowed');
 
     File::deleteDirectory($root);
 });

@@ -6,7 +6,7 @@ import { useProject } from '../state/ProjectContext';
 import { relativeTime } from '../lib/timeFormat';
 import { api, ApiError, pollJob } from '../api/client';
 import { linkLocalFolder } from '../lib/linkLocalProject';
-import { isNotUnderAllowedRootError } from '../lib/localRootErrors';
+import { isPathNotAllowedError } from '../lib/localRootErrors';
 import type { Project } from '../api/client';
 
 // ── New-project wizard state ──────────────────────────────────────────────────
@@ -121,7 +121,7 @@ const ProjectsPage: React.FC = () => {
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Link failed';
       setWizardBusy(null);
-      if (isNotUnderAllowedRootError(msg)) {
+      if (isPathNotAllowedError(e)) {
         setConsentPath(trimmed);
       } else {
         setWizardError(msg);

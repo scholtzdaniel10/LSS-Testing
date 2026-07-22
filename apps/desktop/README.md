@@ -67,3 +67,35 @@ app's existing error states handle it gracefully.
 `main.js` is the Electron main process.  It enforces a single-instance lock,
 starts `server.js`, opens a `BrowserWindow` pointing at the local server, and
 opens any external links in the default system browser.
+
+`preload.js` (DSK-7) exposes `window.lssDesktop.pickFolder()` to the renderer
+via `contextBridge` with `contextIsolation: true` and `nodeIntegration: false`.
+The picker opens a native OS folder-selection dialog; the result is returned to
+the renderer as a plain string path (or `null` on cancel) via IPC.
+
+## Linking a folder (production flow, DSK-7)
+
+No `.env` edit is required to link a project folder any more. The wizard on
+the Projects page walks the user through the whole flow:
+
+1. Click **+ New project → Link folder on this machine**.
+2. Click **Browse…** (or type a path). The button opens the native OS folder
+   picker via `window.lssDesktop.pickFolder()`.
+3. Click **Link folder**. If the folder is not yet under any consented root,
+   the API rejects with a `422 { code: "path_not_allowed" }` problem. The web
+   UI catches that specific code and shows an in-app consent card:
+   *"Allow the engine to read everything under <folder>?"* — clicking
+   **Allow** POSTs to `/api/v1/local-roots` and automatically retries the
+   link. The folder is remembered on the server side; subsequent links under
+   the same tree skip the consent step.
+4. Registered roots can be reviewed and revoked in **Settings → Allowed
+   folders**.
+
+### Environment variables (ops / dev)
+
+- `SANDBOX_ALLOW_LOCAL_LINK` (default: `true`) — master kill-switch. Set to
+  `false` to block *all* local-folder linking on this API, regardless of
+  registered roots or env prefixes.
+- `LOCAL_PATH_PREFIXES` — optional colon/semicolon-separated list of
+  additional allowed root prefixes for dev/ops overrides. Merged with the
+  DB-consented roots; end users don't need this.
