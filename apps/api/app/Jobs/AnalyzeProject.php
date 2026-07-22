@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Services\Diagnostics\AnalysisRunner;
+use App\Services\Diagnostics\ChainDetector;
 use App\Services\Diagnostics\ImpactResolver;
 use App\Services\Graph\DependencyGraphBuilder;
 use App\Services\Import\UsageReportBuilder;
@@ -60,11 +61,27 @@ class AnalyzeProject implements ShouldQueue
         // downstream = blast radius. $edges is already in memory here.
         $status->markRunning(85);
         $resolver = new ImpactResolver($edges);
-        foreach ($result['scan']->errors()->get() as $error) {
+        $errors = $result['scan']->errors()->get();
+        foreach ($errors as $error) {
             $error->update([
                 'upstream' => $resolver->upstream($error->file),
                 'downstream' => $resolver->downstream($error->file),
             ]);
+        }
+
+        // DX-8: link errors on a shared dependency path into chains.
+        $chains = (new ChainDetector)->detect(
+            $errors->map(fn ($error): array => ['id' => $error->id, 'file' => $error->file])->all(),
+            $resolver,
+        );
+        foreach ($errors as $error) {
+            $assignment = $chains[$error->id] ?? null;
+            if ($assignment !== null && $assignment['chainId'] !== null) {
+                $error->update([
+                    'chain_id' => $assignment['chainId'],
+                    'is_root' => $assignment['isRoot'],
+                ]);
+            }
         }
 
         $analyserNote = '';

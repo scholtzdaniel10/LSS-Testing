@@ -26,6 +26,9 @@ class ListErrorsRequest extends FormRequest
             'file' => ['sometimes', 'string', 'max:1024'],
             'per_page' => ['sometimes', 'integer', 'between:1,100'],
             'cursor' => ['sometimes', 'string'],
+            // DX-9: impact depth — default 1 (direct dependents), transitive
+            // behind the parameter, matching IG-13's slider convention (1–3).
+            'depth' => ['sometimes', 'integer', 'between:1,3'],
         ];
     }
 }

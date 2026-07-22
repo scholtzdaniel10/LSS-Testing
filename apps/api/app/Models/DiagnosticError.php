@@ -30,6 +30,8 @@ class DiagnosticError extends Model
         'explanation',
         'upstream',
         'downstream',
+        'chain_id',
+        'is_root',
     ];
 
     protected function casts(): array
@@ -38,6 +40,7 @@ class DiagnosticError extends Model
             'range' => 'array',
             'upstream' => 'array',
             'downstream' => 'array',
+            'is_root' => 'boolean',
         ];
     }
 
