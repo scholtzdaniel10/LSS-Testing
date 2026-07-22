@@ -10,6 +10,13 @@ source are needed.
 - The Laravel API running: `cd apps/api && php artisan serve` (→ http://127.0.0.1:8000)
 - The web app built: `cd apps/web && npm run build`
 
+## One-click launch (Windows)
+
+Run `desktop.bat` from the repo root (double-click it in Explorer or call it
+from cmd). It installs Electron deps on first run, builds the web app, starts
+the Laravel API in a separate cmd window if it is not already running, then
+launches the Electron desktop app — all in one step.
+
 ## Quick start
 
 ```sh
