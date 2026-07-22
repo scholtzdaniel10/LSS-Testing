@@ -1,5 +1,4 @@
 import type { GraphEdge } from '../api/client';
-import type { IgnoreRulesPayload } from './ignoreRules';
 
 // ── IG-22: StackProfile ───────────────────────────────────────────────────────
 

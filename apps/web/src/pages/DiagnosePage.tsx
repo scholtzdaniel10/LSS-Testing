@@ -6,6 +6,7 @@ import ScreenState from '../components/ScreenState';
 import { api } from '../api/client';
 import { useProject } from '../state/ProjectContext';
 import { loadEditorSettings, openInIde } from '../types';
+import { findingForFile, groupByChain } from '../lib/chainModel';
 import type { DiagnosticFinding, AnalyserStatuses } from '../api/client';
 
 // DX-24: derive per-analyser panel metadata from API-supplied analyser statuses.
@@ -36,14 +37,35 @@ function analyserEmptyHint(analysers: AnalyserStatuses): string {
 const DiagnosePage: React.FC = () => {
   const history = useHistory();
   const ref = useEntrance();
-  const { project, errors, analysers, status, errorMessage } = useProject();
+  const { project, errors, analysers, chains, status, errorMessage } = useProject();
   const [active, setActive] = useState<DiagnosticFinding | null>(null);
   const [lines, setLines] = useState<{ line: number; text: string }[]>([]);
   const [popover, setPopover] = useState<{ top: number } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [expandedChains, setExpandedChains] = useState<Set<string>>(new Set());
 
   // DX-24: generic empty hint derived from registry — no "PHPStan" hardcode.
   const diagnoseEmptyHint = analyserEmptyHint(analysers);
+
+  // DX-11: chain list view — grouped by chain (root cause first), unchained after.
+  const { chainGroups, unchained } = groupByChain(errors, chains);
+  const activeChain = active
+    ? chainGroups.find((g) => g.members.some((m) => m.id === active.id))
+    : undefined;
+
+  const toggleChain = (chainId: string) =>
+    setExpandedChains((prev) => {
+      const next = new Set(prev);
+      if (next.has(chainId)) next.delete(chainId);
+      else next.add(chainId);
+      return next;
+    });
+
+  // DX-13 chain walking: navigate the pane to another finding without leaving it.
+  const walkTo = (finding: DiagnosticFinding) => {
+    setActive(finding);
+    setPopover(null);
+  };
 
   // DX-24: build analyser panel summaries from registry metadata
   const analyserPanels = Object.entries(analysers).map(([id, s]) => ({
@@ -97,6 +119,65 @@ const DiagnosePage: React.FC = () => {
   const severityUi = (s: DiagnosticFinding['severity']): 'critical' | 'serious' | 'warning' =>
     s === 'error' ? 'critical' : s === 'warning' ? 'serious' : 'warning';
 
+  const renderRow = (
+    c: DiagnosticFinding,
+    opts: { badge?: string; indent?: boolean; trailing?: React.ReactNode } = {},
+  ) => (
+    <div
+      key={c.id}
+      className="row-list__row"
+      style={{
+        ...(active?.id === c.id ? { background: 'var(--surface-raised)' } : undefined),
+        ...(opts.indent ? { paddingLeft: 'var(--sp-4)' } : undefined),
+      }}
+      role="button"
+      tabIndex={0}
+      onClick={() => walkTo(c)}
+      onKeyDown={(e) => e.key === 'Enter' && setActive(c)}
+    >
+      <SeverityPill severity={severityUi(c.severity)} />
+      <div className="row-list__grow">
+        <div>
+          {opts.badge && (
+            <span
+              style={{
+                marginRight: 'var(--sp-2)',
+                padding: '1px 8px',
+                borderRadius: 4,
+                fontSize: 11,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                background: 'var(--accent-wash)',
+                color: 'var(--ink-1)',
+                border: '1px solid var(--line-2)',
+              }}
+            >
+              {opts.badge}
+            </span>
+          )}
+          {c.message}
+        </div>
+        <div className="row-list__meta" style={{ marginTop: 2 }}>
+          <button
+            type="button"
+            className="row-list__link"
+            aria-label={`Show ${c.file} in graph explorer`}
+            onClick={(e) => {
+              e.stopPropagation();
+              history.push(
+                `/explore?focus=${encodeURIComponent(c.file)}&errorId=${encodeURIComponent(c.id)}`,
+              );
+            }}
+          >
+            {c.file}:{c.range.startLine}
+          </button>
+          {' · '}{c.kind}{' · '}{c.ruleId}{' · '}{c.source}
+        </div>
+      </div>
+      {opts.trailing}
+    </div>
+  );
+
   return (
     <div className="page">
       <div className="page__inner" ref={ref} style={{ maxWidth: 1320 }}>
@@ -147,44 +228,40 @@ const DiagnosePage: React.FC = () => {
             <div className="panel">
               <div className="panel__head">
                 <h2 className="panel__title">Findings</h2>
-                <span className="panel__hint">{errors.length} from latest scan</span>
+                <span className="panel__hint">
+                  {errors.length} from latest scan
+                  {chainGroups.length > 0 && <>{' · '}{chainGroups.length} chain{chainGroups.length > 1 ? 's' : ''}</>}
+                </span>
               </div>
               <div className="row-list">
-                {errors.map((c) => (
-                  <div
-                    key={c.id}
-                    className="row-list__row"
-                    style={active?.id === c.id ? { background: 'var(--surface-raised)' } : undefined}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      setActive(c);
-                      setPopover(null);
-                    }}
-                    onKeyDown={(e) => e.key === 'Enter' && setActive(c)}
-                  >
-                    <SeverityPill severity={severityUi(c.severity)} />
-                    <div className="row-list__grow">
-                      <div>{c.message}</div>
-                      <div className="row-list__meta" style={{ marginTop: 2 }}>
-                        <button
-                          type="button"
-                          className="row-list__link"
-                          aria-label={`Show ${c.file} in graph explorer`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            history.push(
-                              `/explore?focus=${encodeURIComponent(c.file)}&errorId=${encodeURIComponent(c.id)}`,
-                            );
-                          }}
-                        >
-                          {c.file}:{c.range.startLine}
-                        </button>
-                        {' \xb7 '}{c.kind} \xb7 {c.ruleId} \xb7 {c.source}
-                      </div>
+                {/* DX-11: chains first — root cause leads, members expand below it */}
+                {chainGroups.map((group) => {
+                  const expanded = expandedChains.has(group.chainId);
+                  const [rootRow, ...rest] = group.members;
+                  return (
+                    <div key={group.chainId} role="group" aria-label={`Error chain of ${group.members.length}`}>
+                      {renderRow(rootRow, {
+                        badge: 'root cause',
+                        trailing: rest.length > 0 && (
+                          <button
+                            type="button"
+                            className="row-list__link"
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? 'Collapse' : 'Expand'} chain of ${group.members.length} errors`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleChain(group.chainId);
+                            }}
+                          >
+                            {expanded ? '▾' : '▸'} {rest.length} linked
+                          </button>
+                        ),
+                      })}
+                      {expanded && rest.map((m) => renderRow(m, { indent: true }))}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
+                {unchained.map((c) => renderRow(c))}
               </div>
             </div>
 
@@ -244,19 +321,85 @@ const DiagnosePage: React.FC = () => {
                       className="chain-popover"
                       style={{ right: 24, top: popover.top }}
                       onMouseLeave={() => setPopover(null)}
+                      role="dialog"
+                      aria-label="Impact and chain details"
                     >
+                      {/* DX-13: kind + explanation header */}
+                      <h4>{active.kind}</h4>
+                      <p style={{ margin: '0 0 var(--sp-2)', fontSize: 12, color: 'var(--ink-2)' }}>
+                        {active.explanation ?? active.message}
+                      </p>
                       <h4>Upstream</h4>
                       <ul>
-                        {(active.upstream.length ? active.upstream : ['—']).map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
+                        {active.upstream.length === 0 && <li>—</li>}
+                        {active.upstream.map((f) => {
+                          const target = findingForFile(f, errors, activeChain?.members ?? []);
+                          return (
+                            <li key={f}>
+                              {target ? (
+                                <button
+                                  type="button"
+                                  className="row-list__link"
+                                  aria-label={`Go to error in ${f}`}
+                                  onClick={() => walkTo(target)}
+                                >
+                                  {f}
+                                </button>
+                              ) : (
+                                f
+                              )}
+                            </li>
+                          );
+                        })}
                       </ul>
                       <h4>Downstream</h4>
                       <ul>
-                        {(active.downstream.length ? active.downstream : ['—']).map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
+                        {active.downstream.length === 0 && <li>—</li>}
+                        {active.downstream.map((f) => {
+                          const target = findingForFile(f, errors, activeChain?.members ?? []);
+                          return (
+                            <li key={f}>
+                              {target ? (
+                                <button
+                                  type="button"
+                                  className="row-list__link"
+                                  aria-label={`Go to error in ${f}`}
+                                  onClick={() => walkTo(target)}
+                                >
+                                  {f}
+                                </button>
+                              ) : (
+                                f
+                              )}
+                            </li>
+                          );
+                        })}
                       </ul>
+                      {/* DX-13: chain walking — jump to any member without leaving the pane */}
+                      {activeChain && activeChain.members.length > 1 && (
+                        <>
+                          <h4>Chain ({activeChain.members.length})</h4>
+                          <ul>
+                            {activeChain.members.map((m) => (
+                              <li key={m.id}>
+                                {m.id === active.id ? (
+                                  <span aria-current="true">{m.file}:{m.range.startLine} (this)</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="row-list__link"
+                                    aria-label={`Go to chain error in ${m.file}`}
+                                    onClick={() => walkTo(m)}
+                                  >
+                                    {m.file}:{m.range.startLine}
+                                    {activeChain.root?.id === m.id ? ' (root)' : ''}
+                                  </button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
                     </div>
                   )}
                 </>

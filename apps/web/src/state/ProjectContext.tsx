@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type GraphEdge, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
+import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 import { deleteLocalProjectsForServerId, listLocalProjects } from '../lib/localProjectStore';
 
@@ -26,6 +26,7 @@ type ProjectContextValue = {
   usage: UsageReport | null;
   errors: DiagnosticFinding[];
   analysers: AnalyserStatuses;
+  chains: ErrorChain[];
   tree: TreeFile[];
   targets: TargetEnvironment[];
   localManifest: LocalProjectManifest | null;
@@ -59,6 +60,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [errors, setErrors] = useState<DiagnosticFinding[]>([]);
   const [analysers, setAnalysers] = useState<AnalyserStatuses>({});
+  const [chains, setChains] = useState<ErrorChain[]>([]);
   const [tree, setTree] = useState<TreeFile[]>([]);
   const [targets, setTargets] = useState<TargetEnvironment[]>([]);
   const [localManifest, setLocalManifest] = useState<LocalProjectManifest | null>(null);
@@ -118,6 +120,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setUsage(usagePayload?.report ?? null);
       setErrors(Array.isArray(errEnv.data) ? errEnv.data : []);
       setAnalysers(errEnv.analysers ?? {});
+      setChains(errEnv.chains ?? []);
       setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
       setTargets(Array.isArray(tgtEnv.data) ? tgtEnv.data : []);
       const locals = await listLocalProjects();
@@ -188,6 +191,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       usage,
       errors,
       analysers,
+      chains,
       tree,
       targets,
       localManifest,
@@ -211,6 +215,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       usage,
       errors,
       analysers,
+      chains,
       tree,
       targets,
       localManifest,

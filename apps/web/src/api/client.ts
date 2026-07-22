@@ -89,6 +89,16 @@ export type DiagnosticFinding = {
   downstream: string[];
 };
 
+/**
+ * DX-8/11: chain grouping from the errors endpoint's meta. Error rows stay
+ * exactly C5-shaped; chain membership arrives separately.
+ */
+export type ErrorChain = {
+  chainId: string;
+  rootErrorIds: string[];
+  errorIds: string[];
+};
+
 export type GraphEdge = { from: string; to: string; kind?: string; line?: number | null };
 
 export type UsageReport = {
@@ -235,10 +245,14 @@ export const api = {
     request<{ projectId: string; report: UsageReport; createdAt: string | null } | null>(
       `/projects/${id}/usage-report`,
     ),
-  errors: (id: string) =>
-    request<DiagnosticFinding[]>(`/projects/${id}/errors`).then((env) => ({
+  // DX-9: depth 1–3 controls the downstream view (default 1 = direct dependents).
+  errors: (id: string, depth?: number) =>
+    request<DiagnosticFinding[]>(
+      `/projects/${id}/errors${depth ? `?depth=${depth}` : ''}`,
+    ).then((env) => ({
       ...env,
       analysers: (env.meta?.analysers as AnalyserStatuses | undefined) ?? {},
+      chains: (env.meta?.chains as ErrorChain[] | undefined) ?? [],
     })),
   tree: (id: string) => request<TreeFile[]>(`/projects/${id}/tree`),
   file: (id: string, path: string) =>

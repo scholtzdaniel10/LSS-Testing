@@ -356,7 +356,7 @@ function ComponentCircle({
               height={56}
               style={{ pointerEvents: 'none' }}
             >
-              {/* @ts-ignore -- xmlns needed for SVG foreignObject */}
+              {/* @ts-expect-error -- xmlns needed for SVG foreignObject */}
               <div xmlns="http://www.w3.org/1999/xhtml"
                 style={{
                   background: 'var(--surface-raised)',
