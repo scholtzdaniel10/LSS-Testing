@@ -487,6 +487,12 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const didPan = useRef(false);
   const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const hoverPending = useRef<string | null>(null);
+  const hoverRaf = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current);
+  }, []);
 
   const resetView = useCallback(() => {
     setZoom(1);
@@ -642,8 +648,17 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   }, [drillMode]);
 
   const handleHover = useCallback((path: string | null) => {
-    setHoveredFile(path);
-  }, []);
+    if (radialPerf.tier === 'small') {
+      setHoveredFile(path);
+      return;
+    }
+    hoverPending.current = path;
+    if (hoverRaf.current != null) return;
+    hoverRaf.current = requestAnimationFrame(() => {
+      hoverRaf.current = null;
+      setHoveredFile(hoverPending.current);
+    });
+  }, [radialPerf.tier]);
 
   const handleFocusUrl = useCallback(
     (path: string) => {
@@ -1001,6 +1016,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
           cursor: 'grab',
           overscrollBehavior: 'contain',
           touchAction: 'none',
+          contain: 'strict',
         }}
         role="img"
         aria-label="Codebase radial map"
@@ -1015,7 +1031,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
             width="100%"
             height={svgDisplayHeight}
             viewBox={`0 0 ${SVG_WIDTH} ${svgDisplayHeight}`}
-            style={{ display: 'block', touchAction: 'none' }}
+            style={{ display: 'block', touchAction: 'none', contain: 'layout style paint' }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}

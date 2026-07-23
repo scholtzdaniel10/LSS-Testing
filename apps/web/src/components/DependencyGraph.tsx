@@ -6,14 +6,17 @@ import {
   buildGraphView,
   buildNeighbourMap,
   buildStackProfile,
+  cappedNeighbourhood,
   clusterCenters,
   collapseFolder,
   expansionChainForFile,
+  filterForceGraphData,
   graphPerformanceProfile,
   hugeGraphOverviewKeep,
   HUGE_GRAPH_OVERVIEW_THRESHOLD,
   isCrossClusterLink,
   neighbourhoodWithin,
+  pinAllNodes,
   resolveGraphColor,
   searchGraphNodes,
   type ForceGraphLink,
@@ -81,6 +84,7 @@ const DependencyGraph: React.FC<Props> = ({
   const didInitialFit = useRef(false);
   const userAdjustedView = useRef(false);
   const lastClick = useRef<{ id: string; at: number } | null>(null);
+  const lastRedrawAt = useRef(0);
 
   const [width, setWidth] = useState(640);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -130,73 +134,85 @@ const DependencyGraph: React.FC<Props> = ({
     [edges, files, errorFiles, expanded, showExternal, stackProfile],
   );
 
+  const nodeCount = view.nodes.length;
+  const perf = useMemo(() => graphPerformanceProfile(nodeCount), [nodeCount]);
+  const denseGraph = nodeCount > 60;
+
+  const neighbours = useMemo(() => buildNeighbourMap(view.links), [view.links]);
+
+  const fullNodeById = useMemo(
+    () => new Map(view.nodes.map((n) => [n.id, n])),
+    [view.nodes],
+  );
+
+  const focusNeighbourhood = useMemo(() => {
+    if (!selected) return null;
+    if (nodeCount > HUGE_GRAPH_OVERVIEW_THRESHOLD) {
+      return cappedNeighbourhood(selected, neighbours, focusDepth, perf.maxFocusNodes, fullNodeById);
+    }
+    return neighbourhoodWithin(selected, neighbours, focusDepth);
+  }, [selected, neighbours, focusDepth, nodeCount, perf.maxFocusNodes, fullNodeById]);
+
+  const overviewKeep = useMemo(() => {
+    if (selected || nodeCount <= HUGE_GRAPH_OVERVIEW_THRESHOLD) return null;
+    return hugeGraphOverviewKeep(view.nodes);
+  }, [selected, nodeCount, view.nodes]);
+
+  const visibleIds = useMemo(() => {
+    if (focusNeighbourhood) return focusNeighbourhood;
+    if (overviewKeep) return overviewKeep;
+    return null;
+  }, [focusNeighbourhood, overviewKeep]);
+
   const graphData = useMemo(() => {
     const nodes = view.nodes.map((n) => ({ ...n }));
     const links = view.links.map((l) => ({ ...l }));
     const centers = clusterCenters(nodes);
     applyClusterLayout(nodes, centers);
+    if (perf.fixedLayout) pinAllNodes(nodes);
+
+    if (visibleIds) {
+      const filtered = filterForceGraphData(nodes, links, visibleIds);
+      return { nodes: filtered.nodes, links: filtered.links, centers };
+    }
     return { nodes, links, centers };
-  }, [view]);
+  }, [view, perf.fixedLayout, visibleIds]);
 
   const nodeById = useMemo(
     () => new Map(graphData.nodes.map((n) => [n.id, n])),
     [graphData.nodes],
   );
 
-  const neighbours = useMemo(() => buildNeighbourMap(graphData.links), [graphData.links]);
-
-  const nodeCount = graphData.nodes.length;
-
-  const focusNeighbourhood = useMemo(() => {
-    if (!selected) return null;
-    return neighbourhoodWithin(selected, neighbours, focusDepth);
-  }, [selected, neighbours, focusDepth]);
-
-  const overviewKeep = useMemo(() => {
-    if (selected || nodeCount <= HUGE_GRAPH_OVERVIEW_THRESHOLD) return null;
-    return hugeGraphOverviewKeep(graphData.nodes);
-  }, [selected, nodeCount, graphData.nodes]);
-
-  const perf = useMemo(() => graphPerformanceProfile(nodeCount), [nodeCount]);
-  const denseGraph = nodeCount > 80;
-
   const requestGraphRedraw = useCallback(() => {
     const g = graphRef.current;
     if (!g) return;
+    const now = performance.now();
+    if (now - lastRedrawAt.current < 48) return;
+    lastRedrawAt.current = now;
     g.resumeAnimation();
     requestAnimationFrame(() => g.pauseAnimation());
   }, []);
 
   const resolveFocusId = useCallback(() => hoverIdRef.current ?? selected, [selected]);
 
-  const isHiddenByFocus = useCallback(
-    (id: string) => {
-      if (overviewKeep && !overviewKeep.has(id)) return true;
-      if (!focusNeighbourhood) return false;
-      return !focusNeighbourhood.has(id);
-    },
-    [focusNeighbourhood, overviewKeep],
-  );
-
   const isDimmed = useCallback(
     (id: string) => {
       const focusId = resolveFocusId();
-      if (isHiddenByFocus(id)) return true;
       if (!focusId) return false;
       if (id === focusId) return false;
       return !(neighbours.get(focusId)?.has(id) ?? false);
     },
-    [resolveFocusId, isHiddenByFocus, neighbours],
+    [resolveFocusId, neighbours],
   );
 
   const searchHits = useMemo(
-    () => searchGraphNodes(graphData.nodes, searchQuery),
-    [graphData.nodes, searchQuery],
+    () => searchGraphNodes(view.nodes, searchQuery),
+    [view.nodes, searchQuery],
   );
 
   const selectedNode = useMemo(
-    () => (selected ? graphData.nodes.find((n) => n.id === selected) ?? null : null),
-    [graphData.nodes, selected],
+    () => (selected ? fullNodeById.get(selected) ?? null : null),
+    [fullNodeById, selected],
   );
 
   useEffect(() => {
@@ -337,7 +353,6 @@ const DependencyGraph: React.FC<Props> = ({
   const shouldDrawLabel = useCallback(
     (node: GraphNode, globalScale: number) => {
       const focusId = resolveFocusId();
-      if (isHiddenByFocus(node.id)) return false;
       if (isDimmed(node.id) && node.id !== focusId) return false;
 
       if (perf.sparseLabels) {
@@ -355,21 +370,7 @@ const DependencyGraph: React.FC<Props> = ({
       }
       return true;
     },
-    [denseGraph, isDimmed, isHiddenByFocus, neighbours, perf.sparseLabels, resolveFocusId, selected],
-  );
-
-  const nodeVisible = useCallback(
-    (node: GraphNode) => !isHiddenByFocus(node.id),
-    [isHiddenByFocus],
-  );
-
-  const linkVisible = useCallback(
-    (link: GraphLink) => {
-      const src = linkEndpointId(link.source as string | GraphNode);
-      const tgt = linkEndpointId(link.target as string | GraphNode);
-      return !isHiddenByFocus(src) && !isHiddenByFocus(tgt);
-    },
-    [isHiddenByFocus],
+    [denseGraph, isDimmed, neighbours, perf.sparseLabels, resolveFocusId, selected],
   );
 
   const linkColor = useCallback(
@@ -377,7 +378,6 @@ const DependencyGraph: React.FC<Props> = ({
       const focusId = resolveFocusId();
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
-      if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 'rgba(0,0,0,0)';
       const cross = isCrossClusterLink(link, nodeById);
       if (!focusId) {
         if (cross) return theme.line1;
@@ -388,7 +388,7 @@ const DependencyGraph: React.FC<Props> = ({
       if (cross) return theme.line1;
       return link.externalTarget ? theme.line3 : theme.line2;
     },
-    [isDimmed, isHiddenByFocus, nodeById, resolveFocusId, theme.accent, theme.line1, theme.line2, theme.line3],
+    [isDimmed, nodeById, resolveFocusId, theme.accent, theme.line1, theme.line2, theme.line3],
   );
 
   const linkWidth = useCallback(
@@ -396,14 +396,13 @@ const DependencyGraph: React.FC<Props> = ({
       const focusId = resolveFocusId();
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
-      if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 0;
       const cross = isCrossClusterLink(link, nodeById);
       const base = Math.min(0.8 + (link.weight ?? 1) * 0.35, 4);
       if (!focusId) return cross ? base * 0.55 : base;
       if (src === focusId || tgt === focusId) return Math.max(base, 2.5);
       return cross ? 0.35 : 0.7;
     },
-    [isHiddenByFocus, nodeById, resolveFocusId],
+    [nodeById, resolveFocusId],
   );
 
   const linkCurvature = useCallback(
@@ -413,8 +412,6 @@ const DependencyGraph: React.FC<Props> = ({
 
   const paintNode = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (isHiddenByFocus(node.id)) return;
-
       const focusId = resolveFocusId();
       const x = node.x ?? 0;
       const y = node.y ?? 0;
@@ -458,52 +455,55 @@ const DependencyGraph: React.FC<Props> = ({
       }
 
       if (shouldDrawLabel(node, globalScale)) {
-        const { labelTop, label, textWidth, labelHeight, padX, padY } = labelMetrics(node, globalScale, ctx);
-        ctx.fillStyle = 'rgba(42, 41, 40, 0.88)';
-        const bgW = textWidth + padX * 2;
-        const bgH = labelHeight;
-        const bgX = x - bgW / 2;
-        const bgY = labelTop - padY;
-        const radius = 3;
-        ctx.beginPath();
-        ctx.moveTo(bgX + radius, bgY);
-        ctx.lineTo(bgX + bgW - radius, bgY);
-        ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
-        ctx.lineTo(bgX + bgW, bgY + bgH - radius);
-        ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
-        ctx.lineTo(bgX + radius, bgY + bgH);
-        ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
-        ctx.lineTo(bgX, bgY + radius);
-        ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
-        ctx.closePath();
-        ctx.fill();
-
+        const { labelTop, label, fontSize } = labelMetrics(node, globalScale, ctx);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
+        if (!perf.simpleLabelPaint) {
+          const { textWidth, labelHeight, padX, padY } = labelMetrics(node, globalScale, ctx);
+          ctx.fillStyle = 'rgba(42, 41, 40, 0.88)';
+          const bgW = textWidth + padX * 2;
+          const bgH = labelHeight;
+          const bgX = x - bgW / 2;
+          const bgY = labelTop - padY;
+          const radius = 3;
+          ctx.beginPath();
+          ctx.moveTo(bgX + radius, bgY);
+          ctx.lineTo(bgX + bgW - radius, bgY);
+          ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
+          ctx.lineTo(bgX + bgW, bgY + bgH - radius);
+          ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
+          ctx.lineTo(bgX + radius, bgY + bgH);
+          ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
+          ctx.lineTo(bgX, bgY + radius);
+          ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+          ctx.closePath();
+          ctx.fill();
+        }
         ctx.fillStyle = node.id === focusId ? theme.ink1 : theme.ink2;
+        ctx.font = `${node.kind === 'folder' ? '600 ' : ''}${fontSize}px ${theme.mono}`;
         ctx.fillText(label, x, labelTop);
       }
       ctx.globalAlpha = 1;
     },
-    [isDimmed, isHiddenByFocus, labelMetrics, nodeRadius, resolveColor, resolveFocusId, selected, shouldDrawLabel, theme],
+    [isDimmed, labelMetrics, nodeRadius, perf.simpleLabelPaint, resolveColor, resolveFocusId, selected, shouldDrawLabel, theme],
   );
 
   const paintPointerArea = useCallback(
     (node: GraphNode, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (isHiddenByFocus(node.id)) return;
       const x = node.x ?? 0;
       const y = node.y ?? 0;
-      const { r, textWidth, labelTop, labelHeight, padX, padY } = labelMetrics(node, globalScale, ctx);
+      const r = nodeRadius(node);
       const hitR = Math.max(18, r + 12);
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(x, y, hitR, 0, 2 * Math.PI);
       ctx.fill();
-      if (shouldDrawLabel(node, globalScale)) {
+      if (!perf.simpleLabelPaint && shouldDrawLabel(node, globalScale)) {
+        const { textWidth, labelTop, labelHeight, padX, padY } = labelMetrics(node, globalScale, ctx);
         ctx.fillRect(x - textWidth / 2 - padX, labelTop - padY, textWidth + padX * 2, labelHeight);
       }
     },
-    [isHiddenByFocus, labelMetrics, shouldDrawLabel],
+    [labelMetrics, nodeRadius, perf.simpleLabelPaint, shouldDrawLabel],
   );
 
   const nodeTooltip = useCallback((node: GraphNode) => {
@@ -599,6 +599,7 @@ const DependencyGraph: React.FC<Props> = ({
           {view.folderCount} folders · {view.fileNodeCount} files · clustered by module
           {overviewKeep ? ` · overview (${overviewKeep.size} nodes)` : ''}
           {perf.sparseLabels ? ' · sparse labels' : denseGraph ? ' · labels adapt when zoomed' : ''}
+          {perf.fixedLayout ? ' · fixed layout' : ''}
         </span>
         {expanded.size > 0 && (
           <button type="button" className="graph-toolbar__btn" onClick={() => setExpanded(new Set())}>
@@ -679,12 +680,10 @@ const DependencyGraph: React.FC<Props> = ({
           graphData={graphData}
           backgroundColor={theme.page}
           nodeId="id"
-          nodeLabel={nodeTooltip}
-          nodeVisibility={nodeVisible}
-          linkVisibility={linkVisible}
+          nodeLabel={perf.hoverRedraw ? nodeTooltip : undefined}
           linkColor={linkColor}
           linkWidth={linkWidth}
-          linkDirectionalArrowLength={3.5}
+          linkDirectionalArrowLength={perf.showLinkArrows ? 3.5 : 0}
           linkDirectionalArrowRelPos={1}
           linkCurvature={linkCurvature}
           autoPauseRedraw
@@ -693,7 +692,7 @@ const DependencyGraph: React.FC<Props> = ({
           warmupTicks={perf.warmupTicks}
           d3AlphaDecay={perf.d3AlphaDecay}
           d3VelocityDecay={perf.d3VelocityDecay}
-          d3AlphaMin={0.05}
+          d3AlphaMin={perf.fixedLayout ? 0.001 : 0.05}
           enableNodeDrag={perf.enableNodeDrag}
           enableZoomInteraction
           enablePanInteraction
@@ -723,7 +722,7 @@ const DependencyGraph: React.FC<Props> = ({
             const id = node?.id ?? null;
             if (hoverIdRef.current === id) return;
             hoverIdRef.current = id;
-            requestGraphRedraw();
+            if (perf.hoverRedraw) requestGraphRedraw();
           }}
           onBackgroundClick={() => onSelect(null)}
           nodeCanvasObjectMode={() => 'replace'}

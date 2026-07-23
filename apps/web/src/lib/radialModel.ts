@@ -454,7 +454,7 @@ export type RadialPerformanceProfile = {
 
 /** Derive SVG draw caps from total linked file count (testable, no DOM). */
 export function radialPerformanceProfile(totalLinkedFiles: number): RadialPerformanceProfile {
-  if (totalLinkedFiles <= 60) {
+  if (totalLinkedFiles <= 50) {
     return {
       tier: 'small',
       maxLeavesPerCircle: Number.POSITIVE_INFINITY,
@@ -464,31 +464,31 @@ export function radialPerformanceProfile(totalLinkedFiles: number): RadialPerfor
       straightEdges: false,
     };
   }
-  if (totalLinkedFiles <= 120) {
+  if (totalLinkedFiles <= 100) {
     return {
       tier: 'medium',
-      maxLeavesPerCircle: 80,
-      maxEdgesPerCircle: 200,
-      maxCircles: 12,
+      maxLeavesPerCircle: 64,
+      maxEdgesPerCircle: 160,
+      maxCircles: 10,
       dotsOnly: false,
       straightEdges: false,
     };
   }
-  if (totalLinkedFiles <= 250) {
+  if (totalLinkedFiles <= 180) {
     return {
       tier: 'large',
-      maxLeavesPerCircle: 50,
-      maxEdgesPerCircle: 120,
-      maxCircles: 8,
+      maxLeavesPerCircle: 40,
+      maxEdgesPerCircle: 96,
+      maxCircles: 6,
       dotsOnly: true,
       straightEdges: true,
     };
   }
   return {
     tier: 'huge',
-    maxLeavesPerCircle: 36,
-    maxEdgesPerCircle: 72,
-    maxCircles: 6,
+    maxLeavesPerCircle: 28,
+    maxEdgesPerCircle: 56,
+    maxCircles: 5,
     dotsOnly: true,
     straightEdges: true,
   };

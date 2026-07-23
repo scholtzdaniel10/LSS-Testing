@@ -145,7 +145,7 @@ export type GraphView = {
   hiddenExternal: number;
 };
 
-const MAX_NODES = 320;
+const MAX_NODES = 200;
 const FOLDER_PREFIX = 'dir:';
 
 const DEFAULT_PROFILE = buildStackProfile([]);
@@ -476,6 +476,16 @@ export type GraphPerformanceProfile = {
   maxCanvasDpr: number;
   /** Draw rounded label pills only for focused / high-signal nodes when true. */
   sparseLabels: boolean;
+  /** Skip label background pills — text only or none. */
+  simpleLabelPaint: boolean;
+  /** Pin every node after cluster seed so the force sim settles instantly. */
+  fixedLayout: boolean;
+  /** Directional link arrows (expensive on dense graphs). */
+  showLinkArrows: boolean;
+  /** Redraw canvas when the hovered node changes. */
+  hoverRedraw: boolean;
+  /** Max nodes when a focus neighbourhood is expanded on large graphs. */
+  maxFocusNodes: number;
   enableNodeDrag: boolean;
   warmupTicks: number;
   cooldownTicks: number;
@@ -486,11 +496,16 @@ export type GraphPerformanceProfile = {
 
 /** Derive force-graph tuning from visible node count (testable, no DOM). */
 export function graphPerformanceProfile(nodeCount: number): GraphPerformanceProfile {
-  if (nodeCount <= 80) {
+  if (nodeCount <= 60) {
     return {
       tier: 'small',
       maxCanvasDpr: 1,
       sparseLabels: false,
+      simpleLabelPaint: false,
+      fixedLayout: false,
+      showLinkArrows: true,
+      hoverRedraw: true,
+      maxFocusNodes: Number.POSITIVE_INFINITY,
       enableNodeDrag: true,
       warmupTicks: 60,
       cooldownTicks: 100,
@@ -499,47 +514,62 @@ export function graphPerformanceProfile(nodeCount: number): GraphPerformanceProf
       d3VelocityDecay: 0.38,
     };
   }
-  if (nodeCount <= 140) {
+  if (nodeCount <= 100) {
     return {
       tier: 'medium',
       maxCanvasDpr: 1,
       sparseLabels: true,
-      enableNodeDrag: true,
-      warmupTicks: 40,
-      cooldownTicks: 70,
-      cooldownTime: 8000,
-      d3AlphaDecay: 0.028,
-      d3VelocityDecay: 0.42,
+      simpleLabelPaint: true,
+      fixedLayout: true,
+      showLinkArrows: false,
+      hoverRedraw: false,
+      maxFocusNodes: 96,
+      enableNodeDrag: false,
+      warmupTicks: 0,
+      cooldownTicks: 0,
+      cooldownTime: 0,
+      d3AlphaDecay: 0.08,
+      d3VelocityDecay: 0.5,
     };
   }
-  if (nodeCount <= 220) {
+  if (nodeCount <= 160) {
     return {
       tier: 'large',
       maxCanvasDpr: 1,
       sparseLabels: true,
+      simpleLabelPaint: true,
+      fixedLayout: true,
+      showLinkArrows: false,
+      hoverRedraw: false,
+      maxFocusNodes: 72,
       enableNodeDrag: false,
-      warmupTicks: 24,
-      cooldownTicks: 48,
-      cooldownTime: 5000,
-      d3AlphaDecay: 0.034,
-      d3VelocityDecay: 0.48,
+      warmupTicks: 0,
+      cooldownTicks: 0,
+      cooldownTime: 0,
+      d3AlphaDecay: 0.1,
+      d3VelocityDecay: 0.55,
     };
   }
   return {
     tier: 'huge',
     maxCanvasDpr: 1,
     sparseLabels: true,
+    simpleLabelPaint: true,
+    fixedLayout: true,
+    showLinkArrows: false,
+    hoverRedraw: false,
+    maxFocusNodes: 56,
     enableNodeDrag: false,
-    warmupTicks: 12,
-    cooldownTicks: 32,
-    cooldownTime: 3500,
-    d3AlphaDecay: 0.04,
-    d3VelocityDecay: 0.55,
+    warmupTicks: 0,
+    cooldownTicks: 0,
+    cooldownTime: 0,
+    d3AlphaDecay: 0.12,
+    d3VelocityDecay: 0.6,
   };
 }
 
 /** Node count above which the graph shows an overview cap until the user focuses. */
-export const HUGE_GRAPH_OVERVIEW_THRESHOLD = 220;
+export const HUGE_GRAPH_OVERVIEW_THRESHOLD = 100;
 
 /**
  * When the graph is huge and nothing is selected, keep folder hubs, error files,
@@ -547,7 +577,7 @@ export const HUGE_GRAPH_OVERVIEW_THRESHOLD = 220;
  */
 export function hugeGraphOverviewKeep(
   nodes: readonly ForceGraphNode[],
-  fileCap = 80,
+  fileCap = 40,
 ): Set<string> {
   const keep = new Set<string>();
   const rankedFiles: ForceGraphNode[] = [];
@@ -604,6 +634,55 @@ export function neighbourhoodWithin(
     if (frontier.size === 0) break;
   }
   return visible;
+}
+
+/** Cap a focus neighbourhood to the highest-degree neighbours when it would be too large. */
+export function cappedNeighbourhood(
+  rootId: string,
+  neighbours: Map<string, Set<string>>,
+  depth: number,
+  maxNodes: number,
+  rankNodes?: ReadonlyMap<string, Pick<ForceGraphNode, 'degree' | 'errors'>>,
+): Set<string> {
+  const full = neighbourhoodWithin(rootId, neighbours, depth);
+  if (!Number.isFinite(maxNodes) || full.size <= maxNodes) return full;
+
+  const ranked = [...full].filter((id) => id !== rootId);
+  ranked.sort((a, b) => {
+    const na = rankNodes?.get(a);
+    const nb = rankNodes?.get(b);
+    const errDiff = (nb?.errors ?? 0) - (na?.errors ?? 0);
+    if (errDiff !== 0) return errDiff;
+    return (nb?.degree ?? 0) - (na?.degree ?? 0) || a.localeCompare(b);
+  });
+
+  const kept = new Set<string>([rootId]);
+  for (const id of ranked.slice(0, Math.max(0, maxNodes - 1))) kept.add(id);
+  return kept;
+}
+
+/** Reduce nodes/links passed to the canvas so hidden items skip simulation + paint. */
+export function filterForceGraphData(
+  nodes: readonly ForceGraphNode[],
+  links: readonly ForceGraphLink[],
+  keep: ReadonlySet<string>,
+): { nodes: ForceGraphNode[]; links: ForceGraphLink[] } {
+  const keptNodes = nodes.filter((n) => keep.has(n.id)).map((n) => ({ ...n }));
+  const ids = new Set(keptNodes.map((n) => n.id));
+  const keptLinks = links
+    .filter((l) => ids.has(l.source) && ids.has(l.target))
+    .map((l) => ({ ...l }));
+  return { nodes: keptNodes, links: keptLinks };
+}
+
+/** Pin every node so d3-force does not reheat on interaction. */
+export function pinAllNodes(nodes: ForceGraphNode[]): void {
+  for (const n of nodes) {
+    if (n.x != null && n.y != null) {
+      n.fx = n.x;
+      n.fy = n.y;
+    }
+  }
 }
 
 /** Resolve `var(--token)` to a concrete color for canvas rendering. */

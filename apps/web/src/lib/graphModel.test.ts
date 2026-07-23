@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor, graphPerformanceProfile, clusterCenters, applyClusterLayout, isCrossClusterLink, clusterKey, hugeGraphOverviewKeep } from './graphModel';
+import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, cappedNeighbourhood, filterForceGraphData, searchGraphNodes, resolveGraphColor, graphPerformanceProfile, clusterCenters, applyClusterLayout, isCrossClusterLink, clusterKey, hugeGraphOverviewKeep } from './graphModel';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -316,17 +316,51 @@ describe('graphPerformanceProfile (IG-13 perf)', () => {
     const p = graphPerformanceProfile(40);
     expect(p.tier).toBe('small');
     expect(p.sparseLabels).toBe(false);
+    expect(p.fixedLayout).toBe(false);
     expect(p.enableNodeDrag).toBe(true);
     expect(p.maxCanvasDpr).toBe(1);
+    expect(p.showLinkArrows).toBe(true);
   });
 
-  it('caps canvas DPR and disables drag for huge graphs', () => {
+  it('uses fixed layout and skips simulation for huge graphs', () => {
     const p = graphPerformanceProfile(400);
     expect(p.tier).toBe('huge');
     expect(p.maxCanvasDpr).toBe(1);
     expect(p.sparseLabels).toBe(true);
+    expect(p.fixedLayout).toBe(true);
+    expect(p.simpleLabelPaint).toBe(true);
     expect(p.enableNodeDrag).toBe(false);
-    expect(p.cooldownTicks).toBeLessThan(60);
+    expect(p.showLinkArrows).toBe(false);
+    expect(p.hoverRedraw).toBe(false);
+    expect(p.warmupTicks).toBe(0);
+    expect(p.cooldownTicks).toBe(0);
+    expect(p.maxFocusNodes).toBeLessThan(80);
+  });
+});
+
+describe('cappedNeighbourhood (IG-14 perf)', () => {
+  it('limits neighbourhood size while keeping the root', () => {
+    const neighbours = new Map<string, Set<string>>();
+    for (let i = 1; i <= 20; i++) {
+      neighbours.set('root', new Set([...(neighbours.get('root') ?? []), `n${i}`]));
+      neighbours.set(`n${i}`, new Set(['root']));
+    }
+    const capped = cappedNeighbourhood('root', neighbours, 1, 6);
+    expect(capped.has('root')).toBe(true);
+    expect(capped.size).toBe(6);
+  });
+});
+
+describe('filterForceGraphData (IG-14 perf)', () => {
+  it('drops nodes and links outside the keep set', () => {
+    const nodes = [
+      { id: 'a', name: 'a', kind: 'file' as const, folder: 'app', external: false, errors: 0, inDegree: 0, degree: 1, fileCount: 1, color: '' },
+      { id: 'b', name: 'b', kind: 'file' as const, folder: 'app', external: false, errors: 0, inDegree: 0, degree: 0, fileCount: 1, color: '' },
+    ];
+    const links = [{ source: 'a', target: 'b', weight: 1, externalTarget: false }];
+    const filtered = filterForceGraphData(nodes, links, new Set(['a']));
+    expect(filtered.nodes).toHaveLength(1);
+    expect(filtered.links).toHaveLength(0);
   });
 });
 
@@ -337,7 +371,6 @@ describe('hugeGraphOverviewKeep (IG-14 perf)', () => {
     const keep = hugeGraphOverviewKeep(view.nodes, 20);
     expect(keep.has('src/f0.ts')).toBe(true);
     expect(keep.size).toBe(21);
-    expect(keep.size).toBeLessThan(view.nodes.length);
   });
 });
 
