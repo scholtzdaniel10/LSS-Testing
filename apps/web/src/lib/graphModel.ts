@@ -463,6 +463,78 @@ export function defaultExpandedFolders(paths: string[]): Set<string> {
   return topLevel;
 }
 
+// ── IG-13: graph performance tiers (Explore canvas / GPU guards) ─────────────
+
+export type GraphPerfTier = 'small' | 'medium' | 'large' | 'huge';
+
+export type GraphPerformanceProfile = {
+  tier: GraphPerfTier;
+  /** Cap canvas backing-store scale (1 = css pixels). */
+  maxCanvasDpr: number;
+  /** Draw rounded label pills only for focused / high-signal nodes when true. */
+  sparseLabels: boolean;
+  enableNodeDrag: boolean;
+  warmupTicks: number;
+  cooldownTicks: number;
+  cooldownTime: number;
+  d3AlphaDecay: number;
+  d3VelocityDecay: number;
+};
+
+/** Derive force-graph tuning from visible node count (testable, no DOM). */
+export function graphPerformanceProfile(nodeCount: number): GraphPerformanceProfile {
+  if (nodeCount <= 80) {
+    return {
+      tier: 'small',
+      maxCanvasDpr: 2,
+      sparseLabels: false,
+      enableNodeDrag: true,
+      warmupTicks: 60,
+      cooldownTicks: 100,
+      cooldownTime: 12000,
+      d3AlphaDecay: 0.024,
+      d3VelocityDecay: 0.38,
+    };
+  }
+  if (nodeCount <= 140) {
+    return {
+      tier: 'medium',
+      maxCanvasDpr: 1.5,
+      sparseLabels: false,
+      enableNodeDrag: true,
+      warmupTicks: 40,
+      cooldownTicks: 70,
+      cooldownTime: 8000,
+      d3AlphaDecay: 0.028,
+      d3VelocityDecay: 0.42,
+    };
+  }
+  if (nodeCount <= 220) {
+    return {
+      tier: 'large',
+      maxCanvasDpr: 1.25,
+      sparseLabels: true,
+      enableNodeDrag: false,
+      warmupTicks: 24,
+      cooldownTicks: 48,
+      cooldownTime: 5000,
+      d3AlphaDecay: 0.034,
+      d3VelocityDecay: 0.48,
+    };
+  }
+  return {
+    tier: 'huge',
+    maxCanvasDpr: 1,
+    sparseLabels: true,
+    enableNodeDrag: false,
+    warmupTicks: 12,
+    cooldownTicks: 32,
+    cooldownTime: 3500,
+    d3AlphaDecay: 0.04,
+    d3VelocityDecay: 0.55,
+  };
+}
+
 // ── IG-13: neighbourhood focus + search helpers ───────────────────────────────
 
 /** Build an undirected adjacency map from force-graph links. */

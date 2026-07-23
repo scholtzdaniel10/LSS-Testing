@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor } from './graphModel';
+import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor, graphPerformanceProfile } from './graphModel';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -308,5 +308,23 @@ describe('resolveGraphColor', () => {
   it('resolves var() tokens via the reader', () => {
     expect(resolveGraphColor('var(--series-1)', () => '#4584d3')).toBe('#4584d3');
     expect(resolveGraphColor('#ff00ff', () => '')).toBe('#ff00ff');
+  });
+});
+
+describe('graphPerformanceProfile (IG-13 perf)', () => {
+  it('keeps full quality for small graphs', () => {
+    const p = graphPerformanceProfile(40);
+    expect(p.tier).toBe('small');
+    expect(p.sparseLabels).toBe(false);
+    expect(p.enableNodeDrag).toBe(true);
+  });
+
+  it('caps canvas DPR and disables drag for huge graphs', () => {
+    const p = graphPerformanceProfile(400);
+    expect(p.tier).toBe('huge');
+    expect(p.maxCanvasDpr).toBe(1);
+    expect(p.sparseLabels).toBe(true);
+    expect(p.enableNodeDrag).toBe(false);
+    expect(p.cooldownTicks).toBeLessThan(60);
   });
 });

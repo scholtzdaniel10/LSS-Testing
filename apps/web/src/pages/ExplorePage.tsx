@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useHistory, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
-import DependencyGraph from '../components/DependencyGraph';
 import CodebaseRadial from '../components/CodebaseRadial';
 import ScreenState from '../components/ScreenState';
 import {
@@ -85,6 +84,8 @@ const SERIES: Record<string, string> = {
 };
 
 type ExploreView = 'map' | 'graph';
+
+const DependencyGraph = lazy(() => import('../components/DependencyGraph'));
 
 const ExplorePage: React.FC = () => {
   const ref = useEntrance();
@@ -398,16 +399,18 @@ const ExplorePage: React.FC = () => {
                   errorMessage={errorMessage}
                   emptyHint="No graph yet — open a project from Projects and run Analyze."
                 >
-                  <DependencyGraph
-                    edges={graphEdges}
-                    errorFiles={errorFiles}
-                    files={allFilePaths}
-                    frameworks={usage?.uses?.frameworks ?? []}
-                    selected={selected}
-                    onSelect={setSelected}
-                    onOpenFile={(path) => openFile(path)}
-                    focusPath={focusPath}
-                  />
+                  <Suspense fallback={<p className="panel__hint">Loading graph…</p>}>
+                    <DependencyGraph
+                      edges={graphEdges}
+                      errorFiles={errorFiles}
+                      files={allFilePaths}
+                      frameworks={usage?.uses?.frameworks ?? []}
+                      selected={selected}
+                      onSelect={setSelected}
+                      onOpenFile={(path) => openFile(path)}
+                      focusPath={focusPath}
+                    />
+                  </Suspense>
                   {ideHint && (
                     <p role="status" className="field__hint" style={{ marginTop: 8 }}>
                       {ideHint}

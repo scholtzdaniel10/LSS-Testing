@@ -7,6 +7,7 @@ import {
   buildStackProfile,
   collapseFolder,
   expansionChainForFile,
+  graphPerformanceProfile,
   neighbourhoodWithin,
   resolveGraphColor,
   searchGraphNodes,
@@ -34,7 +35,23 @@ type Props = {
 };
 
 const GRAPH_HEIGHT = 480;
-const LABEL_NODE_THRESHOLD = 140;
+
+/** Cap force-graph canvas backing-store scale (library always uses devicePixelRatio). */
+function capCanvasDpr(container: HTMLElement, maxDpr: number): void {
+  const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+  for (const canvas of container.querySelectorAll('canvas')) {
+    const cssW = parseInt(canvas.style.width, 10) || canvas.clientWidth;
+    const cssH = parseInt(canvas.style.height, 10) || canvas.clientHeight;
+    if (!cssW || !cssH) continue;
+    const targetW = Math.floor(cssW * dpr);
+    const targetH = Math.floor(cssH * dpr);
+    if (canvas.width === targetW && canvas.height === targetH) continue;
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+}
 
 function readCssVar(name: string, fallback: string): string {
   if (typeof document === 'undefined') return fallback;
@@ -55,12 +72,12 @@ const DependencyGraph: React.FC<Props> = ({
   const wrapRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined);
+  const hoverIdRef = useRef<string | null>(null);
   const didInitialFit = useRef(false);
   const userAdjustedView = useRef(false);
   const lastClick = useRef<{ id: string; at: number } | null>(null);
 
   const [width, setWidth] = useState(640);
-  const [hoverId, setHoverId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showExternal, setShowExternal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -120,8 +137,18 @@ const DependencyGraph: React.FC<Props> = ({
     return neighbourhoodWithin(selected, neighbours, focusDepth);
   }, [selected, neighbours, focusDepth]);
 
-  const focusId = hoverId ?? selected;
-  const denseGraph = graphData.nodes.length > LABEL_NODE_THRESHOLD;
+  const nodeCount = graphData.nodes.length;
+  const perf = useMemo(() => graphPerformanceProfile(nodeCount), [nodeCount]);
+  const denseGraph = nodeCount > 80;
+
+  const requestGraphRedraw = useCallback(() => {
+    const g = graphRef.current;
+    if (!g) return;
+    g.resumeAnimation();
+    requestAnimationFrame(() => g.pauseAnimation());
+  }, []);
+
+  const resolveFocusId = useCallback(() => hoverIdRef.current ?? selected, [selected]);
 
   const isHiddenByFocus = useCallback(
     (id: string) => {
@@ -133,12 +160,13 @@ const DependencyGraph: React.FC<Props> = ({
 
   const isDimmed = useCallback(
     (id: string) => {
+      const focusId = resolveFocusId();
       if (isHiddenByFocus(id)) return true;
       if (!focusId) return false;
       if (id === focusId) return false;
       return !(neighbours.get(focusId)?.has(id) ?? false);
     },
-    [focusId, focusNeighbourhood, isHiddenByFocus, neighbours],
+    [resolveFocusId, isHiddenByFocus, neighbours],
   );
 
   const searchHits = useMemo(
@@ -163,15 +191,33 @@ const DependencyGraph: React.FC<Props> = ({
   useEffect(() => {
     didInitialFit.current = false;
     userAdjustedView.current = false;
+    hoverIdRef.current = null;
   }, [graphData]);
 
   useEffect(() => {
     const g = graphRef.current;
     if (!g) return;
-    const charge = graphData.nodes.length > 200 ? -120 : -160;
+    const charge = nodeCount > 200 ? -120 : -160;
     g.d3Force('charge')?.strength(charge);
-    g.d3Force('link')?.distance(graphData.nodes.length > 200 ? 48 : 56);
-  }, [graphData]);
+    g.d3Force('link')?.distance(nodeCount > 200 ? 48 : 56);
+  }, [graphData, nodeCount]);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const apply = () => capCanvasDpr(el, perf.maxCanvasDpr);
+    apply();
+    const ro = new ResizeObserver(() => {
+      apply();
+      requestGraphRedraw();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [perf.maxCanvasDpr, width, requestGraphRedraw]);
+
+  useEffect(() => () => {
+    graphRef.current?.pauseAnimation();
+  }, []);
 
   const centerOn = useCallback((node: GraphNode, zoomLevel = 2) => {
     const g = graphRef.current;
@@ -263,20 +309,36 @@ const DependencyGraph: React.FC<Props> = ({
 
   const shouldDrawLabel = useCallback(
     (node: GraphNode, globalScale: number) => {
+      const focusId = resolveFocusId();
       if (isHiddenByFocus(node.id)) return false;
       if (isDimmed(node.id) && node.id !== focusId) return false;
+
+      if (perf.sparseLabels) {
+        if (node.id === focusId || node.id === selected) return true;
+        if (node.errors > 0) return globalScale >= 0.55;
+        if (node.kind === 'folder') return globalScale >= 0.65;
+        if (focusId && (neighbours.get(focusId)?.has(node.id) ?? false)) return globalScale >= 0.75;
+        return false;
+      }
+
       if (globalScale < 0.45 && denseGraph) return false;
       if (globalScale < 0.35) return false;
       if (denseGraph && node.kind === 'file' && node.id !== focusId && node.id !== selected) {
-        return globalScale >= 0.9 || (neighbours.get(focusId ?? '')?.has(node.id) ?? false);
+        return globalScale >= 0.9 || (focusId ? (neighbours.get(focusId)?.has(node.id) ?? false) : false);
       }
       return true;
     },
-    [denseGraph, focusId, isDimmed, isHiddenByFocus, neighbours, selected],
+    [denseGraph, isDimmed, isHiddenByFocus, neighbours, perf.sparseLabels, resolveFocusId, selected],
+  );
+
+  const nodeVisible = useCallback(
+    (node: GraphNode) => !isHiddenByFocus(node.id),
+    [isHiddenByFocus],
   );
 
   const linkColor = useCallback(
     (link: GraphLink) => {
+      const focusId = resolveFocusId();
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
       if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 'rgba(0,0,0,0)';
@@ -285,11 +347,12 @@ const DependencyGraph: React.FC<Props> = ({
       if (isDimmed(src) && isDimmed(tgt)) return theme.line1;
       return link.externalTarget ? theme.line3 : theme.line2;
     },
-    [focusId, isDimmed, isHiddenByFocus, theme.accent, theme.line1, theme.line2, theme.line3],
+    [isDimmed, isHiddenByFocus, resolveFocusId, theme.accent, theme.line1, theme.line2, theme.line3],
   );
 
   const linkWidth = useCallback(
     (link: GraphLink) => {
+      const focusId = resolveFocusId();
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
       if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 0;
@@ -297,13 +360,14 @@ const DependencyGraph: React.FC<Props> = ({
       if (!focusId) return base;
       return src === focusId || tgt === focusId ? Math.max(base, 2.5) : 0.7;
     },
-    [focusId, isHiddenByFocus],
+    [isHiddenByFocus, resolveFocusId],
   );
 
   const paintNode = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       if (isHiddenByFocus(node.id)) return;
 
+      const focusId = resolveFocusId();
       const x = node.x ?? 0;
       const y = node.y ?? 0;
       const r = nodeRadius(node);
@@ -373,7 +437,7 @@ const DependencyGraph: React.FC<Props> = ({
       }
       ctx.globalAlpha = 1;
     },
-    [focusId, isDimmed, isHiddenByFocus, labelMetrics, nodeRadius, resolveColor, selected, shouldDrawLabel, theme],
+    [isDimmed, isHiddenByFocus, labelMetrics, nodeRadius, resolveColor, resolveFocusId, selected, shouldDrawLabel, theme],
   );
 
   const paintPointerArea = useCallback(
@@ -429,7 +493,6 @@ const DependencyGraph: React.FC<Props> = ({
 
   const expandedList = useMemo(() => [...expanded].sort(), [expanded]);
   const neighbourCount = focusNeighbourhood ? Math.max(0, focusNeighbourhood.size - 1) : 0;
-  const cooldownTicks = graphData.nodes.length > 220 ? 60 : 100;
 
   return (
     <div ref={wrapRef} className="graph-wrap graph-wrap--force" onKeyDown={handleKeyDown} tabIndex={0}>
@@ -486,7 +549,7 @@ const DependencyGraph: React.FC<Props> = ({
         <span className="graph-toolbar__spacer" />
         <span className="graph-toolbar__stat">
           {view.folderCount} folders · {view.fileNodeCount} files
-          {denseGraph ? ' · labels adapt when zoomed' : ''}
+          {perf.sparseLabels ? ' · sparse labels' : denseGraph ? ' · labels adapt when zoomed' : ''}
         </span>
         {expanded.size > 0 && (
           <button type="button" className="graph-toolbar__btn" onClick={() => setExpanded(new Set())}>
@@ -562,16 +625,20 @@ const DependencyGraph: React.FC<Props> = ({
           backgroundColor={theme.page}
           nodeId="id"
           nodeLabel={nodeTooltip}
+          nodeVisibility={nodeVisible}
           linkColor={linkColor}
           linkWidth={linkWidth}
           linkDirectionalArrowLength={3.5}
           linkDirectionalArrowRelPos={1}
           linkCurvature={0.12}
-          cooldownTicks={cooldownTicks}
-          warmupTicks={denseGraph ? 40 : 60}
-          d3AlphaDecay={0.024}
-          d3VelocityDecay={0.38}
-          enableNodeDrag
+          autoPauseRedraw
+          cooldownTicks={perf.cooldownTicks}
+          cooldownTime={perf.cooldownTime}
+          warmupTicks={perf.warmupTicks}
+          d3AlphaDecay={perf.d3AlphaDecay}
+          d3VelocityDecay={perf.d3VelocityDecay}
+          d3AlphaMin={0.05}
+          enableNodeDrag={perf.enableNodeDrag}
           enableZoomInteraction
           enablePanInteraction
           enablePointerInteraction
@@ -586,13 +653,22 @@ const DependencyGraph: React.FC<Props> = ({
           onZoom={() => {
             userAdjustedView.current = true;
           }}
+          onZoomEnd={() => {
+            graphRef.current?.pauseAnimation();
+            requestGraphRedraw();
+          }}
           linkHoverPrecision={0}
           onNodeClick={activateNode}
           onNodeRightClick={(node, event) => {
             event.preventDefault();
             openNode(node);
           }}
-          onNodeHover={(node) => setHoverId(node?.id ?? null)}
+          onNodeHover={(node) => {
+            const id = node?.id ?? null;
+            if (hoverIdRef.current === id) return;
+            hoverIdRef.current = id;
+            requestGraphRedraw();
+          }}
           onBackgroundClick={() => onSelect(null)}
           nodeCanvasObjectMode={() => 'replace'}
           nodeCanvasObject={(node, ctx, globalScale) => paintNode(node, ctx, globalScale)}
