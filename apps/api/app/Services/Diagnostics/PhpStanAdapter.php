@@ -120,12 +120,24 @@ final class PhpStanAdapter implements Analyzer
             ]);
 
         $json = $result->output();
+        $stderr = $result->errorOutput();
 
-        if ($json === '' && $result->errorOutput() !== '') {
-            // PHPStan wrote nothing to stdout but produced stderr — this means
-            // the process failed to start or crashed before producing JSON output.
-            // Surface as a hard error rather than a misleading "clean" result.
-            throw new RuntimeException('PHPStan produced no output: '.trim($result->errorOutput()));
+        if ($json === '' && $stderr !== '') {
+            // PHPStan legitimately exits non-zero with only stderr when the
+            // scanned folder contains no PHP files at all — it prints
+            // "No files found to analyse." and produces no JSON. That is a
+            // benign empty analysis, not a crash: report it as a clean scan
+            // with zero findings so link-local (synchronous scan) returns 202.
+            if ($this->isNoFilesToAnalyse($stderr)) {
+                $this->lastRunStatus = 'clean';
+
+                return [];
+            }
+
+            // Any other stderr-only run means the process failed to start or
+            // crashed before producing JSON output. Surface as a hard error
+            // rather than a misleading "clean" result (DX-15/17 honesty).
+            throw new RuntimeException('PHPStan produced no output: '.trim($stderr));
         }
 
         $findings = $this->normalize($json, $sandboxPath);
@@ -264,6 +276,18 @@ NEON;
         file_put_contents($configPath, $neon);
 
         return $configPath;
+    }
+
+    /**
+     * PHPStan's documented empty-analysis signal: when no PHP files match the
+     * configured paths it exits non-zero and writes only "No files found to
+     * analyse." to stderr (no JSON on stdout). This is a benign empty scan
+     * (zero findings), not a crash — matched narrowly by message so genuine
+     * stderr-only failures still surface as errors (DX-15/17 honesty).
+     */
+    private function isNoFilesToAnalyse(string $stderr): bool
+    {
+        return stripos($stderr, 'No files found to analyse') !== false;
     }
 
     /**

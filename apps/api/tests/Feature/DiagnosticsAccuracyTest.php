@@ -122,6 +122,48 @@ it('surfaces stderr-only runs as RuntimeException not clean (DX-2 honesty)', fun
     expect($adapter->lastRunStatus())->toBe('clean');
 });
 
+it('treats PHPStan "no files found to analyse" as a clean empty scan, not a crash (link-local 202)', function () {
+    // PHPStan legitimately exits non-zero with only stderr when the scanned
+    // folder has no PHP files (e.g. a link-local folder holding just keep.txt).
+    // That must normalise to zero findings / status 'clean' so the synchronous
+    // scan does not fail the request — NOT surface as a RuntimeException.
+    $fakePhpstan = tempnam(sys_get_temp_dir(), 'phpstan-');
+    file_put_contents($fakePhpstan, '<?php // fake');
+
+    Process::fake(['*' => Process::result(
+        output: '',
+        errorOutput: '[ERROR] No files found to analyse.',
+        exitCode: 1,
+    )]);
+
+    $adapter = new PhpStanAdapter(new Taxonomy, $fakePhpstan);
+
+    expect($adapter->run(sys_get_temp_dir()))->toBe([]);
+    expect($adapter->lastRunStatus())->toBe('clean');
+
+    @unlink($fakePhpstan);
+});
+
+it('still surfaces a genuine stderr-only crash as RuntimeException (DX-15/17 honesty invariant)', function () {
+    // The benign "no files" carve-out must be narrow: any OTHER stderr-only
+    // run (process failed to start / crashed before JSON) still fails loudly.
+    $fakePhpstan = tempnam(sys_get_temp_dir(), 'phpstan-');
+    file_put_contents($fakePhpstan, '<?php // fake');
+
+    Process::fake(['*' => Process::result(
+        output: '',
+        errorOutput: 'PHP Fatal error: Allowed memory size exhausted',
+        exitCode: 255,
+    )]);
+
+    $adapter = new PhpStanAdapter(new Taxonomy, $fakePhpstan);
+
+    expect(fn () => $adapter->run(sys_get_temp_dir()))
+        ->toThrow(RuntimeException::class, 'PHPStan produced no output');
+
+    @unlink($fakePhpstan);
+});
+
 it('reports missing_binary when Maintain API has no PHPStan (DX-2 honesty)', function () {
     $adapter = new PhpStanAdapter(new Taxonomy, '/nonexistent/phpstan-binary');
 
