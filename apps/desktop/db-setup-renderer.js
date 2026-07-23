@@ -7,6 +7,7 @@
  */
 
 (function () {
+  const DB_NAME_RE = /^[A-Za-z0-9_]+$/;
   const body = document.body;
   const el = {
     subtitle: document.getElementById('subtitle'),
@@ -45,6 +46,14 @@
   function showError(message) {
     setState('error');
     el.statusError.textContent = message;
+  }
+
+  /** Mirrors the main-process DB_NAME_RE guard so bad names never round-trip to IPC. */
+  function validateForm(form) {
+    if (!DB_NAME_RE.test(form.database)) {
+      return 'Database name may only contain letters, numbers, and underscores.';
+    }
+    return null;
   }
 
   function showSuccess(message) {
@@ -86,13 +95,20 @@
   }
 
   el.testBtn.addEventListener('click', async () => {
+    const form = readForm();
+    const validationError = validateForm(form);
+    if (validationError) {
+      showError(validationError);
+      return;
+    }
+
     setBusy(true);
     setState('loading');
     try {
-      const result = await window.lssDesktop.db.test(readForm());
+      const result = await window.lssDesktop.db.test(form);
       setBusy(false);
       if (result.ok) {
-        showSuccess('Connection OK.');
+        showSuccess(result.message || 'Connection OK.');
       } else {
         showError(result.message || 'Connection failed.');
       }
@@ -103,10 +119,17 @@
   });
 
   el.saveBtn.addEventListener('click', async () => {
+    const form = readForm();
+    const validationError = validateForm(form);
+    if (validationError) {
+      showError(validationError);
+      return;
+    }
+
     setBusy(true);
     setState('loading');
     try {
-      const result = await window.lssDesktop.db.save(readForm());
+      const result = await window.lssDesktop.db.save(form);
       if (result.ok) {
         showSuccess('Connected. Migrating and starting the application…');
         // Main process navigates this window to the app once the sidecar is healthy.

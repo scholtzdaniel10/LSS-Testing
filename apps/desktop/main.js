@@ -111,6 +111,13 @@ async function startSelfContainedApi(cfg) {
   localLinkToken = localLinkToken || crypto.randomUUID();
   const extraEnv = Object.assign({}, apiProcess.buildDbEnv(cfg), { LSS_LOCAL_LINK_TOKEN: localLinkToken });
 
+  // Create-if-missing → migrate --force → boot sidecar. Portable-exe users
+  // never need to open a Postgres client themselves.
+  const ensured = await apiProcess.ensureDatabaseExists(cfg);
+  if (!ensured.ok) {
+    return { ok: false, message: ensured.message };
+  }
+
   const migrate = await apiProcess.runArtisan(['migrate', '--force', '--no-ansi'], extraEnv, 30000);
   if (migrate.code !== 0) {
     return { ok: false, message: apiProcess.interpretDbError(migrate.stderr + '\n' + migrate.stdout) };
@@ -176,13 +183,39 @@ ipcMain.handle('db:getStatus', () => dbConfig.maskConfig(dbConfig.loadConfig()))
 
 ipcMain.handle('db:test', async (_event, candidate) => {
   const cfg = resolveCandidate(candidate);
-  const result = await apiProcess.runArtisan(['migrate:status', '--no-ansi'], apiProcess.buildDbEnv(cfg), 15000);
+  if (!apiProcess.isValidDatabaseName(cfg.database)) {
+    return { ok: false, message: 'Database name may only contain letters, numbers, and underscores.' };
+  }
+
+  let result = await apiProcess.runArtisan(['migrate:status', '--no-ansi'], apiProcess.buildDbEnv(cfg), 15000);
   if (result.code === 0) return { ok: true };
+
+  const combined = result.stderr + '\n' + result.stdout;
+  if (!apiProcess.isMissingDatabaseError(combined)) {
+    return { ok: false, message: apiProcess.interpretDbError(combined) };
+  }
+
+  // Missing database is recoverable without a Postgres client: create it,
+  // then re-test so the user gets a genuine "connected" result rather than
+  // a confusing "does not exist" dead end.
+  const ensured = await apiProcess.ensureDatabaseExists(cfg);
+  if (!ensured.ok) {
+    return { ok: false, message: ensured.message };
+  }
+
+  result = await apiProcess.runArtisan(['migrate:status', '--no-ansi'], apiProcess.buildDbEnv(cfg), 15000);
+  if (result.code === 0) {
+    return { ok: true, message: 'Database "' + cfg.database + '" did not exist, so it was created. Connection OK.' };
+  }
   return { ok: false, message: apiProcess.interpretDbError(result.stderr + '\n' + result.stdout) };
 });
 
 ipcMain.handle('db:save', async (_event, candidate) => {
   const cfg = resolveCandidate(candidate);
+  if (!apiProcess.isValidDatabaseName(cfg.database)) {
+    return { ok: false, message: 'Database name may only contain letters, numbers, and underscores.' };
+  }
+
   dbConfig.saveConfig(cfg);
   const result = await startSelfContainedApi(cfg);
   if (result.ok && mainWindow) {

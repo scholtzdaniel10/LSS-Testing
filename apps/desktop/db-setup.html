@@ -193,7 +193,8 @@
       </div>
       <div class="field">
         <label for="database">Database</label>
-        <input id="database" type="text" autocomplete="off" />
+        <input id="database" type="text" autocomplete="off" pattern="[A-Za-z0-9_]+" title="Letters, numbers, and underscores only" />
+        <div class="hint">Created automatically if it doesn't exist yet.</div>
       </div>
     </div>
 
