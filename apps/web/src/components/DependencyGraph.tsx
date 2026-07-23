@@ -1,7 +1,18 @@
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEdge } from '../api/client';
-import { buildGraphView, collapseFolder, expansionChainForFile, type ForceGraphLink, type ForceGraphNode } from '../lib/graphModel';
+import {
+  buildGraphView,
+  buildNeighbourMap,
+  buildStackProfile,
+  collapseFolder,
+  expansionChainForFile,
+  neighbourhoodWithin,
+  resolveGraphColor,
+  searchGraphNodes,
+  type ForceGraphLink,
+  type ForceGraphNode,
+} from '../lib/graphModel';
 
 type GraphNode = ForceGraphNode & NodeObject;
 type GraphLink = ForceGraphLink & LinkObject;
@@ -14,6 +25,7 @@ type Props = {
   edges: GraphEdge[];
   errorFiles: Map<string, number>;
   files?: string[];
+  frameworks?: string[];
   selected: string | null;
   onSelect: (id: string | null) => void;
   onOpenFile: (path: string) => void;
@@ -21,7 +33,8 @@ type Props = {
   focusPath?: string | null;
 };
 
-const GRAPH_HEIGHT = 460;
+const GRAPH_HEIGHT = 480;
+const LABEL_NODE_THRESHOLD = 140;
 
 function readCssVar(name: string, fallback: string): string {
   if (typeof document === 'undefined') return fallback;
@@ -29,15 +42,33 @@ function readCssVar(name: string, fallback: string): string {
   return value || fallback;
 }
 
-const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selected, onSelect, onOpenFile, focusPath }) => {
+const DependencyGraph: React.FC<Props> = ({
+  edges,
+  errorFiles,
+  files = [],
+  frameworks = [],
+  selected,
+  onSelect,
+  onOpenFile,
+  focusPath,
+}) => {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined);
+  const didInitialFit = useRef(false);
+  const userAdjustedView = useRef(false);
+  const lastClick = useRef<{ id: string; at: number } | null>(null);
+
   const [width, setWidth] = useState(640);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showExternal, setShowExternal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [focusDepth, setFocusDepth] = useState(2);
 
-  // When focusPath arrives (from deep-link), expand its full folder chain once.
+  const stackProfile = useMemo(() => buildStackProfile(frameworks), [frameworks]);
+
   useEffect(() => {
     if (!focusPath) return;
     const chain = expansionChainForFile(focusPath);
@@ -55,19 +86,26 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
       line1: readCssVar('--line-1', '#3b3937'),
       line2: readCssVar('--line-2', '#4a4745'),
       line3: readCssVar('--line-3', '#625d5b'),
+      ink1: readCssVar('--ink-1', '#f6f4f2'),
       ink2: readCssVar('--ink-2', '#cccac9'),
       ink3: readCssVar('--ink-3', '#85837e'),
       critical: readCssVar('--status-critical', '#d34343'),
       page: readCssVar('--surface-page', '#252423'),
       raised: readCssVar('--surface-raised', '#302e2c'),
+      panel: readCssVar('--surface-panel', '#2a2928'),
       mono: readCssVar('--font-mono', 'monospace'),
     }),
     [],
   );
 
+  const resolveColor = useCallback(
+    (token: string) => resolveGraphColor(token, (name) => readCssVar(name, token)),
+    [],
+  );
+
   const view = useMemo(
-    () => buildGraphView(edges, files, errorFiles, expanded, showExternal),
-    [edges, files, errorFiles, expanded, showExternal],
+    () => buildGraphView(edges, files, errorFiles, expanded, showExternal, stackProfile),
+    [edges, files, errorFiles, expanded, showExternal, stackProfile],
   );
 
   const graphData = useMemo(
@@ -75,30 +113,42 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
     [view],
   );
 
-  const neighbours = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    const add = (a: string, b: string) => {
-      if (!map.has(a)) map.set(a, new Set());
-      map.get(a)!.add(b);
-    };
-    for (const l of graphData.links) {
-      const s = linkEndpointId(l.source as string | GraphNode);
-      const t = linkEndpointId(l.target as string | GraphNode);
-      add(s, t);
-      add(t, s);
-    }
-    return map;
-  }, [graphData]);
+  const neighbours = useMemo(() => buildNeighbourMap(graphData.links), [graphData.links]);
+
+  const focusNeighbourhood = useMemo(() => {
+    if (!selected) return null;
+    return neighbourhoodWithin(selected, neighbours, focusDepth);
+  }, [selected, neighbours, focusDepth]);
 
   const focusId = hoverId ?? selected;
+  const denseGraph = graphData.nodes.length > LABEL_NODE_THRESHOLD;
+
+  const isHiddenByFocus = useCallback(
+    (id: string) => {
+      if (!focusNeighbourhood) return false;
+      return !focusNeighbourhood.has(id);
+    },
+    [focusNeighbourhood],
+  );
 
   const isDimmed = useCallback(
     (id: string) => {
+      if (isHiddenByFocus(id)) return true;
       if (!focusId) return false;
       if (id === focusId) return false;
       return !(neighbours.get(focusId)?.has(id) ?? false);
     },
-    [focusId, neighbours],
+    [focusId, focusNeighbourhood, isHiddenByFocus, neighbours],
+  );
+
+  const searchHits = useMemo(
+    () => searchGraphNodes(graphData.nodes, searchQuery),
+    [graphData.nodes, searchQuery],
+  );
+
+  const selectedNode = useMemo(
+    () => (selected ? graphData.nodes.find((n) => n.id === selected) ?? null : null),
+    [graphData.nodes, selected],
   );
 
   useEffect(() => {
@@ -111,20 +161,87 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
   }, []);
 
   useEffect(() => {
-    const g = graphRef.current;
-    if (!g) return;
-    g.d3Force('charge')?.strength(-160);
-    g.d3Force('link')?.distance(56);
+    didInitialFit.current = false;
+    userAdjustedView.current = false;
   }, [graphData]);
 
-  // Centre on focusPath file node once the graph has it as a visible node.
+  useEffect(() => {
+    const g = graphRef.current;
+    if (!g) return;
+    const charge = graphData.nodes.length > 200 ? -120 : -160;
+    g.d3Force('charge')?.strength(charge);
+    g.d3Force('link')?.distance(graphData.nodes.length > 200 ? 48 : 56);
+  }, [graphData]);
+
+  const centerOn = useCallback((node: GraphNode, zoomLevel = 2) => {
+    const g = graphRef.current;
+    if (!g || node.x == null || node.y == null) return;
+    g.centerAt(node.x, node.y, 450);
+    g.zoom(Math.max(zoomLevel, g.zoom()), 450);
+  }, []);
+
+  const fitGraph = useCallback(() => {
+    graphRef.current?.zoomToFit(400, 48);
+    userAdjustedView.current = false;
+  }, []);
+
+  const zoomBy = useCallback((factor: number) => {
+    const g = graphRef.current;
+    if (!g) return;
+    userAdjustedView.current = true;
+    g.zoom(g.zoom() * factor, 250);
+  }, []);
+
+  const focusNode = useCallback(
+    (node: GraphNode) => {
+      if (node.kind === 'folder' && node.folderPath) {
+        setExpanded((prev) => new Set(prev).add(node.folderPath!));
+      }
+      onSelect(node.id);
+      requestAnimationFrame(() => centerOn(node, node.kind === 'folder' ? 1.8 : 2.4));
+    },
+    [centerOn, onSelect],
+  );
+
   useEffect(() => {
     if (!focusPath) return;
     const node = graphData.nodes.find((n) => n.id === focusPath);
     if (!node || node.x == null || node.y == null) return;
-    graphRef.current?.centerAt(node.x, node.y, 500);
-    graphRef.current?.zoom(Math.max(2.5, graphRef.current.zoom()), 500);
-  }, [focusPath, graphData]);
+    centerOn(node, 2.5);
+  }, [focusPath, graphData, centerOn]);
+
+  const openNode = useCallback(
+    (node: GraphNode) => {
+      if (node.kind === 'folder') return;
+      if (node.external) return;
+      onOpenFile(node.id);
+    },
+    [onOpenFile],
+  );
+
+  const activateNode = useCallback(
+    (node: GraphNode) => {
+      const now = Date.now();
+      const prev = lastClick.current;
+      if (prev && prev.id === node.id && now - prev.at < 350) {
+        lastClick.current = null;
+        openNode(node);
+        return;
+      }
+      lastClick.current = { id: node.id, at: now };
+      focusNode(node);
+    },
+    [focusNode, openNode],
+  );
+
+  const pickSearchResult = useCallback(
+    (node: GraphNode) => {
+      setSearchQuery('');
+      setSearchOpen(false);
+      focusNode(node);
+    },
+    [focusNode],
+  );
 
   const nodeRadius = useCallback((node: GraphNode) => {
     if (node.kind === 'folder') return 10 + Math.min(Math.sqrt(node.fileCount) * 2.4, 16);
@@ -144,53 +261,49 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
     [nodeRadius, theme.mono],
   );
 
+  const shouldDrawLabel = useCallback(
+    (node: GraphNode, globalScale: number) => {
+      if (isHiddenByFocus(node.id)) return false;
+      if (isDimmed(node.id) && node.id !== focusId) return false;
+      if (globalScale < 0.45 && denseGraph) return false;
+      if (globalScale < 0.35) return false;
+      if (denseGraph && node.kind === 'file' && node.id !== focusId && node.id !== selected) {
+        return globalScale >= 0.9 || (neighbours.get(focusId ?? '')?.has(node.id) ?? false);
+      }
+      return true;
+    },
+    [denseGraph, focusId, isDimmed, isHiddenByFocus, neighbours, selected],
+  );
+
   const linkColor = useCallback(
     (link: GraphLink) => {
-      if (!focusId) return link.externalTarget ? theme.line3 : theme.line2;
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
+      if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 'rgba(0,0,0,0)';
+      if (!focusId) return link.externalTarget ? theme.line3 : theme.line2;
       if (src === focusId || tgt === focusId) return theme.accent;
+      if (isDimmed(src) && isDimmed(tgt)) return theme.line1;
       return link.externalTarget ? theme.line3 : theme.line2;
     },
-    [focusId, theme.accent, theme.line2, theme.line3],
+    [focusId, isDimmed, isHiddenByFocus, theme.accent, theme.line1, theme.line2, theme.line3],
   );
 
   const linkWidth = useCallback(
     (link: GraphLink) => {
-      const base = Math.min(0.8 + (link.weight ?? 1) * 0.35, 4);
-      if (!focusId) return base;
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
+      if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 0;
+      const base = Math.min(0.8 + (link.weight ?? 1) * 0.35, 4);
+      if (!focusId) return base;
       return src === focusId || tgt === focusId ? Math.max(base, 2.5) : 0.7;
     },
-    [focusId],
-  );
-
-  const centerOn = useCallback((node: GraphNode) => {
-    const g = graphRef.current;
-    if (!g || node.x == null || node.y == null) return;
-    g.centerAt(node.x, node.y, 500);
-    g.zoom(Math.max(2, g.zoom()), 500);
-  }, []);
-
-  const activateNode = useCallback(
-    (node: GraphNode) => {
-      onSelect(node.id);
-      if (node.kind === 'folder' && node.folderPath) {
-        setExpanded((prev) => new Set(prev).add(node.folderPath!));
-        return;
-      }
-      if (node.external) {
-        centerOn(node);
-        return;
-      }
-      onOpenFile(node.id);
-    },
-    [centerOn, onOpenFile, onSelect],
+    [focusId, isHiddenByFocus],
   );
 
   const paintNode = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      if (isHiddenByFocus(node.id)) return;
+
       const x = node.x ?? 0;
       const y = node.y ?? 0;
       const r = nodeRadius(node);
@@ -202,9 +315,9 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
             ? theme.critical
             : node.external
               ? theme.raised
-              : node.color;
+              : resolveColor(node.color);
 
-      ctx.globalAlpha = dim ? 0.22 : 1;
+      ctx.globalAlpha = dim ? 0.18 : 1;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, 2 * Math.PI);
       ctx.fillStyle = fill;
@@ -218,7 +331,6 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
         ctx.stroke();
         ctx.restore();
       } else if (node.kind === 'folder') {
-        // A second ring marks folders as expandable "containers".
         ctx.strokeStyle = node.id === focusId ? theme.ink2 : theme.line1;
         ctx.lineWidth = node.id === focusId ? 2 : 1;
         ctx.stroke();
@@ -233,20 +345,40 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
         ctx.stroke();
       }
 
-      if (globalScale >= 0.5 && !dim) {
-        const { labelTop, label } = labelMetrics(node, globalScale, ctx);
+      if (shouldDrawLabel(node, globalScale)) {
+        const { labelTop, label, textWidth, labelHeight, padX, padY } = labelMetrics(node, globalScale, ctx);
+        ctx.fillStyle = 'rgba(42, 41, 40, 0.88)';
+        const bgW = textWidth + padX * 2;
+        const bgH = labelHeight;
+        const bgX = x - bgW / 2;
+        const bgY = labelTop - padY;
+        const radius = 3;
+        ctx.beginPath();
+        ctx.moveTo(bgX + radius, bgY);
+        ctx.lineTo(bgX + bgW - radius, bgY);
+        ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
+        ctx.lineTo(bgX + bgW, bgY + bgH - radius);
+        ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
+        ctx.lineTo(bgX + radius, bgY + bgH);
+        ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
+        ctx.lineTo(bgX, bgY + radius);
+        ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+        ctx.closePath();
+        ctx.fill();
+
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillStyle = node.id === focusId ? theme.ink2 : 'rgba(204, 202, 201, 0.8)';
+        ctx.fillStyle = node.id === focusId ? theme.ink1 : theme.ink2;
         ctx.fillText(label, x, labelTop);
       }
       ctx.globalAlpha = 1;
     },
-    [focusId, isDimmed, labelMetrics, nodeRadius, selected, theme],
+    [focusId, isDimmed, isHiddenByFocus, labelMetrics, nodeRadius, resolveColor, selected, shouldDrawLabel, theme],
   );
 
   const paintPointerArea = useCallback(
     (node: GraphNode, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      if (isHiddenByFocus(node.id)) return;
       const x = node.x ?? 0;
       const y = node.y ?? 0;
       const { r, textWidth, labelTop, labelHeight, padX, padY } = labelMetrics(node, globalScale, ctx);
@@ -255,11 +387,11 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
       ctx.beginPath();
       ctx.arc(x, y, hitR, 0, 2 * Math.PI);
       ctx.fill();
-      if (globalScale >= 0.5) {
+      if (shouldDrawLabel(node, globalScale)) {
         ctx.fillRect(x - textWidth / 2 - padX, labelTop - padY, textWidth + padX * 2, labelHeight);
       }
     },
-    [labelMetrics],
+    [isHiddenByFocus, labelMetrics, shouldDrawLabel],
   );
 
   const nodeTooltip = useCallback((node: GraphNode) => {
@@ -271,13 +403,36 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
       return `${node.name} — external ${kind} · not a file`;
     }
     const err = node.errors > 0 ? ` · ${node.errors} error${node.errors === 1 ? '' : 's'}` : '';
-    return `${node.id} · ${node.degree} link${node.degree === 1 ? '' : 's'}${err} · click to open in IDE`;
+    return `${node.id} · ${node.degree} link${node.degree === 1 ? '' : 's'}${err} · double-click to open in IDE`;
   }, []);
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onSelect(null);
+        setSearchOpen(false);
+        return;
+      }
+      if (e.key === '/' && document.activeElement !== searchRef.current) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        setSearchOpen(true);
+        return;
+      }
+      if (e.key === 'Enter' && searchHits[0] && document.activeElement === searchRef.current) {
+        e.preventDefault();
+        pickSearchResult(searchHits[0]);
+      }
+    },
+    [onSelect, pickSearchResult, searchHits],
+  );
+
   const expandedList = useMemo(() => [...expanded].sort(), [expanded]);
+  const neighbourCount = focusNeighbourhood ? Math.max(0, focusNeighbourhood.size - 1) : 0;
+  const cooldownTicks = graphData.nodes.length > 220 ? 60 : 100;
 
   return (
-    <div ref={wrapRef} className="graph-wrap graph-wrap--force">
+    <div ref={wrapRef} className="graph-wrap graph-wrap--force" onKeyDown={handleKeyDown} tabIndex={0}>
       <div className="graph-toolbar">
         <label className="graph-toolbar__toggle">
           <input type="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} />
@@ -286,9 +441,52 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
             <span className="graph-toolbar__count"> ({view.hiddenExternal} hidden)</span>
           ) : null}
         </label>
+
+        <div className="graph-search">
+          <input
+            ref={searchRef}
+            type="search"
+            className="graph-search__input"
+            placeholder="Find file or folder… (/)"
+            value={searchQuery}
+            aria-label="Search graph nodes"
+            aria-expanded={searchOpen && searchHits.length > 0}
+            aria-controls="graph-search-results"
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            onBlur={() => window.setTimeout(() => setSearchOpen(false), 150)}
+          />
+          {searchOpen && searchQuery.trim() && searchHits.length > 0 && (
+            <ul id="graph-search-results" className="graph-search__results" role="listbox">
+              {searchHits.map((node) => (
+                <li key={node.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    className="graph-search__hit"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickSearchResult(node)}
+                  >
+                    <span className="graph-search__hit-name">{node.kind === 'folder' ? `${node.folderPath}/` : node.id}</span>
+                    <span className="graph-search__hit-meta">
+                      {node.kind}
+                      {node.degree > 0 ? ` · ${node.degree} links` : ''}
+                      {node.errors > 0 ? ` · ${node.errors} err` : ''}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <span className="graph-toolbar__spacer" />
         <span className="graph-toolbar__stat">
           {view.folderCount} folders · {view.fileNodeCount} files
+          {denseGraph ? ' · labels adapt when zoomed' : ''}
         </span>
         {expanded.size > 0 && (
           <button type="button" className="graph-toolbar__btn" onClick={() => setExpanded(new Set())}>
@@ -313,46 +511,113 @@ const DependencyGraph: React.FC<Props> = ({ edges, errorFiles, files = [], selec
         </div>
       )}
 
-      <ForceGraph2D
-        ref={graphRef}
-        width={width}
-        height={GRAPH_HEIGHT}
-        graphData={graphData}
-        backgroundColor={theme.page}
-        nodeId="id"
-        nodeLabel={nodeTooltip}
-        linkColor={linkColor}
-        linkWidth={linkWidth}
-        linkDirectionalArrowLength={3.5}
-        linkDirectionalArrowRelPos={1}
-        linkCurvature={0.12}
-        cooldownTicks={100}
-        warmupTicks={60}
-        d3AlphaDecay={0.022}
-        d3VelocityDecay={0.35}
-        enableNodeDrag
-        enableZoomInteraction
-        enablePanInteraction
-        enablePointerInteraction
-        showPointerCursor={(obj) => !!obj}
-        onEngineStop={() => {
-          graphRef.current?.zoomToFit(400, 40);
-          graphRef.current?.pauseAnimation();
-        }}
-        linkHoverPrecision={0}
-        onNodeClick={activateNode}
-        onNodeHover={(node) => setHoverId(node?.id ?? null)}
-        onBackgroundClick={() => onSelect(null)}
-        nodeCanvasObjectMode={() => 'replace'}
-        nodeCanvasObject={(node, ctx, globalScale) => paintNode(node, ctx, globalScale)}
-        nodePointerAreaPaint={paintPointerArea}
-        linkPointerAreaPaint={() => {
-          /* links are visual only — avoid stealing clicks from node labels */
-        }}
-      />
+      {selectedNode && (
+        <div className="graph-focus-bar" aria-live="polite">
+          <div className="graph-focus-bar__main">
+            <span className="graph-focus-bar__kind">{selectedNode.kind}</span>
+            <span className="graph-focus-bar__path mono" title={selectedNode.id}>
+              {selectedNode.kind === 'folder' ? `${selectedNode.folderPath}/` : selectedNode.id}
+            </span>
+            <span className="graph-focus-bar__meta">
+              {selectedNode.degree} link{selectedNode.degree === 1 ? '' : 's'}
+              {selectedNode.errors > 0 ? ` · ${selectedNode.errors} err` : ''}
+              {focusNeighbourhood ? ` · ${neighbourCount} within ${focusDepth} hop${focusDepth === 1 ? '' : 's'}` : ''}
+            </span>
+          </div>
+          <label className="graph-focus-bar__depth">
+            Depth
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={1}
+              value={focusDepth}
+              aria-label="Neighbourhood depth"
+              onChange={(e) => setFocusDepth(Number(e.target.value))}
+            />
+            <span className="graph-focus-bar__depth-val">{focusDepth}</span>
+          </label>
+          <div className="graph-focus-bar__actions">
+            {selectedNode.kind === 'file' && !selectedNode.external && (
+              <button type="button" className="graph-toolbar__btn" onClick={() => openNode(selectedNode)}>
+                Open in IDE
+              </button>
+            )}
+            <button type="button" className="graph-toolbar__btn" onClick={() => centerOn(selectedNode)}>
+              Centre
+            </button>
+            <button type="button" className="graph-toolbar__btn" onClick={() => onSelect(null)}>
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="graph-canvas-wrap">
+        <ForceGraph2D
+          ref={graphRef}
+          width={width}
+          height={GRAPH_HEIGHT}
+          graphData={graphData}
+          backgroundColor={theme.page}
+          nodeId="id"
+          nodeLabel={nodeTooltip}
+          linkColor={linkColor}
+          linkWidth={linkWidth}
+          linkDirectionalArrowLength={3.5}
+          linkDirectionalArrowRelPos={1}
+          linkCurvature={0.12}
+          cooldownTicks={cooldownTicks}
+          warmupTicks={denseGraph ? 40 : 60}
+          d3AlphaDecay={0.024}
+          d3VelocityDecay={0.38}
+          enableNodeDrag
+          enableZoomInteraction
+          enablePanInteraction
+          enablePointerInteraction
+          showPointerCursor={(obj) => !!obj}
+          onEngineStop={() => {
+            if (!didInitialFit.current && !userAdjustedView.current) {
+              graphRef.current?.zoomToFit(400, 48);
+              didInitialFit.current = true;
+            }
+            graphRef.current?.pauseAnimation();
+          }}
+          onZoom={() => {
+            userAdjustedView.current = true;
+          }}
+          linkHoverPrecision={0}
+          onNodeClick={activateNode}
+          onNodeRightClick={(node, event) => {
+            event.preventDefault();
+            openNode(node);
+          }}
+          onNodeHover={(node) => setHoverId(node?.id ?? null)}
+          onBackgroundClick={() => onSelect(null)}
+          nodeCanvasObjectMode={() => 'replace'}
+          nodeCanvasObject={(node, ctx, globalScale) => paintNode(node, ctx, globalScale)}
+          nodePointerAreaPaint={paintPointerArea}
+          linkPointerAreaPaint={() => {
+            /* links are visual only — avoid stealing clicks from node labels */
+          }}
+        />
+
+        <div className="graph-zoom-controls" aria-label="Graph zoom controls">
+          <button type="button" className="graph-zoom-controls__btn" onClick={() => zoomBy(1.35)} title="Zoom in">
+            +
+          </button>
+          <button type="button" className="graph-zoom-controls__btn" onClick={() => zoomBy(1 / 1.35)} title="Zoom out">
+            −
+          </button>
+          <button type="button" className="graph-zoom-controls__btn graph-zoom-controls__btn--fit" onClick={fitGraph} title="Fit graph to view">
+            Fit
+          </button>
+        </div>
+      </div>
+
       <p className="graph-wrap__hint">
-        Click a <strong>folder</strong> to drill in · click a <strong>file</strong> to open it in your IDE · hover for
-        the full path · dashed ring = external package
+        Click a <strong>folder</strong> to drill in · <strong>double-click</strong> a file to open in your IDE ·{' '}
+        <kbd>/</kbd> to search · scroll to zoom · drag to pan
       </p>
     </div>
   );

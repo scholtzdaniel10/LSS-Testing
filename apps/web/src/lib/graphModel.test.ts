@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef } from './graphModel';
+import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor } from './graphModel';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -257,5 +257,56 @@ describe('parseExternalRef (IG-22)', () => {
   it('returns non-external for plain file paths', () => {
     const r = parseExternalRef('src/utils.ts');
     expect(r.external).toBe(false);
+  });
+});
+
+describe('neighbourhoodWithin (IG-13)', () => {
+  const links = [
+    { source: 'a', target: 'b', weight: 1, externalTarget: false },
+    { source: 'b', target: 'c', weight: 1, externalTarget: false },
+    { source: 'c', target: 'd', weight: 1, externalTarget: false },
+  ];
+  const map = buildNeighbourMap(links);
+
+  it('includes only direct neighbours at depth 1', () => {
+    const set = neighbourhoodWithin('b', map, 1);
+    expect([...set].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('extends to two hops at depth 2', () => {
+    const set = neighbourhoodWithin('b', map, 2);
+    expect([...set].sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('clamps depth to a maximum of 3', () => {
+    const set = neighbourhoodWithin('a', map, 99);
+    expect(set.has('d')).toBe(true);
+  });
+});
+
+describe('searchGraphNodes (IG-13)', () => {
+  const nodes = buildGraphView(
+    [],
+    ['application/controllers/Home.php', 'application/models/User.php', 'system/core/Common.php'],
+    noErrors,
+    new Set(['application', 'application/controllers', 'application/models']),
+    false,
+    buildStackProfile(['codeigniter-3']),
+  ).nodes;
+
+  it('finds files by partial path', () => {
+    const hits = searchGraphNodes(nodes, 'user');
+    expect(hits.some((n) => n.id.endsWith('User.php'))).toBe(true);
+  });
+
+  it('returns empty for blank query', () => {
+    expect(searchGraphNodes(nodes, '   ')).toEqual([]);
+  });
+});
+
+describe('resolveGraphColor', () => {
+  it('resolves var() tokens via the reader', () => {
+    expect(resolveGraphColor('var(--series-1)', () => '#4584d3')).toBe('#4584d3');
+    expect(resolveGraphColor('#ff00ff', () => '')).toBe('#ff00ff');
   });
 });

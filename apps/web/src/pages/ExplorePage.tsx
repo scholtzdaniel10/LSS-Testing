@@ -385,33 +385,32 @@ const ExplorePage: React.FC = () => {
                   onFocusTree={handleFocusTree}
                 />
               ) : (
-                <>
-                  {graphEdges.length === 0 && allFilePaths.length === 0 ? (
-                    <p className="page__subtitle">
-                      No graph yet — open a project from{' '}
-                      <NavLink to="/projects" className="topnav__link" style={{ fontSize: 'var(--text-base)' }}>
-                        Projects
-                      </NavLink>.
-                    </p>
-                  ) : (
-                    <DependencyGraph
-                      edges={graphEdges}
-                      errorFiles={errorFiles}
-                      files={allFilePaths}
-                      selected={selected}
-                      onSelect={setSelected}
-                      onOpenFile={(path) => openFile(path)}
-                      focusPath={focusPath}
-                    />
-                  )}
+                <ScreenState
+                  status={
+                    status === 'error'
+                      ? 'error'
+                      : status === 'ready' && graphEdges.length === 0 && allFilePaths.length === 0
+                        ? 'empty'
+                        : graphEdges.length > 0 || allFilePaths.length > 0
+                          ? 'ready'
+                          : status
+                  }
+                  errorMessage={errorMessage}
+                  emptyHint="No graph yet — open a project from Projects and run Analyze."
+                >
+                  <DependencyGraph
+                    edges={graphEdges}
+                    errorFiles={errorFiles}
+                    files={allFilePaths}
+                    frameworks={usage?.uses?.frameworks ?? []}
+                    selected={selected}
+                    onSelect={setSelected}
+                    onOpenFile={(path) => openFile(path)}
+                    focusPath={focusPath}
+                  />
                   {ideHint && (
                     <p role="status" className="field__hint" style={{ marginTop: 8 }}>
                       {ideHint}
-                    </p>
-                  )}
-                  {selected && (
-                    <p className="mono" style={{ marginTop: 8, fontSize: 'var(--text-sm)' }}>
-                      Selected: {selected}
                     </p>
                   )}
                   {linkedError && (
@@ -432,7 +431,7 @@ const ExplorePage: React.FC = () => {
                       </p>
                     </div>
                   )}
-                </>
+                </ScreenState>
               )}
             </div>
           </div>

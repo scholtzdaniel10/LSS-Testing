@@ -462,3 +462,79 @@ export function defaultExpandedFolders(paths: string[]): Set<string> {
   }
   return topLevel;
 }
+
+// ── IG-13: neighbourhood focus + search helpers ───────────────────────────────
+
+/** Build an undirected adjacency map from force-graph links. */
+export function buildNeighbourMap(links: readonly ForceGraphLink[]): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  const add = (a: string, b: string) => {
+    if (!map.has(a)) map.set(a, new Set());
+    map.get(a)!.add(b);
+  };
+  for (const l of links) {
+    add(l.source, l.target);
+    add(l.target, l.source);
+  }
+  return map;
+}
+
+/** Nodes within `depth` hops of `rootId` (root included). */
+export function neighbourhoodWithin(
+  rootId: string,
+  neighbours: Map<string, Set<string>>,
+  depth: number,
+): Set<string> {
+  const visible = new Set<string>([rootId]);
+  let frontier = new Set<string>([rootId]);
+  const hops = Math.max(1, Math.min(depth, 3));
+  for (let d = 0; d < hops; d++) {
+    const next = new Set<string>();
+    for (const id of frontier) {
+      for (const n of neighbours.get(id) ?? []) {
+        if (!visible.has(n)) {
+          visible.add(n);
+          next.add(n);
+        }
+      }
+    }
+    frontier = next;
+    if (frontier.size === 0) break;
+  }
+  return visible;
+}
+
+/** Resolve `var(--token)` to a concrete color for canvas rendering. */
+export function resolveGraphColor(color: string, readVar: (name: string) => string): string {
+  const match = /^var\((--[^)]+)\)$/.exec(color.trim());
+  return match ? readVar(match[1]) : color;
+}
+
+/** Fuzzy path/name search over visible graph nodes. */
+export function searchGraphNodes(
+  nodes: readonly ForceGraphNode[],
+  query: string,
+  limit = 12,
+): ForceGraphNode[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  const scored: { node: ForceGraphNode; score: number }[] = [];
+  for (const n of nodes) {
+    const path = n.kind === 'folder' ? (n.folderPath ?? n.id) : n.id;
+    const lower = path.toLowerCase();
+    const idx = lower.indexOf(q);
+    if (idx === -1) continue;
+
+    const leaf = path.split('/').pop()?.toLowerCase() ?? '';
+    let score = 100 - idx;
+    if (leaf === q) score += 80;
+    else if (leaf.startsWith(q)) score += 40;
+    if (n.errors > 0) score += 10;
+    if (n.degree > 0) score += Math.min(n.degree, 20);
+    scored.push({ node: n, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score || a.node.id.localeCompare(b.node.id));
+  return scored.slice(0, limit).map((s) => s.node);
+}
