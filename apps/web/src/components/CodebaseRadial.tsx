@@ -592,8 +592,8 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     resetView();
   }, [resetView]);
 
-  useMemo(() => {
-    if (focusParam !== undefined) setFocusFile(focusParam);
+  useEffect(() => {
+    setFocusFile(focusParam ?? null);
   }, [focusParam]);
 
   const errorFiles = useMemo(() => {

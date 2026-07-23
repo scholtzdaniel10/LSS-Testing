@@ -205,7 +205,7 @@ const ExplorePage: React.FC = () => {
     if (focusRowRef.current) {
       focusRowRef.current.scrollIntoView({ block: 'nearest' });
     }
-  });
+  }, [focusPath, treeNodes.length]);
 
   // Sync radial map focus -> URL ?focus= param (keeps tree in step).
   const handleFocusTree = useCallback(
