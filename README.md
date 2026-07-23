@@ -32,31 +32,39 @@ Playwright runner drives. No credentials are persisted for targets.
 
 ### Database
 
-The API supports **SQLite** (default, no setup) and **Postgres** (Iteration 1 target).
+**Postgres is the only supported local source-of-truth database (PLT-14).**
+SQLite is CI/Pest-only (`phpunit.xml` runs it as `:memory:`) — never point
+`artisan serve` or a queue worker at SQLite; its single-writer file lock
+causes multi-hundred-ms stalls as soon as the web process and a queue worker
+write concurrently.
 
-**SQLite (fastest start — matches CI):**
+**Happy path — native Postgres service (this machine, Postgres 16):** install
+[PostgreSQL 16+](https://www.postgresql.org/download/windows/), then as the
+postgres superuser: `CREATE ROLE lss LOGIN PASSWORD 'lss'; CREATE DATABASE lss
+OWNER lss;`. Then:
 
 ```sh
 cd apps/api
 composer install   # or: php composer.phar install
 cp .env.example .env && php artisan key:generate
-touch database/database.sqlite   # Windows: New-Item database/database.sqlite -ItemType File
+# .env.example already defaults DB_CONNECTION=pgsql, host 127.0.0.1:5432, db/user/password lss
 php artisan migrate --seed
 ```
 
-**Postgres (with Docker, when available):**
+**Happy path — Docker, where available:**
 
 ```sh
-docker compose up -d postgres redis
+docker compose up -d postgres
 cd apps/api
 cp .env.example .env && php artisan key:generate
-# Set DB_CONNECTION=pgsql and uncomment DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD
 php artisan migrate --seed
 ```
 
-`docker-compose.yml` provisions Postgres 17 (`lss` / `lss` / database `lss` on port 5432) and Redis on 6379.
+`docker-compose.yml` provisions Postgres (`lss` / `lss` / database `lss` on port 5432).
 
-**Postgres without Docker (Daniel's machine — done, Postgres 16):** install [PostgreSQL 16+](https://www.postgresql.org/download/windows/), then as the postgres superuser: `CREATE ROLE lss LOGIN PASSWORD 'lss'; CREATE DATABASE lss OWNER lss;` and set the `DB_*` values in `apps/api/.env` (`DB_CONNECTION=pgsql`, host 127.0.0.1:5432, db/user/password `lss`).
+**SQLite — CI/Pest only, do not use for `artisan serve` or queue workers.**
+`phpunit.xml` already points Pest at an in-memory SQLite DB; no setup needed
+to run tests.
 
 No demo data is seeded — the app starts empty and real projects are registered at runtime via the Explore import flow or **Link & analyze on disk** in Settings.
 
