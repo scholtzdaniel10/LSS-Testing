@@ -7,6 +7,8 @@ use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Services\Import\LocalDirectoryScanner;
 use App\Services\Import\UsageReportBuilder;
+use App\Support\Cache\ProjectReadCache;
+use App\Support\Jobs\DispatchAnalyzeChain;
 use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -16,10 +18,13 @@ use Throwable;
 
 /**
  * Link an on-disk folder as the project source (Obsidian-style) — no zip upload.
+ * Indexes files then queues analyze → snapshot (does not block on PHPStan).
  */
 class LinkLocalProject implements ShouldQueue
 {
     use Queueable;
+
+    public int $timeout = 600;
 
     public function __construct(
         public readonly string $projectId,
@@ -74,30 +79,23 @@ class LinkLocalProject implements ShouldQueue
                 'source_type' => 'local',
                 'local_source_path' => $root,
                 'sandbox_path' => $root,
+                'sandbox_size_bytes' => null,
                 'last_imported_at' => now(),
             ]);
         });
 
-        $status->markRunning(70);
+        $status->markRunning(85);
+        ProjectReadCache::forgetProject($this->projectId);
 
-        $analyzeStatus = JobStatus::query()->create([
-            'type' => 'analyze',
-            'project_id' => $project->id,
-            'status' => JobStatus::STATUS_QUEUED,
-            'message' => 'Post-link dependency scan',
-        ]);
-        AnalyzeProject::dispatchSync($this->projectId, $analyzeStatus->id);
-
-        $snapshotStatus = JobStatus::query()->create([
-            'type' => 'build-health-snapshot',
-            'project_id' => $project->id,
-            'status' => JobStatus::STATUS_QUEUED,
-            'message' => 'Post-link health snapshot',
-        ]);
-        BuildHealthSnapshot::dispatchSync($this->projectId, $snapshotStatus->id);
+        $followOn = DispatchAnalyzeChain::dispatch(
+            $this->projectId,
+            'Post-link dependency scan',
+            'Post-link health snapshot',
+        );
 
         $status->markDone(
-            'Linked local folder · '.count($result['files']).' files (skipped '.$result['skipped'].') · graph + health ready',
+            'Linked local folder · '.count($result['files']).' files (skipped '.$result['skipped'].') · analyze queued',
+            $followOn,
         );
     }
 

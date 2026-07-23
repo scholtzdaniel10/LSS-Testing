@@ -90,7 +90,11 @@ const ExplorePage: React.FC = () => {
   const ref = useEntrance();
   const location = useLocation();
   const history = useHistory();
-  const { tree, graphEdges, errors, localManifest, status, errorMessage, usage, project } = useProject();
+  const { tree, graphEdges, errors, localManifest, status, errorMessage, usage, project, ensureExploreData } = useProject();
+
+  useEffect(() => {
+    void ensureExploreData();
+  }, [ensureExploreData, project?.id]);
   const [selected, setSelected] = useState<string | null>(null);
   const [ideHint, setIdeHint] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<ExploreView>('map');

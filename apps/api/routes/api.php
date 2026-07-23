@@ -1,12 +1,14 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AnalyzeController;
+use App\Http\Controllers\Api\V1\BootstrapController;
 use App\Http\Controllers\Api\V1\ErrorController;
 use App\Http\Controllers\Api\V1\GraphController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\HealthReportController;
 use App\Http\Controllers\Api\V1\IgnoreRulesController;
 use App\Http\Controllers\Api\V1\JobStatusController;
+use App\Http\Controllers\Api\V1\JobStreamController;
 use App\Http\Controllers\Api\V1\LocalRootController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
@@ -43,6 +45,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::get('/projects/{project}/graph', [GraphController::class, 'show']);
         Route::get('/projects/{project}/usage-report', [UsageReportController::class, 'show']);
         Route::get('/projects/{project}/errors', [ErrorController::class, 'index']);
+        Route::get('/projects/{project}/bootstrap', [BootstrapController::class, 'show']);
 
         Route::get('/projects/{project}/target-environments', [TargetEnvironmentController::class, 'index']);
         Route::post('/projects/{project}/target-environments', [TargetEnvironmentController::class, 'store']);
@@ -50,6 +53,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::post('/projects/{project}/target-environments/{targetEnvironment}/probe', [TargetEnvironmentController::class, 'probe']);
 
         Route::get('/jobs/{jobStatus}', [JobStatusController::class, 'show']);
+        Route::get('/jobs/{jobStatus}/stream', JobStreamController::class);
 
         // DSK-7: consented local roots — also guarded by per-launch session token (DSK-3).
         Route::middleware('local.token')->group(function () {

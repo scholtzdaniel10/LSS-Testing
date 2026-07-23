@@ -2,17 +2,17 @@
 
 namespace App\Jobs;
 
+use App\Models\DiagnosticError;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Services\Diagnostics\AnalysisRunner;
-use App\Services\Diagnostics\ChainDetector;
-use App\Services\Diagnostics\ImpactResolver;
 use App\Services\Graph\DependencyGraphBuilder;
+use App\Services\Graph\IncrementalGraphBuilder;
 use App\Services\Import\UsageReportBuilder;
+use App\Support\Cache\ProjectReadCache;
 use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -21,6 +21,9 @@ use Throwable;
 class AnalyzeProject implements ShouldQueue
 {
     use Queueable;
+
+    /** PHPStan may run up to 600s; leave headroom for the worker. */
+    public int $timeout = 660;
 
     public function __construct(
         public readonly string $projectId,
@@ -32,6 +35,7 @@ class AnalyzeProject implements ShouldQueue
         UsageReportBuilder $usage,
         DependencyGraphBuilder $graph,
         AnalysisRunner $runner,
+        IncrementalGraphBuilder $incrementalGraph,
     ): void {
         @set_time_limit(600);
 
@@ -42,47 +46,58 @@ class AnalyzeProject implements ShouldQueue
         $sandbox = $workspace->root($project);
 
         $status->markRunning(25);
-        $report = $usage->build($sandbox);
-        $usage->persist($project, $report);
+        $this->ensureUsage($project, $sandbox, $usage);
 
         $status->markRunning(45);
-        $paths = $project->files()->pluck('path')->all();
-        $edges = $graph->buildIndexed($sandbox, $paths);
+        $paths = $project->files()
+            ->whereIn('lang', $graph->parseableLangs())
+            ->pluck('path')
+            ->all();
+
+        $edges = $incrementalGraph->buildIndexed($project->id, $sandbox, $paths);
         $project->graphSnapshots()->create([
             'scanned_at' => now(),
             'edges' => $edges,
         ]);
-        Cache::forget("graph:{$project->id}");
+        ProjectReadCache::forgetGraph($project->id);
 
-        $status->markRunning(70);
-        $result = $runner->run($project, $sandbox);
+        $status->markRunning(55);
+        $isRescan = $project->scans()->where('status', 'done')->exists();
+        $changedPhp = $this->changedPhpPaths($project, $incrementalGraph);
 
-        // DX-7: join errors onto the edge list — upstream = possible causes,
-        // downstream = blast radius. $edges is already in memory here.
-        $status->markRunning(85);
-        $resolver = new ImpactResolver($edges);
-        $errors = $result['scan']->errors()->get();
-        foreach ($errors as $error) {
-            $error->update([
-                'upstream' => $resolver->upstream($error->file),
-                'downstream' => $resolver->downstream($error->file),
-            ]);
+        if ($isRescan && config('speed.incremental_graph', true) && $changedPhp === []) {
+            $status->markDone('No PHP files changed — reused prior findings');
+            ProjectReadCache::forgetProject($project->id);
+            $this->warmReadCaches($project);
+
+            return;
         }
 
-        // DX-8: link errors on a shared dependency path into chains.
-        $chains = (new ChainDetector)->detect(
-            $errors->map(fn ($error): array => ['id' => $error->id, 'file' => $error->file])->all(),
-            $resolver,
-        );
-        foreach ($errors as $error) {
-            $assignment = $chains[$error->id] ?? null;
-            if ($assignment !== null && $assignment['chainId'] !== null) {
-                $error->update([
-                    'chain_id' => $assignment['chainId'],
-                    'is_root' => $assignment['isRoot'],
+        $phpstanPaths = ($isRescan && $this->shouldIncrementalPhpStan($changedPhp)) ? $changedPhp : null;
+
+        $result = $runner->run(
+            $project,
+            $sandbox,
+            function (int $accepted, int $rejected, string $label, int $shardIndex, int $shardTotal) use ($status): void {
+                $pct = 55 + (int) floor(30 * ($shardIndex / max(1, $shardTotal)));
+                $status->update([
+                    'status' => JobStatus::STATUS_RUNNING,
+                    'progress' => min(85, $pct),
+                    'message' => "phpstan {$shardIndex}/{$shardTotal}: {$label} ({$accepted} findings)",
                 ]);
-            }
+            },
+            $phpstanPaths,
+        );
+
+        if ($phpstanPaths !== null && $phpstanPaths !== []) {
+            $this->replaceErrorsForPaths($result['scan']->id, $project->id, $phpstanPaths);
         }
+
+        $status->markRunning(85);
+        $runner->applyImpactAndChains($result['scan'], $edges);
+
+        ProjectReadCache::forgetProject($project->id);
+        $this->warmReadCaches($project);
 
         $analyserNote = '';
         if (($result['analysers']['phpstan'] ?? null) === 'missing_binary') {
@@ -102,5 +117,157 @@ class AnalyzeProject implements ShouldQueue
     public function failed(Throwable $e): void
     {
         JobStatus::query()->find($this->jobStatusId)?->markFailed($e->getMessage());
+    }
+
+    private function ensureUsage(Project $project, string $sandbox, UsageReportBuilder $usage): void
+    {
+        if (config('speed.skip_stale_usage_rebuild', true)) {
+            $existing = $project->usageReport;
+            if ($existing !== null
+                && $project->last_imported_at !== null
+                && $existing->updated_at !== null
+                && $existing->updated_at->gte($project->last_imported_at)) {
+                return;
+            }
+        }
+
+        $report = $usage->build($sandbox, $project);
+        $usage->persist($project, $report);
+        ProjectReadCache::forgetUsage($project->id);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function changedPhpPaths(Project $project, IncrementalGraphBuilder $incrementalGraph): array
+    {
+        $changed = $incrementalGraph->lastChangedPaths($project->id);
+
+        return array_values(array_filter(
+            $changed,
+            static fn (string $p): bool => str_ends_with(strtolower($p), '.php'),
+        ));
+    }
+
+    /**
+     * @param  list<string>  $changedPhp
+     */
+    private function shouldIncrementalPhpStan(array $changedPhp): bool
+    {
+        if (! config('speed.incremental_graph', true)) {
+            return false;
+        }
+        // First scan / huge change set → full sharded pass.
+        if ($changedPhp === []) {
+            return false;
+        }
+        if (count($changedPhp) > 80) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Keep findings for untouched files from the previous done scan; new scan only holds changed-file findings.
+     * Merge by copying untouched prior errors into the new scan.
+     *
+     * @param  list<string>  $changedPaths
+     */
+    private function replaceErrorsForPaths(string $newScanId, string $projectId, array $changedPaths): void
+    {
+        $prior = Project::query()->find($projectId)
+            ?->scans()
+            ->where('status', 'done')
+            ->where('id', '!=', $newScanId)
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($prior === null) {
+            return;
+        }
+
+        $changedLookup = array_fill_keys($changedPaths, true);
+        $now = now();
+        $rows = [];
+
+        foreach ($prior->errors()->cursor() as $error) {
+            if (isset($changedLookup[$error->file])) {
+                continue;
+            }
+            $rows[] = [
+                'id' => (string) \Illuminate\Support\Str::uuid(),
+                'scan_id' => $newScanId,
+                'source' => $error->source,
+                'rule_id' => $error->rule_id,
+                'kind' => $error->kind,
+                'severity' => $error->severity,
+                'file' => $error->file,
+                'range' => json_encode($error->range, JSON_THROW_ON_ERROR),
+                'message' => $error->message,
+                'explanation' => $error->explanation,
+                'upstream' => json_encode($error->upstream ?? [], JSON_THROW_ON_ERROR),
+                'downstream' => json_encode($error->downstream ?? [], JSON_THROW_ON_ERROR),
+                'chain_id' => $error->chain_id,
+                'is_root' => (bool) $error->is_root,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            if (count($rows) >= 200) {
+                DiagnosticError::query()->insert($rows);
+                $rows = [];
+            }
+        }
+        if ($rows !== []) {
+            DiagnosticError::query()->insert($rows);
+        }
+    }
+
+    private function warmReadCaches(Project $project): void
+    {
+        $project->loadCount('files');
+        $snapshot = $project->graphSnapshots()->orderByDesc('scanned_at')->first();
+        if ($snapshot !== null) {
+            ProjectReadCache::put("graph:{$project->id}", [
+                'projectId' => $project->id,
+                'scannedAt' => $snapshot->scanned_at?->toIso8601String(),
+                'edges' => $snapshot->edges,
+            ]);
+        }
+
+        $usage = $project->usageReport;
+        if ($usage !== null) {
+            ProjectReadCache::put("usage:{$project->id}", [
+                'projectId' => $project->id,
+                'report' => $usage->report,
+                'createdAt' => $usage->created_at?->toIso8601String(),
+            ]);
+        }
+
+        $tree = $project->files()->orderBy('path')->get(['path', 'size', 'lang'])
+            ->map(fn ($f) => ['path' => $f->path, 'size' => $f->size, 'lang' => $f->lang])
+            ->all();
+        ProjectReadCache::put("tree:{$project->id}", $tree);
+
+        $health = $project->healthSnapshots()->orderByDesc('taken_at')->first();
+        if ($health !== null) {
+            ProjectReadCache::put("health:{$project->id}:latest", $health->snapshot);
+        }
+
+        ProjectReadCache::put("bootstrap:{$project->id}", [
+            'project' => [
+                'id' => $project->id,
+                'name' => $project->name,
+                'sourceType' => $project->source_type ?? 'import',
+                'localSourcePath' => $project->local_source_path,
+                'sandboxPath' => $project->sandbox_path,
+                'sandboxSizeBytes' => $project->sandbox_size_bytes,
+                'lastImportedAt' => $project->last_imported_at?->toIso8601String(),
+                'fileCount' => $project->files_count ?? $project->files()->count(),
+            ],
+            'health' => $health?->snapshot,
+            'usage' => $usage?->report,
+            'analysers' => $project->scans()->orderByDesc('created_at')->value('analyser_status') ?? [],
+        ]);
     }
 }

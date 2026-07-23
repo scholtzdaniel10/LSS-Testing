@@ -51,6 +51,37 @@ final class DependencyGraphBuilder
     }
 
     /**
+     * Extensions registered for parsing (lowercase).
+     *
+     * @return list<string>
+     */
+    public function parseableExtensions(): array
+    {
+        return array_values(array_keys($this->parserByExt));
+    }
+
+    /**
+     * project_files.lang values that map to a registered parser.
+     *
+     * @return list<string>
+     */
+    public function parseableLangs(): array
+    {
+        $langs = [];
+        foreach ($this->parseableExtensions() as $ext) {
+            $langs[] = match ($ext) {
+                'php' => 'php',
+                'js', 'jsx', 'mjs', 'cjs' => 'javascript',
+                'ts', 'tsx' => 'typescript',
+                'html', 'htm' => 'html',
+                default => $ext,
+            };
+        }
+
+        return array_values(array_unique($langs));
+    }
+
+    /**
      * Walk the sandbox tree (legacy zip imports). Prefer {@see buildIndexed} when file list exists.
      *
      * @return list<array{from: string, to: string, kind: string, line: int|null}>

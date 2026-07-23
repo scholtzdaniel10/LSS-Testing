@@ -17,6 +17,7 @@ class JobStatusController extends Controller
             'status' => $jobStatus->status,
             'progress' => $jobStatus->progress,
             'message' => $jobStatus->message,
+            'result' => $jobStatus->result,
             'createdAt' => $jobStatus->created_at?->toIso8601String(),
             'updatedAt' => $jobStatus->updated_at?->toIso8601String(),
         ]);

@@ -3,12 +3,10 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Jobs\AnalyzeProject;
-use App\Jobs\BuildHealthSnapshot;
 use App\Models\JobStatus;
 use App\Models\Project;
+use App\Support\Jobs\DispatchAnalyzeChain;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\DB;
 
 class AnalyzeController extends Controller
 {
@@ -39,7 +37,8 @@ class AnalyzeController extends Controller
     }
 
     /**
-     * UI-4: chain analyze → snapshot so the health screen updates after findings land.
+     * UI-4: queue analyze → snapshot so the health screen updates after findings land.
+     * Returns 202 immediately; poll analyzeJobId then snapshotJobId.
      */
     public function rescan(Project $project): JsonResponse
     {
@@ -50,51 +49,8 @@ class AnalyzeController extends Controller
             );
         }
 
-        [$analyze, $snapshot] = DB::transaction(function () use ($project): array {
-            $analyze = JobStatus::query()->create([
-                'type' => 'analyze',
-                'project_id' => $project->id,
-                'status' => JobStatus::STATUS_QUEUED,
-            ]);
-            $snapshot = JobStatus::query()->create([
-                'type' => 'build-health-snapshot',
-                'project_id' => $project->id,
-                'status' => JobStatus::STATUS_QUEUED,
-            ]);
+        $ids = DispatchAnalyzeChain::dispatch($project->id);
 
-            return [$analyze, $snapshot];
-        });
-
-        $chain = Bus::chain([
-            new AnalyzeProject($project->id, $analyze->id),
-            new BuildHealthSnapshot($project->id, $snapshot->id),
-        ]);
-
-        try {
-            // PendingChain has no dispatchSync(); force synchronous execution
-            // via the 'sync' connection regardless of the app's default queue
-            // driver, so Re-scan always finishes before this request returns.
-            $chain->onConnection('sync')->dispatch();
-        } catch (\Throwable $e) {
-            $analyze->refresh();
-            $snapshot->refresh();
-            if ($analyze->status !== JobStatus::STATUS_FAILED) {
-                $analyze->markFailed($e->getMessage());
-            }
-            if ($snapshot->status !== JobStatus::STATUS_FAILED) {
-                $snapshot->markFailed($e->getMessage());
-            }
-
-            return $this->respond([
-                'analyzeJobId' => $analyze->id,
-                'snapshotJobId' => $snapshot->id,
-                'message' => $e->getMessage(),
-            ], status: 500);
-        }
-
-        return $this->respond([
-            'analyzeJobId' => $analyze->id,
-            'snapshotJobId' => $snapshot->id,
-        ], status: 202);
+        return $this->respond($ids, status: 202);
     }
 }

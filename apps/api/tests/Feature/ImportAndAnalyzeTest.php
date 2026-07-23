@@ -36,13 +36,17 @@ it('imports a zip into the sandbox and records project files (IG-19)', function 
 
     $response->assertAccepted();
     $jobId = $response->json('data.jobId');
-    expect(JobStatus::query()->find($jobId)?->status)->toBe(JobStatus::STATUS_DONE);
+    $job = JobStatus::query()->find($jobId);
+    expect($job?->status)->toBe(JobStatus::STATUS_DONE)
+        ->and($job?->result)->toHaveKeys(['analyzeJobId', 'snapshotJobId']);
 
     $project->refresh();
     expect($project->last_imported_at)->not->toBeNull()
         ->and($project->files()->where('path', 'src/Hello.php')->exists())->toBeTrue()
         ->and($project->files()->where('path', 'like', 'node_modules%')->exists())->toBeFalse()
         ->and($project->usageReport)->not->toBeNull();
+
+    expect(JobStatus::query()->find($job->result['analyzeJobId'])?->status)->toBe(JobStatus::STATUS_DONE);
 
     $tree = $this->getJson("/api/v1/projects/{$project->id}/tree");
     $tree->assertOk();
@@ -128,9 +132,8 @@ it('queues analyze and persists evidence-gated findings (DX-3/DX-17)', function 
         ->and($errors->json('data.0.range.startLine'))->toBe(1);
 });
 
-it('re-scan chains analyze then snapshot synchronously (UI-4)', function () {
-    // Regression: Bus::chain(...) returns a PendingChain, which has no
-    // dispatchSync() — this endpoint 500'd on every real call until fixed.
+it('re-scan queues analyze then snapshot chain (UI-4)', function () {
+    // QUEUE_CONNECTION=sync in phpunit: chain runs inline before the 202 returns.
     asUser();
 
     $project = Project::query()->create(['name' => 'rescan-demo']);

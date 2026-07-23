@@ -22,6 +22,7 @@ class Project extends Model
         'name',
         'source_type',
         'sandbox_path',
+        'sandbox_size_bytes',
         'local_source_path',
         'last_imported_at',
     ];
@@ -30,6 +31,7 @@ class Project extends Model
     {
         return [
             'last_imported_at' => 'datetime',
+            'sandbox_size_bytes' => 'integer',
         ];
     }
 

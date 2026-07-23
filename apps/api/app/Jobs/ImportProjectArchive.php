@@ -7,6 +7,8 @@ use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Services\Import\UsageReportBuilder;
 use App\Services\Import\ZipImporter;
+use App\Support\Cache\ProjectReadCache;
+use App\Support\Jobs\DispatchAnalyzeChain;
 use App\Support\Sandbox\PathJail;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -17,10 +19,13 @@ use Throwable;
 /**
  * IG-19 / IG-1: extract uploaded zip into path-jailed sandbox, replace
  * project_files, persist C4 usage report. Never executes imported code.
+ * Indexes files then queues analyze → snapshot (does not block on PHPStan).
  */
 class ImportProjectArchive implements ShouldQueue
 {
     use Queueable;
+
+    public int $timeout = 600;
 
     public function __construct(
         public readonly string $projectId,
@@ -71,31 +76,24 @@ class ImportProjectArchive implements ShouldQueue
             $project->update([
                 'name' => $this->projectName,
                 'sandbox_path' => $sandbox,
+                'sandbox_size_bytes' => $this->directorySize($sandbox),
                 'last_imported_at' => now(),
             ]);
         });
 
         $status->markRunning(85);
+        ProjectReadCache::forgetProject($this->projectId);
 
-        $analyzeStatus = JobStatus::query()->create([
-            'type' => 'analyze',
-            'project_id' => $project->id,
-            'status' => JobStatus::STATUS_QUEUED,
-            'message' => 'Post-import dependency scan',
-        ]);
-        AnalyzeProject::dispatchSync($this->projectId, $analyzeStatus->id);
-
-        $snapshotStatus = JobStatus::query()->create([
-            'type' => 'build-health-snapshot',
-            'project_id' => $project->id,
-            'status' => JobStatus::STATUS_QUEUED,
-            'message' => 'Post-import health snapshot',
-        ]);
-        BuildHealthSnapshot::dispatchSync($this->projectId, $snapshotStatus->id);
+        $followOn = DispatchAnalyzeChain::dispatch(
+            $this->projectId,
+            'Post-import dependency scan',
+            'Post-import health snapshot',
+        );
 
         @unlink($this->zipPath);
         $status->markDone(
-            'Imported '.count($result['files']).' files (skipped '.$result['skipped'].') · graph + health ready',
+            'Imported '.count($result['files']).' files (skipped '.$result['skipped'].') · analyze queued',
+            $followOn,
         );
     }
 
@@ -103,5 +101,23 @@ class ImportProjectArchive implements ShouldQueue
     {
         @unlink($this->zipPath);
         JobStatus::query()->find($this->jobStatusId)?->markFailed($exception->getMessage());
+    }
+
+    private function directorySize(string $root): int
+    {
+        if (! is_dir($root)) {
+            return 0;
+        }
+        $total = 0;
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $total += (int) $file->getSize();
+            }
+        }
+
+        return $total;
     }
 }

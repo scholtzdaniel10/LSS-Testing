@@ -1,4 +1,12 @@
-import { ApiError, api, getApiToken, pollJob, setActiveProjectId } from '../api/client';
+import {
+  ApiError,
+  api,
+  getApiToken,
+  pollAnalyzeFollowOn,
+  pollJob,
+  QUEUE_HINT,
+  setActiveProjectId,
+} from '../api/client';
 
 /** Link a folder on disk to the API and wait for scan + health (no zip upload). */
 export async function linkLocalFolder(
@@ -31,7 +39,7 @@ export async function linkLocalFolder(
   }
 
   setActiveProjectId(projectId);
-  options.onStatus?.('Linking local folder on API (scan + analysis)…');
+  options.onStatus?.('Queuing local folder link…');
 
   const linked = await api.linkLocal(projectId, trimmed, name);
   if (linked.data.status === 'failed') {
@@ -42,15 +50,20 @@ export async function linkLocalFolder(
   const job = await pollJob(
     linked.data.jobId,
     (j) => options.onStatus?.(`Link: ${j.status} ${j.progress}% — ${j.message ?? ''}`),
-    300_000,
   );
 
   if (job.status === 'failed') {
     throw new Error(job.message ?? 'Local link failed');
   }
   if (job.status !== 'done') {
-    throw new Error(`Link stuck in "${job.status}". Set QUEUE_CONNECTION=sync in apps/api/.env.`);
+    throw new Error(`Link stuck in "${job.status}". ${QUEUE_HINT}`);
   }
+
+  await pollAnalyzeFollowOn(job, (stage, j) => {
+    options.onStatus?.(
+      `${stage === 'analyze' ? 'Analyze' : 'Snapshot'}: ${j.status} ${j.progress}% — ${j.message ?? ''}`,
+    );
+  });
 
   return { projectId, name };
 }

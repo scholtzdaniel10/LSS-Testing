@@ -6,6 +6,7 @@ use App\Models\HealthSnapshot;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Services\HealthSnapshotBuilder;
+use App\Support\Cache\ProjectReadCache;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
@@ -45,6 +46,9 @@ class BuildHealthSnapshot implements ShouldQueue
             ->take(PHP_INT_MAX)
             ->pluck('id')
             ->each(fn (string $id) => HealthSnapshot::query()->whereKey($id)->delete());
+
+        ProjectReadCache::forgetHealth($project->id);
+        ProjectReadCache::put("health:{$project->id}:latest", $document);
 
         $status->markDone("Snapshot {$snapshot->id} created");
     }

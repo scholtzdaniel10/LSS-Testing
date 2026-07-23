@@ -25,7 +25,9 @@ it('links a local folder and indexes files without zip upload', function () {
 
     $response->assertAccepted();
     $jobId = $response->json('data.jobId');
-    expect(JobStatus::query()->find($jobId)?->status)->toBe(JobStatus::STATUS_DONE);
+    $job = JobStatus::query()->find($jobId);
+    expect($job?->status)->toBe(JobStatus::STATUS_DONE)
+        ->and($job?->result)->toHaveKeys(['analyzeJobId', 'snapshotJobId']);
 
     $project->refresh();
     expect($project->source_type)->toBe('local')
@@ -33,6 +35,9 @@ it('links a local folder and indexes files without zip upload', function () {
         ->and($project->last_imported_at)->not->toBeNull()
         ->and($project->files()->where('path', 'src/Hello.php')->exists())->toBeTrue()
         ->and($project->files()->where('path', 'like', 'node_modules%')->exists())->toBeFalse();
+
+    expect(JobStatus::query()->find($job->result['analyzeJobId'])?->status)->toBe(JobStatus::STATUS_DONE)
+        ->and(JobStatus::query()->find($job->result['snapshotJobId'])?->status)->toBe(JobStatus::STATUS_DONE);
 
     $tree = $this->getJson("/api/v1/projects/{$project->id}/tree");
     $tree->assertOk();

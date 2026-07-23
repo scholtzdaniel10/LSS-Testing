@@ -113,7 +113,14 @@ export type JobStatus = {
   status: 'queued' | 'running' | 'done' | 'failed';
   progress: number;
   message: string | null;
+  result?: { analyzeJobId?: string; snapshotJobId?: string } | null;
 };
+
+/** Default poll window covers long PHPStan runs (worker timeout ~660s). */
+export const JOB_POLL_TIMEOUT_MS = 600_000;
+
+export const QUEUE_HINT =
+  'Job stuck — run `php artisan queue:listen` (or queue:work) in apps/api, or set QUEUE_CONNECTION=sync for local single-process.';
 
 export type TargetEnvironment = {
   id: string;
@@ -239,6 +246,13 @@ export const api = {
   job: (id: string) => request<JobStatus>(`/jobs/${id}`),
   healthReport: (id: string) => request<HealthSnapshot | null>(`/projects/${id}/health-report`),
   healthHistory: (id: string) => request<HealthSnapshot[]>(`/projects/${id}/health-report/history`),
+  bootstrap: (id: string) =>
+    request<{
+      project: Project;
+      health: HealthSnapshot | null;
+      usage: UsageReport | null;
+      analysers: AnalyserStatuses;
+    }>(`/projects/${id}/bootstrap`),
   graph: (id: string) =>
     request<{ projectId: string; scannedAt: string; edges: GraphEdge[] } | null>(`/projects/${id}/graph`),
   usageReport: (id: string) =>
@@ -294,7 +308,7 @@ export const api = {
 export async function pollJob(
   jobId: string,
   onUpdate?: (job: JobStatus) => void,
-  timeoutMs = 120_000,
+  timeoutMs = JOB_POLL_TIMEOUT_MS,
 ): Promise<JobStatus> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -303,5 +317,27 @@ export async function pollJob(
     if (data.status === 'done' || data.status === 'failed') return data;
     await new Promise((r) => setTimeout(r, 400));
   }
-  throw new ApiError('Job timed out', 408);
+  throw new ApiError(`Job timed out after ${Math.round(timeoutMs / 1000)}s. ${QUEUE_HINT}`, 408);
+}
+
+/** After link/import finishes, poll queued analyze → snapshot if present in job.result. */
+export async function pollAnalyzeFollowOn(
+  job: JobStatus,
+  onUpdate?: (stage: 'analyze' | 'snapshot', j: JobStatus) => void,
+  timeoutMs = JOB_POLL_TIMEOUT_MS,
+): Promise<void> {
+  const analyzeId = job.result?.analyzeJobId;
+  const snapshotId = job.result?.snapshotJobId;
+  if (analyzeId) {
+    const analyze = await pollJob(analyzeId, (j) => onUpdate?.('analyze', j), timeoutMs);
+    if (analyze.status === 'failed') {
+      throw new Error(analyze.message ?? 'Analyze failed');
+    }
+  }
+  if (snapshotId) {
+    const snapshot = await pollJob(snapshotId, (j) => onUpdate?.('snapshot', j), timeoutMs);
+    if (snapshot.status === 'failed') {
+      throw new Error(snapshot.message ?? 'Health snapshot failed');
+    }
+  }
 }

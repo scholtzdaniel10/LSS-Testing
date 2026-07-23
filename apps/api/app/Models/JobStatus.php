@@ -32,12 +32,14 @@ class JobStatus extends Model
         'status',
         'progress',
         'message',
+        'result',
     ];
 
     protected function casts(): array
     {
         return [
             'progress' => 'integer',
+            'result' => 'array',
         ];
     }
 
@@ -51,9 +53,20 @@ class JobStatus extends Model
         $this->update(['status' => self::STATUS_RUNNING, 'progress' => $progress]);
     }
 
-    public function markDone(?string $message = null): void
+    /**
+     * @param  array<string, mixed>|null  $result
+     */
+    public function markDone(?string $message = null, ?array $result = null): void
     {
-        $this->update(['status' => self::STATUS_DONE, 'progress' => 100, 'message' => $message]);
+        $payload = [
+            'status' => self::STATUS_DONE,
+            'progress' => 100,
+            'message' => $message,
+        ];
+        if ($result !== null) {
+            $payload['result'] = $result;
+        }
+        $this->update($payload);
     }
 
     public function markFailed(string $message): void

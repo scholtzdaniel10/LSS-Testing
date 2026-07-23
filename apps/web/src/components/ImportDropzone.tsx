@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { ApiError, api, getApiToken, pollJob, setActiveProjectId } from '../api/client';
+import { ApiError, api, getApiToken, pollAnalyzeFollowOn, pollJob, QUEUE_HINT, setActiveProjectId } from '../api/client';
 import {
   ingestDirectoryHandle,
   ingestFileList,
@@ -133,16 +133,20 @@ const ImportDropzone: React.FC = () => {
       setBusy(`Import job ${imported.data.status}…`);
       const job = await pollJob(imported.data.jobId, (j) => {
         setBusy(`Import: ${j.status} ${j.progress}% — ${j.message ?? ''}`);
-      }, 180_000);
+      });
 
       if (job.status === 'failed') {
         throw new Error(job.message ?? 'Import failed');
       }
       if (job.status !== 'done') {
-        throw new Error(
-          `Import stuck in "${job.status}". Set QUEUE_CONNECTION=sync in apps/api/.env or run php artisan queue:listen.`,
-        );
+        throw new Error(`Import stuck in "${job.status}". ${QUEUE_HINT}`);
       }
+
+      await pollAnalyzeFollowOn(job, (stage, j) => {
+        setBusy(
+          `${stage === 'analyze' ? 'Analyze' : 'Snapshot'}: ${j.status} ${j.progress}% — ${j.message ?? ''}`,
+        );
+      });
 
       const updated = {
         ...manifest,

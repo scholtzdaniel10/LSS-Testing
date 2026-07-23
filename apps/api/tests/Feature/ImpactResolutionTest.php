@@ -7,6 +7,7 @@ use App\Models\Scan;
 use App\Services\Diagnostics\AnalysisRunner;
 use App\Services\Diagnostics\Analyzer;
 use App\Services\Graph\DependencyGraphBuilder;
+use App\Services\Graph\IncrementalGraphBuilder;
 use App\Services\Import\UsageReportBuilder;
 use App\Support\Sandbox\ProjectWorkspace;
 
@@ -69,6 +70,7 @@ it('joins persisted errors onto graph edges with upstream and downstream (DX-7)'
         app(UsageReportBuilder::class),
         app(DependencyGraphBuilder::class),
         AnalysisRunner::withAdapters([$fake]),
+        app(IncrementalGraphBuilder::class),
     );
 
     expect($status->fresh()->status)->toBe(JobStatus::STATUS_DONE);

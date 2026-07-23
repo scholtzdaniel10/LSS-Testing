@@ -172,16 +172,35 @@ it('reports missing_binary when Maintain API has no PHPStan (DX-2 honesty)', fun
     expect($adapter->lastRunStatus())->toBe('missing_binary');
 });
 
-it('writes CI3 PHPStan bootstrap without composer (DX-16)', function () {
+it('writes CI3 PHPStan bootstrap without composer (DX-16 Wave A)', function () {
     $fixture = base_path('tests/fixtures/ci3-mini');
     $adapter = new PhpStanAdapter;
+    config(['speed.phpstan_deep' => false]);
     $config = $adapter->ensureConfig($fixture);
+    $neon = file_get_contents($config);
 
     expect($config)->toEndWith('.lss-phpstan.neon')
-        ->and(file_get_contents($config))->toContain('scanDirectories')
-        ->and(file_get_contents($config))->toContain('application');
+        ->and($neon)->toContain('scanDirectories')
+        ->and($neon)->toContain('application')
+        ->and($neon)->not->toContain('system')
+        ->and($neon)->toContain('parallel:');
 
     @unlink($config);
+    @unlink($fixture.DIRECTORY_SEPARATOR.'.lss-phpstan.neon');
+});
+
+it('includes system/ when PHPSTAN_DEEP (CI3 Wave B)', function () {
+    $fixture = base_path('tests/fixtures/ci3-mini');
+    $adapter = new PhpStanAdapter;
+    config(['speed.phpstan_deep' => true]);
+    $config = $adapter->ensureConfig($fixture);
+    $neon = file_get_contents($config);
+
+    expect($neon)->toContain('application')
+        ->and($neon)->toContain('system');
+
+    @unlink($config);
+    @unlink($fixture.DIRECTORY_SEPARATOR.'.lss-phpstan-deep.neon');
 });
 
 it('resolveBinary never returns a .bat path (Windows PATH-less fix)', function () {

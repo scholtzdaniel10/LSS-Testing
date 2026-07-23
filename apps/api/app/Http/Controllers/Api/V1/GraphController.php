@@ -3,21 +3,19 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Project;
+use App\Support\Cache\ProjectReadCache;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Cache;
 
 class GraphController extends Controller
 {
     /**
-     * GET /projects/{project}/graph — latest C3 graph snapshot. Redis (or the
-     * local cache store) fronts the document; Postgres is the source of truth
-     * (vault note 11, rule 5).
+     * GET /projects/{project}/graph — latest C3 graph snapshot. Cache fronts
+     * the document; Postgres/SQLite is the source of truth.
      */
     public function show(Project $project): JsonResponse
     {
-        $payload = Cache::remember(
+        $payload = ProjectReadCache::remember(
             "graph:{$project->id}",
-            now()->addMinutes(10),
             function () use ($project): ?array {
                 $snapshot = $project->graphSnapshots()->orderByDesc('scanned_at')->first();
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Requests\FileContentRequest;
 use App\Models\Project;
 use App\Models\ProjectFile;
+use App\Support\Cache\ProjectReadCache;
 use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Http\JsonResponse;
 use InvalidArgumentException;
@@ -16,19 +17,17 @@ class ProjectFileController extends Controller
 {
     public function tree(Project $project): JsonResponse
     {
-        $files = $project->files()
-            ->orderBy('path')
-            ->get(['path', 'size', 'lang']);
-
-        $tree = [];
-        foreach ($files as $file) {
-            /** @var ProjectFile $file */
-            $tree[] = [
-                'path' => $file->path,
-                'size' => $file->size,
-                'lang' => $file->lang,
-            ];
-        }
+        $tree = ProjectReadCache::remember("tree:{$project->id}", function () use ($project): array {
+            return $project->files()
+                ->orderBy('path')
+                ->get(['path', 'size', 'lang'])
+                ->map(fn (ProjectFile $file): array => [
+                    'path' => $file->path,
+                    'size' => $file->size,
+                    'lang' => $file->lang,
+                ])
+                ->all();
+        });
 
         return $this->respond($tree, [
             'count' => count($tree),

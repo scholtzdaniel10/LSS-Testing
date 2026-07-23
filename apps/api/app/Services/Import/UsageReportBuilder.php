@@ -20,7 +20,7 @@ final class UsageReportBuilder
     /**
      * @return array<string, mixed>
      */
-    public function build(string $sandboxPath): array
+    public function build(string $sandboxPath, ?Project $project = null): array
     {
         $profile = $this->detector->detect($sandboxPath);
 
@@ -31,14 +31,24 @@ final class UsageReportBuilder
         $envVars = [];
         $services = [];
 
-        if ($this->hasPhp($sandboxPath)) {
-            $languages[] = 'php';
-        }
-        if ($this->hasJs($sandboxPath)) {
-            $languages[] = 'javascript';
-        }
-        if ($this->hasTs($sandboxPath)) {
-            $languages[] = 'typescript';
+        if ($project !== null) {
+            $langs = $project->files()->whereNotNull('lang')->distinct()->pluck('lang')->all();
+            foreach ($langs as $lang) {
+                $lang = strtolower((string) $lang);
+                if (in_array($lang, ['php', 'javascript', 'typescript'], true)) {
+                    $languages[] = $lang;
+                }
+            }
+        } else {
+            if ($this->hasPhp($sandboxPath)) {
+                $languages[] = 'php';
+            }
+            if ($this->hasJs($sandboxPath)) {
+                $languages[] = 'javascript';
+            }
+            if ($this->hasTs($sandboxPath)) {
+                $languages[] = 'typescript';
+            }
         }
 
         if ($profile->isCi3) {

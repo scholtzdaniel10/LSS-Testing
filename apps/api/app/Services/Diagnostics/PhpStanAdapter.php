@@ -8,20 +8,12 @@ use RuntimeException;
 
 /**
  * DX-2 / DX-16 / DX-20 / DX-21: run PHPStan analysis-only against a sandbox.
- * For CodeIgniter 3 (no composer), writes a temporary neon config with
- * scanDirectories for application/ + system/ and a low analysis level.
- * DX-21: CI3 detection is delegated to StackDetector (single source of truth).
  *
- * When PHPStan binary is unavailable, returns an empty list (never fabricates).
- * Tests inject findings via {@see PhpStanAdapter::withJsonRunner()}.
+ * Phase 5: sharded progressive runs, --cache-dir, parallel neon, CI3 app-first
+ * (system/ only when PHPSTAN_DEEP=true).
  */
 final class PhpStanAdapter implements Analyzer
 {
-    /**
-     * Real legacy codebases (thousands of untyped files) exceed PHP's default
-     * 128M inside PHPStan's own analysis workers well before level-0 analysis
-     * completes — see vault "10 Iteration 1" pilot notes for the measured case.
-     */
     private const MEMORY_LIMIT = '2G';
 
     /** @var callable(string): string|null */
@@ -48,7 +40,11 @@ final class PhpStanAdapter implements Analyzer
         return 'phpstan';
     }
 
-    /** True when the Maintain API has a PHPStan binary (or a test json runner). */
+    public function usesInjectedRunner(): bool
+    {
+        return $this->jsonRunner !== null;
+    }
+
     public function binaryAvailable(): bool
     {
         if ($this->jsonRunner !== null) {
@@ -58,20 +54,11 @@ final class PhpStanAdapter implements Analyzer
         return $this->resolveBinary() !== null;
     }
 
-    /**
-     * Status for the last {@see run()} call: missing_binary | clean | ok.
-     *
-     * @deprecated Use runStatus() (Analyzer interface). Kept for backward compat.
-     */
     public function lastRunStatus(): ?string
     {
         return $this->lastRunStatus;
     }
 
-    /**
-     * DX-20: polymorphic run status — satisfies the Analyzer interface.
-     * Delegates to lastRunStatus(); may be null before the first run().
-     */
     public function runStatus(): ?string
     {
         return $this->lastRunStatus;
@@ -87,6 +74,85 @@ final class PhpStanAdapter implements Analyzer
             return $findings;
         }
 
+        return $this->runShard($sandboxPath, null, 'full');
+    }
+
+    /**
+     * Plan analysis shards (top-level dirs under application/src/app, or explicit paths).
+     *
+     * @param  list<string>|null  $onlyPaths
+     * @return list<array{label: string, paths: list<string>|null}>
+     */
+    public function planShards(string $sandboxPath, ?array $onlyPaths = null): array
+    {
+        if ($onlyPaths !== null) {
+            if ($onlyPaths === []) {
+                return [];
+            }
+            $chunks = array_chunk(array_values($onlyPaths), 40);
+
+            return array_map(
+                fn (array $chunk, int $i): array => [
+                    'label' => 'changed:'.($i + 1).'/'.count($chunks),
+                    'paths' => $chunk,
+                ],
+                $chunks,
+                array_keys($chunks),
+            );
+        }
+
+        $profile = $this->stackDetector->detect($sandboxPath);
+        $deep = (bool) config('speed.phpstan_deep', false);
+
+        if ($profile->isCi3) {
+            $shards = [];
+            $appRoot = $sandboxPath.DIRECTORY_SEPARATOR.'application';
+            if (is_dir($appRoot)) {
+                foreach ($this->childDirs($appRoot) as $dir) {
+                    $rel = 'application/'.$dir;
+                    $shards[] = ['label' => $rel, 'paths' => [$rel]];
+                }
+                if ($shards === []) {
+                    $shards[] = ['label' => 'application', 'paths' => ['application']];
+                }
+            }
+            if ($deep && is_dir($sandboxPath.DIRECTORY_SEPARATOR.'system')) {
+                $shards[] = ['label' => 'system', 'paths' => ['system']];
+            }
+
+            return $shards;
+        }
+
+        foreach (['src', 'app', 'application'] as $candidate) {
+            $abs = $sandboxPath.DIRECTORY_SEPARATOR.$candidate;
+            if (! is_dir($abs)) {
+                continue;
+            }
+            $shards = [];
+            foreach ($this->childDirs($abs) as $dir) {
+                $rel = $candidate.'/'.$dir;
+                $shards[] = ['label' => $rel, 'paths' => [$rel]];
+            }
+            if ($shards !== []) {
+                return $shards;
+            }
+
+            return [['label' => $candidate, 'paths' => [$candidate]]];
+        }
+
+        return [['label' => 'full', 'paths' => null]];
+    }
+
+    /**
+     * @param  list<string>|null  $paths  Relative paths/dirs; null = neon defaults
+     * @return list<array<string, mixed>>
+     */
+    public function runShard(string $sandboxPath, ?array $paths, string $label = 'shard'): array
+    {
+        if ($this->jsonRunner !== null) {
+            return $this->run($sandboxPath);
+        }
+
         $binary = $this->resolveBinary();
         if ($binary === null) {
             $this->lastRunStatus = 'missing_binary';
@@ -96,52 +162,53 @@ final class PhpStanAdapter implements Analyzer
 
         $configPath = $this->ensureConfig($sandboxPath);
         $tmpDir = $this->writableTmpDir();
+        $cacheDir = $this->projectCacheDir($sandboxPath);
+
+        $cmd = [
+            PHP_BINARY,
+            $binary,
+            'analyse',
+            '--error-format=json',
+            '--no-progress',
+            '--memory-limit='.self::MEMORY_LIMIT,
+            '-c',
+            $configPath,
+        ];
+
+        if (config('speed.phpstan_cache_dir', true)) {
+            $cmd[] = '--cache-dir='.$cacheDir;
+        }
+
+        if ($paths !== null) {
+            foreach ($paths as $path) {
+                $cmd[] = $path;
+            }
+        }
+
         $result = Process::path($sandboxPath)
             ->timeout(600)
-            // Without TMP/TEMP, Windows PHP falls back to C:\WINDOWS — PHPStan
-            // then tries to mkdir C:\WINDOWS\phpstan and dies with Permission denied.
-            // Process::env() replaces the child environment, so merge over the
-            // current one rather than passing only the three overrides.
             ->env($this->processEnvWithTmp($tmpDir))
-            ->run([
-                PHP_BINARY,
-                $binary,
-                'analyse',
-                '--error-format=json',
-                '--no-progress',
-                // Real codebases (thousands of legacy files) exceed PHP's
-                // default 128M under PHPStan's own analysis workers; without
-                // this, a crash silently normalizes to "0 findings" — a false
-                // "all clear" that violates the evidence-only accuracy policy
-                // (vault note 10). 2G is generous for a single-project scan.
-                '--memory-limit='.self::MEMORY_LIMIT,
-                '-c',
-                $configPath,
-            ]);
+            ->run($cmd);
 
         $json = $result->output();
         $stderr = $result->errorOutput();
 
         if ($json === '' && $stderr !== '') {
-            // PHPStan legitimately exits non-zero with only stderr when the
-            // scanned folder contains no PHP files at all — it prints
-            // "No files found to analyse." and produces no JSON. That is a
-            // benign empty analysis, not a crash: report it as a clean scan
-            // with zero findings so link-local (synchronous scan) returns 202.
             if ($this->isNoFilesToAnalyse($stderr)) {
-                $this->lastRunStatus = 'clean';
+                $this->lastRunStatus = $this->lastRunStatus ?? 'clean';
 
                 return [];
             }
 
-            // Any other stderr-only run means the process failed to start or
-            // crashed before producing JSON output. Surface as a hard error
-            // rather than a misleading "clean" result (DX-15/17 honesty).
-            throw new RuntimeException('PHPStan produced no output: '.trim($stderr));
+            throw new RuntimeException('PHPStan produced no output ['.$label.']: '.trim($stderr));
         }
 
         $findings = $this->normalize($json, $sandboxPath);
-        $this->lastRunStatus = $findings === [] ? 'clean' : 'ok';
+        if ($findings !== []) {
+            $this->lastRunStatus = 'ok';
+        } elseif ($this->lastRunStatus !== 'ok') {
+            $this->lastRunStatus = 'clean';
+        }
 
         return $findings;
     }
@@ -156,10 +223,6 @@ final class PhpStanAdapter implements Analyzer
             return [];
         }
 
-        // PHPStan's own JSON envelope reports worker crashes (e.g. memory
-        // exhaustion) in general_errors even when it still exits with some
-        // stdout. Surface these as a real failure instead of returning an
-        // empty (and therefore misleadingly "clean") finding list.
         if (($decoded['general_errors'] ?? []) !== []) {
             $reasons = implode('; ', array_map(
                 static fn (mixed $e): string => strtok((string) $e, "\n") ?: (string) $e,
@@ -231,72 +294,75 @@ final class PhpStanAdapter implements Analyzer
         return $findings;
     }
 
-    /**
-     * Return (or create) the PHPStan neon config path for this sandbox.
-     *
-     * DX-21: CI3 detection uses StackDetector — no duplicate hasComposer /
-     * is_dir logic here. For a CI3 project, writes a temporary neon that
-     * sets scanDirectories to application/ + system/ at level 0 so PHPStan
-     * doesn't choke on legacy globals.
-     */
     public function ensureConfig(string $sandboxPath): string
     {
         $sep = DIRECTORY_SEPARATOR;
-        $existing = $sandboxPath.$sep.'.lss-phpstan.neon';
+        $deep = (bool) config('speed.phpstan_deep', false);
+        $configName = $deep ? '.lss-phpstan-deep.neon' : '.lss-phpstan.neon';
+        $configPath = $sandboxPath.$sep.$configName;
 
-        if (is_file($existing)) {
-            return $existing;
+        // Always rewrite so parallel / wave flags stay current.
+        $profile = $this->stackDetector->detect($sandboxPath);
+        $parallel = (int) config('speed.phpstan_parallel', 0);
+        if ($parallel <= 0) {
+            $cpus = (int) (function_exists('swoole_cpu_num') ? swoole_cpu_num() : (getenv('NUMBER_OF_PROCESSORS') ?: 4));
+            $parallel = max(2, $cpus - 1);
         }
 
-        // DX-21: single CI3 detection via StackDetector
-        $profile = $this->stackDetector->detect($sandboxPath);
+        $exclude = <<<'NEON'
+    excludePaths:
+        - vendor
+        - node_modules
+        - cache
+        - logs
+        - storage
+NEON;
+
+        $parallelBlock = <<<NEON
+    parallel:
+        maximumNumberOfProcesses: {$parallel}
+NEON;
 
         if ($profile->isCi3) {
-            // CI3 projects have no autoloader; use scanDirectories instead of
-            // paths so PHPStan reads the raw files without requiring autoload.
-            $neon = <<<'NEON'
+            $scanDirs = $deep
+                ? "        - application\n        - system"
+                : '        - application';
+            $neon = <<<NEON
 parameters:
     level: 0
     scanDirectories:
-        - application
-        - system
+{$scanDirs}
+{$exclude}
+{$parallelBlock}
     reportUnmatchedIgnoredErrors: false
 NEON;
         } else {
-            $neon = <<<'NEON'
+            $neon = <<<NEON
 parameters:
     level: 1
     paths:
         - .
+{$exclude}
+{$parallelBlock}
     reportUnmatchedIgnoredErrors: false
 NEON;
         }
 
-        $configPath = $sandboxPath.$sep.'.lss-phpstan.neon';
         file_put_contents($configPath, $neon);
+
+        // Keep legacy filename for older tests that look for .lss-phpstan.neon
+        if (! $deep) {
+            @copy($configPath, $sandboxPath.$sep.'.lss-phpstan.neon');
+        }
 
         return $configPath;
     }
 
-    /**
-     * PHPStan's documented empty-analysis signal: when no PHP files match the
-     * configured paths it exits non-zero and writes only "No files found to
-     * analyse." to stderr (no JSON on stdout). This is a benign empty scan
-     * (zero findings), not a crash — matched narrowly by message so genuine
-     * stderr-only failures still surface as errors (DX-15/17 honesty).
-     */
     private function isNoFilesToAnalyse(string $stderr): bool
     {
         return stripos($stderr, 'No files found to analyse') !== false;
     }
 
-    /**
-     * Writable cache/tmp root for PHPStan workers.
-     *
-     * Desktop / queue-worker launches on Windows can inherit an empty TMP/TEMP,
-     * which makes PHP's sys_get_temp_dir() resolve to C:\WINDOWS — unwritable.
-     * PHPStan then tries to mkdir C:\WINDOWS\phpstan and fails with Permission denied.
-     */
     private function writableTmpDir(): string
     {
         $dir = storage_path('framework'.DIRECTORY_SEPARATOR.'phpstan');
@@ -305,6 +371,36 @@ NEON;
         }
 
         return $dir;
+    }
+
+    private function projectCacheDir(string $sandboxPath): string
+    {
+        $key = substr(hash('sha256', $sandboxPath), 0, 16);
+        $dir = storage_path('framework'.DIRECTORY_SEPARATOR.'phpstan'.DIRECTORY_SEPARATOR.$key);
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        return $dir;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function childDirs(string $abs): array
+    {
+        $out = [];
+        foreach (scandir($abs) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            if (is_dir($abs.DIRECTORY_SEPARATOR.$entry)) {
+                $out[] = $entry;
+            }
+        }
+        sort($out);
+
+        return $out;
     }
 
     /**
@@ -325,22 +421,8 @@ NEON;
         return $env;
     }
 
-    /**
-     * Resolve the PHPStan PHP entry-point script (not a .bat shim).
-     *
-     * Candidate order:
-     *   1. vendor/phpstan/phpstan/phpstan — the real Composer package entry-point (a PHP file).
-     *   2. vendor/bin/phpstan             — the bash proxy Composer installs in bin/.
-     *
-     * The .bat shim (vendor/bin/phpstan.bat) is intentionally excluded: it
-     * re-invokes plain `php` from PATH, which is not guaranteed to exist in the
-     * environment the API / queue worker runs under on Windows (PATH-less service
-     * accounts, etc.).  We invoke the resolved script via PHP_BINARY in run(),
-     * so any PHP file is sufficient — no shell PATH lookup required.
-     */
     private function resolveBinary(): ?string
     {
-        // Explicit override (including tests forcing a missing path) skips vendor discovery.
         if ($this->binary !== null) {
             return is_file($this->binary) ? $this->binary : null;
         }

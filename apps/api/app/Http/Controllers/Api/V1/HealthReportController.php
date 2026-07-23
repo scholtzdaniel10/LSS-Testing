@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Requests\HealthReportHistoryRequest;
 use App\Models\HealthSnapshot;
 use App\Models\Project;
+use App\Support\Cache\ProjectReadCache;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 
@@ -12,18 +13,23 @@ class HealthReportController extends Controller
 {
     public function show(Project $project): JsonResponse
     {
-        $snapshot = HealthSnapshot::query()
-            ->where('project_id', $project->id)
-            ->orderByDesc('taken_at')
-            ->first();
+        $snapshotDoc = ProjectReadCache::remember(
+            "health:{$project->id}:latest",
+            function () use ($project): ?array {
+                $snapshot = HealthSnapshot::query()
+                    ->where('project_id', $project->id)
+                    ->orderByDesc('taken_at')
+                    ->first();
 
-        if ($snapshot === null) {
+                return $snapshot?->snapshot;
+            },
+        );
+
+        if ($snapshotDoc === null) {
             return $this->respond(null, ['message' => 'No health snapshot recorded yet.']);
         }
 
-        // HD-4: the dashboard must be able to show its work — the scoring
-        // formula travels with every report.
-        return $this->respond($snapshot->snapshot, ['formula' => config('health.formula')]);
+        return $this->respond($snapshotDoc, ['formula' => config('health.formula')]);
     }
 
     public function history(HealthReportHistoryRequest $request, Project $project): JsonResponse

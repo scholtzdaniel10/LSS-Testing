@@ -7,6 +7,7 @@ use App\Models\Scan;
 use App\Services\Diagnostics\AnalysisRunner;
 use App\Services\Diagnostics\Analyzer;
 use App\Services\Graph\DependencyGraphBuilder;
+use App\Services\Graph\IncrementalGraphBuilder;
 use App\Services\Import\UsageReportBuilder;
 use App\Support\Sandbox\ProjectWorkspace;
 
@@ -76,6 +77,7 @@ function runImpactChainScan(): Project
         app(UsageReportBuilder::class),
         app(DependencyGraphBuilder::class),
         AnalysisRunner::withAdapters([$fake]),
+        app(IncrementalGraphBuilder::class),
     );
 
     return $project;

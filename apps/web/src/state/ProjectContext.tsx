@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -35,16 +36,14 @@ type ProjectContextValue = {
   errorMessage: string | null;
   jobMessage: string | null;
   reloadAll: () => Promise<void>;
+  /** Lazy-load graph + tree for Explore (cache hit = ms). */
+  ensureExploreData: () => Promise<void>;
   rescan: () => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
 };
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
-// DSK-3: if the desktop launcher injected an API token, adopt it immediately
-// (overwrite any stored token — previous launches' tokens are revoked).
-// This runs once at module load time so the getApiToken() initialiser below
-// always sees the fresh value.
 {
   const injected = window.lssDesktop?.apiToken;
   if (injected) setApiToken(injected);
@@ -67,6 +66,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<LoadState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [jobMessage, setJobMessage] = useState<string | null>(null);
+  const exploreLoadedFor = useRef<string | null>(null);
 
   const setToken = (t: string) => {
     setApiToken(t);
@@ -86,6 +86,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  /** Phase 3: Health cold start via bootstrap; Explore graph/tree loaded lazily. */
   const reloadAll = useCallback(async () => {
     if (!getApiToken()) {
       setStatus('empty');
@@ -94,6 +95,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
     setStatus('loading');
     setErrorMessage(null);
+    exploreLoadedFor.current = null;
+    setGraphEdges([]);
+    setTree([]);
     try {
       await refreshProjects();
       const id = getActiveProjectId();
@@ -102,26 +106,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setErrorMessage('No projects yet — drop a folder on Explore to import, or seed the demo.');
         return;
       }
-      const [proj, hr, hist, graph, usageEnv, errEnv, treeEnv, tgtEnv] = await Promise.all([
-        api.project(id),
-        api.healthReport(id),
+      const [boot, hist, errEnv, tgtEnv] = await Promise.all([
+        api.bootstrap(id),
         api.healthHistory(id),
-        api.graph(id),
-        api.usageReport(id),
         api.errors(id),
-        api.tree(id),
         api.targetEnvs(id),
       ]);
-      setProject(proj.data);
-      setHealth(hr.data);
+      setProject(boot.data.project);
+      setHealth(boot.data.health);
+      setUsage(boot.data.usage);
+      setAnalysers(boot.data.analysers ?? {});
       setHealthHistory(Array.isArray(hist.data) ? hist.data : []);
-      setGraphEdges(graph.data?.edges ?? []);
-      const usagePayload = usageEnv.data;
-      setUsage(usagePayload?.report ?? null);
       setErrors(Array.isArray(errEnv.data) ? errEnv.data : []);
-      setAnalysers(errEnv.analysers ?? {});
       setChains(errEnv.chains ?? []);
-      setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+      if (errEnv.analysers && Object.keys(errEnv.analysers).length > 0) {
+        setAnalysers(errEnv.analysers);
+      }
       setTargets(Array.isArray(tgtEnv.data) ? tgtEnv.data : []);
       const locals = await listLocalProjects();
       setLocalManifest(locals.find((m) => m.serverProjectId === id) ?? null);
@@ -131,6 +131,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load');
     }
   }, [refreshProjects]);
+
+  const ensureExploreData = useCallback(async () => {
+    const id = getActiveProjectId();
+    if (!id || !getApiToken()) return;
+    if (exploreLoadedFor.current === id) return;
+    try {
+      const [graph, treeEnv] = await Promise.all([api.graph(id), api.tree(id)]);
+      setGraphEdges(graph.data?.edges ?? []);
+      setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+      exploreLoadedFor.current = id;
+    } catch (e) {
+      setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load explore data');
+    }
+  }, []);
 
   const selectProject = useCallback(
     (id: string) => {
@@ -146,7 +160,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     try {
       const { data } = await api.rescan(project.id);
       setJobMessage(`Analyze ${data.analyzeJobId} · snapshot ${data.snapshotJobId}`);
-      await pollJob(data.analyzeJobId, (j) => setJobMessage(`Analyze: ${j.status} ${j.progress}%`));
+      await pollJob(data.analyzeJobId, (j) => setJobMessage(`Analyze: ${j.status} ${j.progress}% — ${j.message ?? ''}`));
       await pollJob(data.snapshotJobId, (j) => setJobMessage(`Snapshot: ${j.status} ${j.progress}%`));
       await reloadAll();
       setJobMessage('Re-scan complete');
@@ -200,6 +214,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       errorMessage,
       jobMessage,
       reloadAll,
+      ensureExploreData,
       rescan,
       deleteProject,
     }),
@@ -223,6 +238,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       errorMessage,
       jobMessage,
       reloadAll,
+      ensureExploreData,
       rescan,
       deleteProject,
     ],
