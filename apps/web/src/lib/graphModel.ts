@@ -145,7 +145,7 @@ export type GraphView = {
   hiddenExternal: number;
 };
 
-const MAX_NODES = 320;
+const MAX_NODES = 100;
 const FOLDER_PREFIX = 'dir:';
 
 const DEFAULT_PROFILE = buildStackProfile([]);
