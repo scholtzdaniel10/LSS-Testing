@@ -95,8 +95,14 @@ final class PhpStanAdapter implements Analyzer
         }
 
         $configPath = $this->ensureConfig($sandboxPath);
+        $tmpDir = $this->writableTmpDir();
         $result = Process::path($sandboxPath)
             ->timeout(600)
+            // Without TMP/TEMP, Windows PHP falls back to C:\WINDOWS — PHPStan
+            // then tries to mkdir C:\WINDOWS\phpstan and dies with Permission denied.
+            // Process::env() replaces the child environment, so merge over the
+            // current one rather than passing only the three overrides.
+            ->env($this->processEnvWithTmp($tmpDir))
             ->run([
                 PHP_BINARY,
                 $binary,
@@ -258,6 +264,41 @@ NEON;
         file_put_contents($configPath, $neon);
 
         return $configPath;
+    }
+
+    /**
+     * Writable cache/tmp root for PHPStan workers.
+     *
+     * Desktop / queue-worker launches on Windows can inherit an empty TMP/TEMP,
+     * which makes PHP's sys_get_temp_dir() resolve to C:\WINDOWS — unwritable.
+     * PHPStan then tries to mkdir C:\WINDOWS\phpstan and fails with Permission denied.
+     */
+    private function writableTmpDir(): string
+    {
+        $dir = storage_path('framework'.DIRECTORY_SEPARATOR.'phpstan');
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        return $dir;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function processEnvWithTmp(string $tmpDir): array
+    {
+        $env = [];
+        foreach (array_merge($_SERVER, $_ENV) as $key => $value) {
+            if (is_string($key) && is_string($value) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key) === 1) {
+                $env[$key] = $value;
+            }
+        }
+        $env['TMP'] = $tmpDir;
+        $env['TEMP'] = $tmpDir;
+        $env['TMPDIR'] = $tmpDir;
+
+        return $env;
     }
 
     /**

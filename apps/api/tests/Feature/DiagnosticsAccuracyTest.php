@@ -175,8 +175,13 @@ it('run() command starts with PHP_BINARY when a binary exists (Windows PATH-less
 
     Process::assertRan(function ($process) {
         $command = $process->command;
+        $env = $process->environment ?? [];
+        $tmpOk = ($env['TMP'] ?? null) === storage_path('framework'.DIRECTORY_SEPARATOR.'phpstan')
+            || ($env['TEMP'] ?? null) === storage_path('framework'.DIRECTORY_SEPARATOR.'phpstan');
 
-        return is_array($command) && ($command[0] ?? null) === PHP_BINARY;
+        return is_array($command)
+            && ($command[0] ?? null) === PHP_BINARY
+            && $tmpOk;
     });
 
     @unlink($fakePhpstan);
