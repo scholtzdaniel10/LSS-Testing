@@ -304,13 +304,15 @@ final class PhpStanAdapter implements Analyzer
             $parallel = max(2, $cpus - 1);
         }
 
+        // Trailing (?) marks each path optional — PHPStan 2.x hard-fails on
+        // excludePaths entries that don't exist in the sandbox otherwise.
         $exclude = <<<'NEON'
     excludePaths:
-        - vendor
-        - node_modules
-        - cache
-        - logs
-        - storage
+        - vendor (?)
+        - node_modules (?)
+        - cache (?)
+        - logs (?)
+        - storage (?)
 NEON;
 
         $parallelBlock = <<<NEON
