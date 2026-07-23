@@ -1,0 +1,9 @@
+{
+  "name": "fixture/with-pest",
+  "require": {
+    "php": "^8.3"
+  },
+  "require-dev": {
+    "pestphp/pest": "^4.0"
+  }
+}

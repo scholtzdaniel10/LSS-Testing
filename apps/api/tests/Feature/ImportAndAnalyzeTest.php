@@ -119,7 +119,9 @@ it('queues analyze and persists evidence-gated findings (DX-3/DX-17)', function 
 
     $this->app->instance(
         AnalysisRunner::class,
-        AnalysisRunner::withDefaults(PhpStanAdapter::withJsonRunner(fn () => $json)),
+        AnalysisRunner::withAdapters([
+            PhpStanAdapter::withJsonRunner(fn () => $json),
+        ]),
     );
 
     $response = $this->postJson("/api/v1/projects/{$project->id}/analyze");
@@ -147,7 +149,9 @@ it('re-scan queues analyze then snapshot chain (UI-4)', function () {
 
     $this->app->instance(
         AnalysisRunner::class,
-        AnalysisRunner::withDefaults(PhpStanAdapter::withJsonRunner(fn () => '{"files":[]}')),
+        AnalysisRunner::withAdapters([
+            PhpStanAdapter::withJsonRunner(fn () => '{"files":[]}'),
+        ]),
     );
 
     $response = $this->postJson("/api/v1/projects/{$project->id}/rescan");

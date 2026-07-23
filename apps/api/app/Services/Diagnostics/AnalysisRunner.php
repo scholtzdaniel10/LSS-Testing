@@ -28,10 +28,33 @@ final class AnalysisRunner
 
     public static function withDefaults(?Analyzer $phpstan = null): self
     {
-        $adapters = [$phpstan ?? new PhpStanAdapter];
+        $adapters = self::defaultAdapters($phpstan);
         $registry = new AnalyzerRegistry($adapters);
 
         return new self(new EvidenceGate($registry), $adapters);
+    }
+
+    /**
+     * @return list<Analyzer>
+     */
+    public static function defaultAdapters(?Analyzer $phpstan = null): array
+    {
+        $adapters = [];
+
+        if (config('diagnostics.phpstan', true)) {
+            $adapters[] = $phpstan ?? new PhpStanAdapter;
+        }
+        if (config('diagnostics.js', true)) {
+            $adapters[] = new JsAnalyzerAdapter;
+        }
+        if (config('diagnostics.php_test', true)) {
+            $adapters[] = new PhpTestFrameworkAdapter;
+        }
+        if (config('diagnostics.phpcs', true)) {
+            $adapters[] = new PhpcsAdapter;
+        }
+
+        return $adapters;
     }
 
     /**

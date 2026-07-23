@@ -1,0 +1,6 @@
+{
+  "name": "fixture/no-test-framework",
+  "require": {
+    "php": "^8.3"
+  }
+}

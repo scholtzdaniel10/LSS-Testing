@@ -27,6 +27,38 @@
     "kind": "type-error",
     "explanation": "Undefined variable \u2014 will raise a notice or Error depending on PHP version."
   },
+  "phpstan:method.notFound": {
+    "kind": "missing-dep",
+    "explanation": "Call to an undefined method \u2014 the object type does not declare this member; expect a fatal error at runtime."
+  },
+  "phpstan:staticMethod.notFound": {
+    "kind": "missing-dep",
+    "explanation": "Call to an undefined static method \u2014 class or trait does not expose this API."
+  },
+  "phpstan:property.notFound": {
+    "kind": "missing-dep",
+    "explanation": "Access to an undefined property \u2014 the declared type has no such member."
+  },
+  "phpstan:class.unused": {
+    "kind": "unused",
+    "explanation": "Class is declared but never referenced \u2014 candidate for removal or missing wiring."
+  },
+  "php-test:no-framework": {
+    "kind": "contract-mismatch",
+    "explanation": "Project has PHP source but no Pest/PHPUnit markers (composer dev-deps, phpunit.xml, or tests/Pest.php)."
+  },
+  "php-test:missing-test": {
+    "kind": "contract-mismatch",
+    "explanation": "Concrete class has no matching tests/.../{Class}Test.php file under common PHPUnit/Pest conventions."
+  },
+  "phpcs:PSR12.Files.FileHeader.SpacingAfterBlock": {
+    "kind": "contract-mismatch",
+    "explanation": "PSR-12 file header spacing \u2014 declare(), namespace, and use blocks need blank lines between them."
+  },
+  "phpcs:Generic.Files.LineLength.TooLong": {
+    "kind": "other",
+    "explanation": "Line exceeds the configured maximum length \u2014 harder to review and diff."
+  },
   "eslint:no-unused-vars": {
     "kind": "unused",
     "explanation": "Variable declared but never used \u2014 dead code that inflates the module's surface area."
