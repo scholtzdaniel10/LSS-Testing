@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useHistory, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
+import CodebaseRadial from '../components/CodebaseRadial';
 import ScreenState from '../components/ScreenState';
 import {
   buildFileTree,
@@ -58,15 +59,13 @@ function RadialPanel({
       errorMessage={errorMessage}
       emptyHint="No snapshot yet — run Analyze or Re-scan from the Projects page."
     >
-      <Suspense fallback={<p className="panel__hint">Loading map…</p>}>
-        <CodebaseModuleMap
-          edges={graphEdges}
-          findings={errors}
-          files={treeFiles}
-          focusParam={focusPath}
-          onFocusTree={onFocusTree}
-        />
-      </Suspense>
+      <CodebaseRadial
+        edges={graphEdges}
+        findings={errors}
+        files={treeFiles}
+        focusParam={focusPath}
+        onFocusTree={onFocusTree}
+      />
     </ScreenState>
   );
 }
@@ -86,7 +85,6 @@ const SERIES: Record<string, string> = {
 
 type ExploreView = 'map' | 'graph';
 
-const CodebaseModuleMap = lazy(() => import('../components/CodebaseModuleMap'));
 const DependencyGraph = lazy(() => import('../components/DependencyGraph'));
 
 const ExplorePage: React.FC = () => {
@@ -332,7 +330,7 @@ const ExplorePage: React.FC = () => {
                 </h2>
                 <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
                   <span className="panel__hint">
-                    {activeView === 'map' ? 'module columns · lightweight DOM' : 'module clusters · list view (no canvas)'}
+                    {activeView === 'map' ? 'folder sectors · hierarchical layout' : 'module clusters · drill down on click'}
                   </span>
                   <div
                     role="group"
