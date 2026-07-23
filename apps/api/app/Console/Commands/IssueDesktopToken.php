@@ -23,7 +23,7 @@ class IssueDesktopToken extends Command
         $user = User::query()->firstOrCreate(
             ['email' => 'desktop@lss.local'],
             [
-                'name'     => 'Desktop',
+                'name' => 'Desktop',
                 'password' => Str::random(40),
             ],
         );

@@ -81,8 +81,8 @@ class LocalRootController extends Controller
     private function serialize(LocalRoot $root): array
     {
         return [
-            'id'        => $root->id,
-            'path'      => $root->path,
+            'id' => $root->id,
+            'path' => $root->path,
             'createdAt' => $root->created_at?->toIso8601String(),
             'updatedAt' => $root->updated_at?->toIso8601String(),
         ];
@@ -118,6 +118,7 @@ class LocalRootController extends Controller
         if (str_starts_with($path, '\\\\')) {
             return true;
         }
+
         return false;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\ScanFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Scan extends Model
 {
-    /** @use HasFactory<\Database\Factories\ScanFactory> */
+    /** @use HasFactory<ScanFactory> */
     use HasFactory, HasUuids;
 
     public $incrementing = false;

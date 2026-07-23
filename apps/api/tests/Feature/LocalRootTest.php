@@ -20,7 +20,7 @@ it('lists local roots (empty)', function () {
 
 it('adds a local root and lists it', function () {
     asUser();
-    $dir = storage_path('framework/testing/root-add-' . uniqid());
+    $dir = storage_path('framework/testing/root-add-'.uniqid());
     File::ensureDirectoryExists($dir);
 
     $response = $this->postJson('/api/v1/local-roots', ['path' => $dir]);
@@ -36,10 +36,10 @@ it('adds a local root and lists it', function () {
 
 it('adding a root is idempotent — returns 200 on second POST', function () {
     asUser();
-    $dir = storage_path('framework/testing/root-idem-' . uniqid());
+    $dir = storage_path('framework/testing/root-idem-'.uniqid());
     File::ensureDirectoryExists($dir);
 
-    $first  = $this->postJson('/api/v1/local-roots', ['path' => $dir]);
+    $first = $this->postJson('/api/v1/local-roots', ['path' => $dir]);
     $second = $this->postJson('/api/v1/local-roots', ['path' => $dir]);
 
     $first->assertStatus(201);
@@ -53,7 +53,7 @@ it('adding a root is idempotent — returns 200 on second POST', function () {
 
 it('removes a local root', function () {
     asUser();
-    $dir = storage_path('framework/testing/root-del-' . uniqid());
+    $dir = storage_path('framework/testing/root-del-'.uniqid());
     File::ensureDirectoryExists($dir);
 
     $id = $this->postJson('/api/v1/local-roots', ['path' => $dir])->json('data.id');
@@ -75,7 +75,7 @@ it('rejects a relative path with 422', function () {
 
 it('rejects a nonexistent directory with 422', function () {
     asUser();
-    $this->postJson('/api/v1/local-roots', ['path' => 'C:\\DoesNotExist\\' . uniqid()])
+    $this->postJson('/api/v1/local-roots', ['path' => 'C:\\DoesNotExist\\'.uniqid()])
         ->assertStatus(422)
         ->assertJsonPath('errors.0.title', 'Directory not found');
 });
@@ -86,15 +86,15 @@ it('link-local succeeds when path is under a registered root', function () {
     asUser();
     config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => []]);
 
-    $root    = storage_path('framework/testing/root-link-' . uniqid());
-    $subdir  = $root . '/my-project';
+    $root = storage_path('framework/testing/root-link-'.uniqid());
+    $subdir = $root.'/my-project';
     File::ensureDirectoryExists($subdir);
-    file_put_contents($subdir . '/hello.php', "<?php\necho 'hi';\n");
+    file_put_contents($subdir.'/hello.php', "<?php\necho 'hi';\n");
 
     // Register the parent as an allowed root.
     LocalRoot::query()->create(['path' => rtrim($root, '/\\')]);
 
-    $project  = Project::query()->create(['name' => 'link-test']);
+    $project = Project::query()->create(['name' => 'link-test']);
     $response = $this->postJson("/api/v1/projects/{$project->id}/link-local", ['path' => $subdir]);
     $response->assertAccepted();
 
@@ -105,11 +105,11 @@ it('link-local fails with 422 + path_not_allowed code when path is outside all r
     asUser();
     config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => []]);
 
-    $outsideDir = storage_path('framework/testing/outside-' . uniqid());
+    $outsideDir = storage_path('framework/testing/outside-'.uniqid());
     File::ensureDirectoryExists($outsideDir);
 
     // No root registered at all.
-    $project  = Project::query()->create(['name' => 'blocked']);
+    $project = Project::query()->create(['name' => 'blocked']);
     $response = $this->postJson("/api/v1/projects/{$project->id}/link-local", ['path' => $outsideDir]);
 
     $response->assertStatus(422)
@@ -126,10 +126,10 @@ it('delete removes root and blocks new links but does not affect existing projec
     asUser();
     config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => []]);
 
-    $root   = storage_path('framework/testing/root-dbl-' . uniqid());
-    $subdir = $root . '/proj';
+    $root = storage_path('framework/testing/root-dbl-'.uniqid());
+    $subdir = $root.'/proj';
     File::ensureDirectoryExists($subdir);
-    file_put_contents($subdir . '/main.php', '<?php');
+    file_put_contents($subdir.'/main.php', '<?php');
 
     $rootRecord = LocalRoot::query()->create(['path' => rtrim($root, '/\\')]);
 
@@ -181,7 +181,7 @@ it('pathIsUnderAnyPrefix: env prefix takes effect when no DB roots registered', 
     asUser();
     config(['sandbox.allow_local_link' => true, 'sandbox.local_path_prefixes' => [storage_path('framework/testing')]]);
 
-    $dir = storage_path('framework/testing/env-prefix-' . uniqid());
+    $dir = storage_path('framework/testing/env-prefix-'.uniqid());
     File::ensureDirectoryExists($dir);
 
     $project = Project::query()->create(['name' => 'env-prefix-test']);

@@ -5,13 +5,13 @@ use App\Http\Controllers\Api\V1\ErrorController;
 use App\Http\Controllers\Api\V1\GraphController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\HealthReportController;
+use App\Http\Controllers\Api\V1\IgnoreRulesController;
 use App\Http\Controllers\Api\V1\JobStatusController;
 use App\Http\Controllers\Api\V1\LocalRootController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
 use App\Http\Controllers\Api\V1\SnapshotController;
 use App\Http\Controllers\Api\V1\TargetEnvironmentController;
-use App\Http\Controllers\Api\V1\IgnoreRulesController;
 use App\Http\Controllers\Api\V1\UsageReportController;
 use Illuminate\Support\Facades\Route;
 

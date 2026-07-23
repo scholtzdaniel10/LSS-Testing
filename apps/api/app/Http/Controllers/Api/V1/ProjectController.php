@@ -219,13 +219,13 @@ class ProjectController extends Controller
         }
 
         $sandboxPath = $project->sandbox_path;
-        if (!$sandboxPath) {
+        if (! $sandboxPath) {
             return 0;
         }
 
         $root = app(PathJail::class)->projectRoot($project->id);
 
-        if (!is_dir($root)) {
+        if (! is_dir($root)) {
             return 0;
         }
 

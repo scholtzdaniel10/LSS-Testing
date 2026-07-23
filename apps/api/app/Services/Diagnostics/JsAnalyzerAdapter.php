@@ -244,6 +244,7 @@ class JsAnalyzerAdapter implements Analyzer
         if (is_file($local)) {
             return [$local];
         }
+
         // npx --no-install fails gracefully if eslint is absent
         return ['npx', '--no-install', 'eslint'];
     }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\GraphSnapshotFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GraphSnapshot extends Model
 {
-    /** @use HasFactory<\Database\Factories\GraphSnapshotFactory> */
+    /** @use HasFactory<GraphSnapshotFactory> */
     use HasFactory, HasUuids;
 
     public $incrementing = false;

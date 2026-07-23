@@ -44,7 +44,7 @@ it('guards POST /local-roots with the token', function () {
     asUser();
     config(['sandbox.local_link_token' => 'test-token-abc']);
 
-    $dir = storage_path('framework/testing/token-post-' . uniqid());
+    $dir = storage_path('framework/testing/token-post-'.uniqid());
     File::ensureDirectoryExists($dir);
 
     $this->postJson('/api/v1/local-roots', ['path' => $dir])
@@ -58,7 +58,7 @@ it('guards DELETE /local-roots/{id} with the token', function () {
     asUser();
     config(['sandbox.local_link_token' => 'test-token-abc']);
 
-    $dir = storage_path('framework/testing/token-del-' . uniqid());
+    $dir = storage_path('framework/testing/token-del-'.uniqid());
     File::ensureDirectoryExists($dir);
 
     // Create root record directly (bypass middleware for setup).

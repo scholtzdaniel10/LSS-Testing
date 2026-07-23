@@ -18,9 +18,9 @@ final class StackDetector
     {
         $sep = DIRECTORY_SEPARATOR;
 
-        $hasComposer  = is_file($sandboxPath.$sep.'composer.json');
-        $hasPackage   = is_file($sandboxPath.$sep.'package.json');
-        $hasAngular   = is_file($sandboxPath.$sep.'angular.json');
+        $hasComposer = is_file($sandboxPath.$sep.'composer.json');
+        $hasPackage = is_file($sandboxPath.$sep.'package.json');
+        $hasAngular = is_file($sandboxPath.$sep.'angular.json');
         $hasPlaywright = is_file($sandboxPath.$sep.'playwright.config.ts')
             || is_file($sandboxPath.$sep.'playwright.config.js');
 

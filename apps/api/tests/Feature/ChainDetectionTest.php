@@ -3,6 +3,7 @@
 use App\Jobs\AnalyzeProject;
 use App\Models\JobStatus;
 use App\Models\Project;
+use App\Models\Scan;
 use App\Services\Diagnostics\AnalysisRunner;
 use App\Services\Diagnostics\Analyzer;
 use App\Services\Graph\DependencyGraphBuilder;
@@ -82,7 +83,7 @@ function runImpactChainScan(): Project
 
 it('groups cascading errors into one chain with the most-upstream root (DX-8)', function () {
     $project = runImpactChainScan();
-    /** @var \App\Models\Scan $scan */
+    /** @var Scan $scan */
     $scan = $project->scans()->latest('created_at')->firstOrFail();
     $errors = $scan->errors()->get();
 

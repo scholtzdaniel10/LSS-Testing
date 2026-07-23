@@ -110,7 +110,7 @@ final class ProjectWorkspace
             $normalPfx = strtolower(rtrim(str_replace('\\', '/', $resolved), '/'));
 
             if ($normalReal === $normalPfx
-                || str_starts_with($normalReal, $normalPfx . '/')) {
+                || str_starts_with($normalReal, $normalPfx.'/')) {
                 return true;
             }
         }

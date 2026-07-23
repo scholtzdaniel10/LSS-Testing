@@ -16,7 +16,6 @@ use Illuminate\Testing\Fluent\AssertableJson;
  *  - Graph endpoint returns 200 with no-graph-yet meta for un-scanned project
  *  - Errors endpoint returns 200 with not-scanned-yet reason for un-scanned project
  */
-
 describe('PLT-13 performance: project list serializer (N+1 fix)', function () {
     beforeEach(function () {
         asUser();

@@ -3,6 +3,7 @@
 use App\Jobs\AnalyzeProject;
 use App\Models\JobStatus;
 use App\Models\Project;
+use App\Models\Scan;
 use App\Services\Diagnostics\AnalysisRunner;
 use App\Services\Diagnostics\Analyzer;
 use App\Services\Graph\DependencyGraphBuilder;
@@ -72,7 +73,7 @@ it('joins persisted errors onto graph edges with upstream and downstream (DX-7)'
 
     expect($status->fresh()->status)->toBe(JobStatus::STATUS_DONE);
 
-    /** @var \App\Models\Scan $scan */
+    /** @var Scan $scan */
     $scan = $project->scans()->latest('created_at')->firstOrFail();
     $rootError = $scan->errors()->where('file', 'a.php')->firstOrFail();
     $leafError = $scan->errors()->where('file', 'd.php')->firstOrFail();

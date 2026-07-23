@@ -30,7 +30,8 @@ it('normalizes ESLint JSON output to C5 findings (DX-23)', function () {
 
     // Inject a fixed ESLint runner via a subclass would require making the
     // runner injectable; instead we test the normalize method directly.
-    $adapter = new class(new Taxonomy) extends JsAnalyzerAdapter {
+    $adapter = new class(new Taxonomy) extends JsAnalyzerAdapter
+    {
         public function __construct(Taxonomy $t)
         {
             parent::__construct(taxonomy: $t);

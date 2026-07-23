@@ -1,7 +1,10 @@
 <?php
 
+use App\Services\Diagnostics\AnalyzerRegistry;
 use App\Services\Diagnostics\EvidenceGate;
+use App\Services\Diagnostics\JsAnalyzerAdapter;
 use App\Services\Diagnostics\PhpStanAdapter;
+use App\Services\Diagnostics\Taxonomy;
 use App\Support\Sandbox\IgnoreRules;
 use App\Support\Sandbox\PathJail;
 
@@ -120,7 +123,7 @@ it('surfaces stderr-only runs as RuntimeException not clean (DX-2 honesty)', fun
 });
 
 it('reports missing_binary when Maintain API has no PHPStan (DX-2 honesty)', function () {
-    $adapter = new PhpStanAdapter(new \App\Services\Diagnostics\Taxonomy, '/nonexistent/phpstan-binary');
+    $adapter = new PhpStanAdapter(new Taxonomy, '/nonexistent/phpstan-binary');
 
     expect($adapter->binaryAvailable())->toBeFalse();
     expect($adapter->run(sys_get_temp_dir()))->toBe([]);
@@ -170,7 +173,7 @@ it('run() command starts with PHP_BINARY when a binary exists (Windows PATH-less
 
     Process::fake(['*' => Process::result(output: '{"files":{}}', exitCode: 0)]);
 
-    $adapter = new PhpStanAdapter(new \App\Services\Diagnostics\Taxonomy, $fakePhpstan);
+    $adapter = new PhpStanAdapter(new Taxonomy, $fakePhpstan);
     $adapter->run(sys_get_temp_dir());
 
     Process::assertRan(function ($process) {
@@ -209,8 +212,8 @@ it('path-jails traversal attempts (PLT-8)', function () {
 // ── DX-22 schema: source is now an open string ───────────────────────────────
 
 it('EvidenceGate rejects unregistered source even when fields are otherwise valid (DX-22)', function () {
-    $registry = new \App\Services\Diagnostics\AnalyzerRegistry([new \App\Services\Diagnostics\PhpStanAdapter]);
-    $gate = new \App\Services\Diagnostics\EvidenceGate($registry);
+    $registry = new AnalyzerRegistry([new PhpStanAdapter]);
+    $gate = new EvidenceGate($registry);
 
     expect(fn () => $gate->accept([
         'source' => 'ruby-critic',
@@ -221,7 +224,7 @@ it('EvidenceGate rejects unregistered source even when fields are otherwise vali
     ]))->toThrow(InvalidArgumentException::class);
 
     // After registering a second adapter, the same source is accepted.
-    $registry->register(new \App\Services\Diagnostics\JsAnalyzerAdapter);
+    $registry->register(new JsAnalyzerAdapter);
     $ok = $gate->accept([
         'source' => 'js',
         'ruleId' => 'no-unused-vars',

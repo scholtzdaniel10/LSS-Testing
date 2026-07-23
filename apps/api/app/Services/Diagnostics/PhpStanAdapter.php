@@ -242,7 +242,7 @@ final class PhpStanAdapter implements Analyzer
         if ($profile->isCi3) {
             // CI3 projects have no autoloader; use scanDirectories instead of
             // paths so PHPStan reads the raw files without requiring autoload.
-            $neon = <<<NEON
+            $neon = <<<'NEON'
 parameters:
     level: 0
     scanDirectories:
@@ -251,7 +251,7 @@ parameters:
     reportUnmatchedIgnoredErrors: false
 NEON;
         } else {
-            $neon = <<<NEON
+            $neon = <<<'NEON'
 parameters:
     level: 1
     paths:

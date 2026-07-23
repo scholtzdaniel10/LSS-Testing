@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Requests\ListErrorsRequest;
 use App\Models\DiagnosticError;
 use App\Models\Project;
+use App\Models\Scan;
 use App\Services\Diagnostics\ImpactResolver;
 use App\Support\Api\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +24,7 @@ class ErrorController extends Controller
      */
     public function index(ListErrorsRequest $request, Project $project): JsonResponse
     {
-        /** @var \App\Models\Scan|null $scan */
+        /** @var Scan|null $scan */
         $scan = $project->scans()->orderByDesc('created_at')->first();
 
         if ($scan === null) {
