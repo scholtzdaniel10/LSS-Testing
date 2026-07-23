@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor, graphPerformanceProfile } from './graphModel';
+import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor, graphPerformanceProfile, clusterCenters, applyClusterLayout, isCrossClusterLink, clusterKey } from './graphModel';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -326,5 +326,46 @@ describe('graphPerformanceProfile (IG-13 perf)', () => {
     expect(p.sparseLabels).toBe(true);
     expect(p.enableNodeDrag).toBe(false);
     expect(p.cooldownTicks).toBeLessThan(60);
+  });
+});
+
+describe('cluster layout (IG-14)', () => {
+  it('places application and system in separate cluster lanes', () => {
+    const files = [
+      'application/controllers/Home.php',
+      'application/models/User.php',
+      'system/core/Common.php',
+    ];
+    const view = buildGraphView([], files, noErrors, new Set(), false, buildStackProfile(['codeigniter-3']));
+    const centers = clusterCenters(view.nodes);
+    expect(centers.has('application')).toBe(true);
+    expect(centers.has('system')).toBe(true);
+    const app = centers.get('application')!;
+    const sys = centers.get('system')!;
+    expect(Math.hypot(app.x - sys.x, app.y - sys.y)).toBeGreaterThan(100);
+  });
+
+  it('pins folder hubs and seeds file nodes near their cluster', () => {
+    const files = ['app/A.php', 'app/B.php', 'lib/C.php'];
+    const view = buildGraphView([], files, noErrors, new Set(), false);
+    const nodes = view.nodes.map((n) => ({ ...n }));
+    const centers = clusterCenters(nodes);
+    applyClusterLayout(nodes, centers);
+    const appFolder = nodes.find((n) => n.folderPath === 'app');
+    const libFolder = nodes.find((n) => n.folderPath === 'lib');
+    expect(appFolder?.kind).toBe('folder');
+    expect(libFolder?.kind).toBe('folder');
+    expect(appFolder?.fx).toBe(centers.get('app')?.x);
+    expect(libFolder?.fx).toBe(centers.get('lib')?.x);
+    expect(clusterKey(appFolder!)).toBe('app');
+  });
+
+  it('detects cross-cluster links between top-level modules', () => {
+    const files = ['app/A.php', 'lib/B.php'];
+    const edges = [edge('app/A.php', 'lib/B.php')];
+    const view = buildGraphView(edges, files, noErrors, new Set(['app', 'lib']), false);
+    const nodeById = new Map(view.nodes.map((n) => [n.id, n]));
+    expect(view.links).toHaveLength(1);
+    expect(isCrossClusterLink(view.links[0], nodeById)).toBe(true);
   });
 });

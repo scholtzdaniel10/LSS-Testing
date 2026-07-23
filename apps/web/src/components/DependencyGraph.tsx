@@ -2,12 +2,15 @@ import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEdge } from '../api/client';
 import {
+  applyClusterLayout,
   buildGraphView,
   buildNeighbourMap,
   buildStackProfile,
+  clusterCenters,
   collapseFolder,
   expansionChainForFile,
   graphPerformanceProfile,
+  isCrossClusterLink,
   neighbourhoodWithin,
   resolveGraphColor,
   searchGraphNodes,
@@ -125,9 +128,17 @@ const DependencyGraph: React.FC<Props> = ({
     [edges, files, errorFiles, expanded, showExternal, stackProfile],
   );
 
-  const graphData = useMemo(
-    () => ({ nodes: view.nodes.map((n) => ({ ...n })), links: view.links.map((l) => ({ ...l })) }),
-    [view],
+  const graphData = useMemo(() => {
+    const nodes = view.nodes.map((n) => ({ ...n }));
+    const links = view.links.map((l) => ({ ...l }));
+    const centers = clusterCenters(nodes);
+    applyClusterLayout(nodes, centers);
+    return { nodes, links, centers };
+  }, [view]);
+
+  const nodeById = useMemo(
+    () => new Map(graphData.nodes.map((n) => [n.id, n])),
+    [graphData.nodes],
   );
 
   const neighbours = useMemo(() => buildNeighbourMap(graphData.links), [graphData.links]);
@@ -194,13 +205,26 @@ const DependencyGraph: React.FC<Props> = ({
     hoverIdRef.current = null;
   }, [graphData]);
 
+  const nodeRadius = useCallback((node: GraphNode) => {
+    if (node.kind === 'folder') return 10 + Math.min(Math.sqrt(node.fileCount) * 2.4, 16);
+    if (node.external) return 6;
+    return 8 + Math.min(node.inDegree, 6);
+  }, []);
+
   useEffect(() => {
     const g = graphRef.current;
     if (!g) return;
-    const charge = nodeCount > 200 ? -120 : -160;
+    const charge = nodeCount > 200 ? -90 : nodeCount > 80 ? -110 : -140;
     g.d3Force('charge')?.strength(charge);
-    g.d3Force('link')?.distance(nodeCount > 200 ? 48 : 56);
-  }, [graphData, nodeCount]);
+    g.d3Force('link')?.distance((link: GraphLink) => {
+      const cross = isCrossClusterLink(link, nodeById);
+      const base = nodeCount > 200 ? 44 : 52;
+      return cross ? base * 1.6 : base;
+    });
+    g.d3Force('x', null);
+    g.d3Force('y', null);
+    g.d3Force('collide', null);
+  }, [graphData, nodeById, nodeCount]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -227,7 +251,7 @@ const DependencyGraph: React.FC<Props> = ({
   }, []);
 
   const fitGraph = useCallback(() => {
-    graphRef.current?.zoomToFit(400, 48);
+    graphRef.current?.zoomToFit(400, 64);
     userAdjustedView.current = false;
   }, []);
 
@@ -289,12 +313,6 @@ const DependencyGraph: React.FC<Props> = ({
     [focusNode],
   );
 
-  const nodeRadius = useCallback((node: GraphNode) => {
-    if (node.kind === 'folder') return 10 + Math.min(Math.sqrt(node.fileCount) * 2.4, 16);
-    if (node.external) return 6;
-    return 8 + Math.min(node.inDegree, 6);
-  }, []);
-
   const labelMetrics = useCallback(
     (node: GraphNode, globalScale: number, ctx: CanvasRenderingContext2D) => {
       const r = nodeRadius(node);
@@ -342,12 +360,17 @@ const DependencyGraph: React.FC<Props> = ({
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
       if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 'rgba(0,0,0,0)';
-      if (!focusId) return link.externalTarget ? theme.line3 : theme.line2;
+      const cross = isCrossClusterLink(link, nodeById);
+      if (!focusId) {
+        if (cross) return theme.line1;
+        return link.externalTarget ? theme.line3 : theme.line2;
+      }
       if (src === focusId || tgt === focusId) return theme.accent;
       if (isDimmed(src) && isDimmed(tgt)) return theme.line1;
+      if (cross) return theme.line1;
       return link.externalTarget ? theme.line3 : theme.line2;
     },
-    [isDimmed, isHiddenByFocus, resolveFocusId, theme.accent, theme.line1, theme.line2, theme.line3],
+    [isDimmed, isHiddenByFocus, nodeById, resolveFocusId, theme.accent, theme.line1, theme.line2, theme.line3],
   );
 
   const linkWidth = useCallback(
@@ -356,11 +379,18 @@ const DependencyGraph: React.FC<Props> = ({
       const src = linkEndpointId(link.source as string | GraphNode);
       const tgt = linkEndpointId(link.target as string | GraphNode);
       if (isHiddenByFocus(src) || isHiddenByFocus(tgt)) return 0;
+      const cross = isCrossClusterLink(link, nodeById);
       const base = Math.min(0.8 + (link.weight ?? 1) * 0.35, 4);
-      if (!focusId) return base;
-      return src === focusId || tgt === focusId ? Math.max(base, 2.5) : 0.7;
+      if (!focusId) return cross ? base * 0.55 : base;
+      if (src === focusId || tgt === focusId) return Math.max(base, 2.5);
+      return cross ? 0.35 : 0.7;
     },
-    [isHiddenByFocus, resolveFocusId],
+    [isHiddenByFocus, nodeById, resolveFocusId],
+  );
+
+  const linkCurvature = useCallback(
+    (link: GraphLink) => (isCrossClusterLink(link, nodeById) ? 0 : 0.14),
+    [nodeById],
   );
 
   const paintNode = useCallback(
@@ -548,7 +578,7 @@ const DependencyGraph: React.FC<Props> = ({
 
         <span className="graph-toolbar__spacer" />
         <span className="graph-toolbar__stat">
-          {view.folderCount} folders · {view.fileNodeCount} files
+          {view.folderCount} folders · {view.fileNodeCount} files · clustered by module
           {perf.sparseLabels ? ' · sparse labels' : denseGraph ? ' · labels adapt when zoomed' : ''}
         </span>
         {expanded.size > 0 && (
@@ -630,7 +660,7 @@ const DependencyGraph: React.FC<Props> = ({
           linkWidth={linkWidth}
           linkDirectionalArrowLength={3.5}
           linkDirectionalArrowRelPos={1}
-          linkCurvature={0.12}
+          linkCurvature={linkCurvature}
           autoPauseRedraw
           cooldownTicks={perf.cooldownTicks}
           cooldownTime={perf.cooldownTime}
@@ -645,7 +675,7 @@ const DependencyGraph: React.FC<Props> = ({
           showPointerCursor={(obj) => !!obj}
           onEngineStop={() => {
             if (!didInitialFit.current && !userAdjustedView.current) {
-              graphRef.current?.zoomToFit(400, 48);
+              graphRef.current?.zoomToFit(400, 64);
               didInitialFit.current = true;
             }
             graphRef.current?.pauseAnimation();

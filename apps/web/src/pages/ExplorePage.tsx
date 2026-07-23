@@ -330,7 +330,7 @@ const ExplorePage: React.FC = () => {
                 </h2>
                 <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
                   <span className="panel__hint">
-                    {activeView === 'map' ? 'radial · edge bundling' : 'folder view · drill down on click'}
+                    {activeView === 'map' ? 'folder sectors · hierarchical layout' : 'module clusters · drill down on click'}
                   </span>
                   <div
                     role="group"

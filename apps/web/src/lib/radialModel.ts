@@ -43,6 +43,8 @@ export type RadialComponent = {
   root: RadialNode;
   /** Edges that connect files within this component. */
   edges: RadialEdge[];
+  /** Top-level folder key when grouped by folder (e.g. application, system). */
+  groupKey?: string;
 };
 
 /** The single "unlinked" group: files with no edges at all. */
@@ -291,6 +293,70 @@ export function buildRadialLayout(
 
 // ── Leaf list helpers ────────────────────────────────────────────────────────
 
+/** Count file leaves in a subtree. */
+export function countLeaves(node: RadialNode): number {
+  if (node.kind === 'file') return 1;
+  return node.children.reduce((sum, child) => sum + countLeaves(child), 0);
+}
+
+export type HierarchicalLeafPosition = {
+  node: RadialNode;
+  angle: number;
+  x: number;
+  y: number;
+  labelX: number;
+  labelY: number;
+  textAnchor: 'start' | 'end';
+  rotate: number;
+};
+
+/**
+ * Place leaves on a circle grouped by folder hierarchy — sibling subtrees
+ * occupy contiguous arcs instead of a flat alphabetical ring.
+ */
+export function layoutLeavesHierarchical(
+  root: RadialNode,
+  radius: number,
+  cx: number,
+  cy: number,
+  polarFn: (angle: number, r: number, centerX: number, centerY: number) => [number, number],
+): HierarchicalLeafPosition[] {
+  const total = countLeaves(root);
+  if (total === 0) return [];
+
+  const labelR = radius + 12;
+  const positions: HierarchicalLeafPosition[] = [];
+
+  const placeLeaf = (leaf: RadialNode, angle: number) => {
+    const [x, y] = polarFn(angle, radius, cx, cy);
+    const [lx, ly] = polarFn(angle, labelR, cx, cy);
+    const deg = ((angle * 180) / Math.PI + 360) % 360;
+    const textAnchor: 'start' | 'end' = deg <= 180 ? 'start' : 'end';
+    const rotate = deg <= 180 ? deg - 90 : deg + 90;
+    positions.push({ node: leaf, angle, x, y, labelX: lx, labelY: ly, textAnchor, rotate });
+  };
+
+  const walk = (node: RadialNode, start: number, end: number): void => {
+    if (node.kind === 'file') {
+      placeLeaf(node, (start + end) / 2);
+      return;
+    }
+    const leaves = countLeaves(node);
+    if (leaves === 0) return;
+    let cursor = start;
+    for (const child of node.children) {
+      const childLeaves = countLeaves(child);
+      if (childLeaves === 0) continue;
+      const span = (end - start) * (childLeaves / leaves);
+      walk(child, cursor, cursor + span);
+      cursor += span;
+    }
+  };
+
+  walk(root, 0, 2 * Math.PI);
+  return positions;
+}
+
 /** Collect all leaf (file) nodes from a hierarchy in DFS order. */
 export function collectLeaves(root: RadialNode): RadialNode[] {
   const leaves: RadialNode[] = [];
@@ -435,16 +501,17 @@ export function buildFolderLayout(
   let idx = 0;
   const components: RadialComponent[] = [...folderMap.entries()]
     .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-    .map(([, files]) => {
+    .map(([groupKey, files]) => {
       const folderSet = new Set(files);
       const folderEdges = classifiedEdges.filter(
-        (e) => folderSet.has(e.from) || folderSet.has(e.to),
+        (e) => folderSet.has(e.from) && folderSet.has(e.to),
       );
       return {
         index: idx++,
         files: files.sort((a, b) => a.localeCompare(b)),
         root: buildHierarchy(files),
         edges: folderEdges,
+        groupKey,
       };
     });
 

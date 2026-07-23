@@ -125,6 +125,9 @@ export type ForceGraphNode = {
   /** d3-force positions (set at runtime). */
   x?: number;
   y?: number;
+  /** Pinned position for folder hub nodes during cluster layout. */
+  fx?: number;
+  fy?: number;
 };
 
 export type ForceGraphLink = {
@@ -580,6 +583,93 @@ export function neighbourhoodWithin(
 export function resolveGraphColor(color: string, readVar: (name: string) => string): string {
   const match = /^var\((--[^)]+)\)$/.exec(color.trim());
   return match ? readVar(match[1]) : color;
+}
+
+// ── IG-14: folder-cluster layout (force graph) ───────────────────────────────
+
+export type ClusterCenter = { x: number; y: number };
+
+/** Stable pseudo-random offset from a node id (deterministic, testable). */
+export function clusterJitter(id: string, spread: number): { dx: number; dy: number } {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
+  }
+  const a = ((h & 0xffff) / 0xffff) - 0.5;
+  const b = (((h >> 16) & 0xffff) / 0xffff) - 0.5;
+  return { dx: a * spread * 2, dy: b * spread * 2 };
+}
+
+/** Top-level folder bucket used for lane placement. */
+export function clusterKey(node: Pick<ForceGraphNode, 'folder' | 'external'>): string {
+  return node.external ? 'external' : node.folder;
+}
+
+/**
+ * Place cluster anchor points on a grid so modules (application, system, …)
+ * start in separate lanes instead of one spaghetti blob.
+ */
+export function clusterCenters(nodes: readonly ForceGraphNode[]): Map<string, ClusterCenter> {
+  const sizes = new Map<string, number>();
+  for (const n of nodes) {
+    const key = clusterKey(n);
+    sizes.set(key, (sizes.get(key) ?? 0) + 1);
+  }
+
+  const keys = [...sizes.keys()].sort((a, b) => {
+    if (a === 'external') return 1;
+    if (b === 'external') return -1;
+    const diff = (sizes.get(b) ?? 0) - (sizes.get(a) ?? 0);
+    return diff !== 0 ? diff : a.localeCompare(b);
+  });
+
+  const count = keys.length;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  const rows = Math.ceil(count / cols);
+  const spacing = count <= 2 ? 260 : count <= 4 ? 220 : 190;
+  const centers = new Map<string, ClusterCenter>();
+
+  keys.forEach((key, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    centers.set(key, {
+      x: (col - (cols - 1) / 2) * spacing,
+      y: (row - (rows - 1) / 2) * spacing,
+    });
+  });
+
+  return centers;
+}
+
+/** Seed node positions and pin folder hubs to their cluster anchor. */
+export function applyClusterLayout(
+  nodes: ForceGraphNode[],
+  centers: Map<string, ClusterCenter>,
+): void {
+  for (const n of nodes) {
+    const c = centers.get(clusterKey(n));
+    if (!c) continue;
+    const { dx, dy } = clusterJitter(n.id, n.kind === 'folder' ? 8 : 36);
+    n.x = c.x + dx;
+    n.y = c.y + dy;
+    if (n.kind === 'folder') {
+      n.fx = c.x;
+      n.fy = c.y;
+    } else {
+      n.fx = undefined;
+      n.fy = undefined;
+    }
+  }
+}
+
+export function isCrossClusterLink(
+  link: ForceGraphLink,
+  nodeById: ReadonlyMap<string, ForceGraphNode>,
+): boolean {
+  const src = nodeById.get(link.source);
+  const tgt = nodeById.get(link.target);
+  if (!src || !tgt) return false;
+  return clusterKey(src) !== clusterKey(tgt);
 }
 
 /** Fuzzy path/name search over visible graph nodes. */

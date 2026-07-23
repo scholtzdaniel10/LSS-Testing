@@ -10,6 +10,8 @@ import {
   folderKeyOf,
   buildFolderLayout,
   buildDrillComponent,
+  layoutLeavesHierarchical,
+  countLeaves,
   MIN_ARC_PX,
   MIN_RADIUS_PX,
   MAX_RADIUS_PX,
@@ -404,5 +406,57 @@ describe('buildRadialLayout -- unlinked files never in components', () => {
     expect(layout.components).toHaveLength(1);
     expect(layout.unlinked.files).toHaveLength(3533);
     expect(layout.components[0].files.sort()).toEqual(['a.ts', 'b.ts']);
+  });
+});
+
+describe('layoutLeavesHierarchical (IG-14)', () => {
+  const polar = (angle: number, r: number, cx: number, cy: number): [number, number] => [
+    cx + r * Math.sin(angle),
+    cy - r * Math.cos(angle),
+  ];
+
+  it('groups sibling folders into contiguous arc sectors', () => {
+    const root = buildHierarchy([
+      'app/controllers/A.php',
+      'app/controllers/B.php',
+      'app/models/M.php',
+      'lib/util.php',
+    ]);
+    const positions = layoutLeavesHierarchical(root, 80, 100, 100, polar);
+    expect(positions).toHaveLength(4);
+    const byFolder = {
+      controllers: positions.filter((p) => p.node.id.includes('controllers')).map((p) => p.angle),
+      models: positions.filter((p) => p.node.id.includes('models')).map((p) => p.angle),
+      lib: positions.filter((p) => p.node.id.startsWith('lib')).map((p) => p.angle),
+    };
+    const ctrlSpan = Math.max(...byFolder.controllers) - Math.min(...byFolder.controllers);
+    const modelAngle = byFolder.models[0];
+    const libAngle = byFolder.lib[0];
+    expect(ctrlSpan).toBeLessThan(Math.PI);
+    expect(Math.abs(byFolder.controllers[0] - byFolder.controllers[1])).toBeLessThan(
+      Math.abs(byFolder.controllers[0] - libAngle),
+    );
+    expect(countLeaves(root)).toBe(4);
+  });
+});
+
+describe('buildFolderLayout (IG-14)', () => {
+  it('only includes intra-folder edges in each circle', () => {
+    const files = ['application/A.php', 'system/B.php'];
+    const edges = [edge('application/A.php', 'system/B.php')];
+    const layout = buildFolderLayout(files, edges, noErrors);
+    expect(layout.components).toHaveLength(2);
+    for (const comp of layout.components) {
+      expect(comp.edges).toHaveLength(0);
+      expect(comp.groupKey).toBeTruthy();
+    }
+  });
+
+  it('keeps edges when both endpoints share a folder', () => {
+    const files = ['application/A.php', 'application/B.php', 'system/C.php'];
+    const edges = [edge('application/A.php', 'application/B.php')];
+    const layout = buildFolderLayout(files, edges, noErrors);
+    const app = layout.components.find((c) => c.groupKey === 'application');
+    expect(app?.edges).toHaveLength(1);
   });
 });

@@ -26,10 +26,10 @@ import {
   buildFolderLayout,
   buildDrillComponent,
   classifyEdges,
-  collectLeaves,
   computeFocusNeighbourhood,
   componentRadius,
   folderKeyOf,
+  layoutLeavesHierarchical,
   shouldShowLabel,
 } from '../lib/radialModel';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
@@ -99,7 +99,7 @@ type LeafPosition = {
 
 /**
  * Assign angles to leaves by walking the hierarchy in DFS order.
- * Leaves are evenly spaced on the circle.
+ * Sibling subtrees occupy contiguous arcs (folder-grouped sectors).
  */
 function layoutLeaves(
   root: RadialNode,
@@ -107,21 +107,7 @@ function layoutLeaves(
   cx: number,
   cy: number,
 ): LeafPosition[] {
-  const leaves = collectLeaves(root);
-  const n = leaves.length;
-  if (n === 0) return [];
-
-  const labelR = radius + 12;
-
-  return leaves.map((leaf, i) => {
-    const angle = (2 * Math.PI * i) / n;
-    const [x, y] = polar(angle, radius, cx, cy);
-    const [lx, ly] = polar(angle, labelR, cx, cy);
-    const deg = ((angle * 180) / Math.PI + 360) % 360;
-    const textAnchor: 'start' | 'end' = deg <= 180 ? 'start' : 'end';
-    const rotate = deg <= 180 ? deg - 90 : deg + 90;
-    return { node: leaf, angle, x, y, labelX: lx, labelY: ly, textAnchor, rotate };
-  });
+  return layoutLeavesHierarchical(root, radius, cx, cy, polar);
 }
 
 // -- Component circle ----------------------------------------------------------
@@ -139,6 +125,8 @@ type ComponentCircleProps = {
   errorFiles: ReadonlySet<string>;
   /** When true, colour nodes by top-level folder (SERIES palette). */
   useFolderColors: boolean;
+  /** Centre label for folder-grouped circles (e.g. application, system). */
+  groupLabel?: string;
 };
 
 function ComponentCircle({
@@ -153,6 +141,7 @@ function ComponentCircle({
   onFocusUrl,
   errorFiles,
   useFolderColors,
+  groupLabel,
 }: ComponentCircleProps) {
   const positions = useMemo(
     () => layoutLeaves(component.root, radius, cx, cy),
@@ -256,6 +245,22 @@ function ComponentCircle({
         strokeDasharray="3 6"
         pointerEvents="none"
       />
+
+      {groupLabel && (
+        <text
+          x={cx}
+          y={cy}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize="var(--text-sm)"
+          fontFamily="var(--font-mono)"
+          fontWeight={600}
+          fill={SERIES[groupLabel] ?? SERIES.other}
+          style={{ userSelect: 'none', pointerEvents: 'none' }}
+        >
+          {groupLabel}/
+        </text>
+      )}
 
       {component.edges.map((e, i) => {
         const src = posMap.get(e.from);
@@ -491,7 +496,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
 
   // IG-27: grouping mode (component | folder) -- persisted to localStorage
   const [groupingMode, setGroupingMode] = useState<GroupingMode>(() =>
-    readLS(LS_GROUPING, 'component' as GroupingMode, (v) =>
+    readLS(LS_GROUPING, 'folder' as GroupingMode, (v) =>
       v === 'component' || v === 'folder' ? v : undefined,
     ),
   );
@@ -688,6 +693,42 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const svgDisplayHeight = typeof window !== 'undefined'
     ? Math.min(svgHeight, window.innerHeight * 0.65)
     : svgHeight;
+
+  const layoutFitKey = `${groupingMode}|${drillChain.join('>')}|${layout.components.map((c) => `${c.index}:${c.files.length}`).join(',')}`;
+  const lastFitKey = useRef('');
+
+  // Fit packed circles into the viewport when grouping or drill context changes.
+  useEffect(() => {
+    if (layout.components.length === 0 || placements.length === 0) {
+      resetView();
+      return;
+    }
+    if (lastFitKey.current === layoutFitKey) return;
+    lastFitKey.current = layoutFitKey;
+
+    const pad = 40;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = 0;
+    let maxY = 0;
+    for (const pl of placements) {
+      const margin = pl.radius + 72;
+      minX = Math.min(minX, pl.cx - margin);
+      minY = Math.min(minY, pl.cy - margin);
+      maxX = Math.max(maxX, pl.cx + margin);
+      maxY = Math.max(maxY, pl.cy + margin);
+    }
+    const contentW = maxX - minX;
+    const contentH = maxY - minY;
+    const viewW = svgRef.current?.clientWidth ?? SVG_WIDTH;
+    const fitZoom = Math.min(1, (viewW - pad * 2) / contentW, (svgDisplayHeight - pad * 2) / contentH);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const z = Math.max(0.2, fitZoom);
+    setZoom(z);
+    setPanX(viewW / (2 * z) - cx);
+    setPanY(svgDisplayHeight / (2 * z) - cy);
+  }, [layoutFitKey, layout.components.length, placements, svgDisplayHeight, resetView]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
@@ -1005,6 +1046,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
                     onFocusUrl={handleFocusUrl}
                     errorFiles={errorFiles}
                     useFolderColors={groupingMode === 'folder' || drillMode}
+                    groupLabel={groupingMode === 'folder' ? component.groupKey : undefined}
                   />
                 );
               })}
