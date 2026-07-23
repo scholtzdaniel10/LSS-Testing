@@ -1,7 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useHistory, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
-import CodebaseRadial from '../components/CodebaseRadial';
 import ScreenState from '../components/ScreenState';
 import {
   buildFileTree,
@@ -85,6 +84,7 @@ const SERIES: Record<string, string> = {
 
 type ExploreView = 'map' | 'graph';
 
+const CodebaseRadial = lazy(() => import('../components/CodebaseRadial'));
 const DependencyGraph = lazy(() => import('../components/DependencyGraph'));
 
 const ExplorePage: React.FC = () => {
@@ -199,13 +199,15 @@ const ExplorePage: React.FC = () => {
     });
   }, []);
 
-  // Scroll the focused file row into view after render.
+  // Scroll the focused file row into view when focusPath changes (not on every tree expand).
   const focusRowRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (focusRowRef.current) {
-      focusRowRef.current.scrollIntoView({ block: 'nearest' });
-    }
-  }, [focusPath, treeNodes.length]);
+    if (!focusPath) return;
+    const frame = requestAnimationFrame(() => {
+      focusRowRef.current?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusPath]);
 
   // Sync radial map focus -> URL ?focus= param (keeps tree in step).
   const handleFocusTree = useCallback(
@@ -374,17 +376,19 @@ const ExplorePage: React.FC = () => {
               </div>
 
               {activeView === 'map' ? (
-                <RadialPanel
-                  status={status}
-                  errorMessage={errorMessage}
-                  allFilePaths={allFilePaths}
-                  localManifest={localManifest}
-                  graphEdges={graphEdges}
-                  errors={errors}
-                  tree={tree}
-                  focusPath={focusPath}
-                  onFocusTree={handleFocusTree}
-                />
+                <Suspense fallback={<p className="panel__hint">Loading map…</p>}>
+                  <RadialPanel
+                    status={status}
+                    errorMessage={errorMessage}
+                    allFilePaths={allFilePaths}
+                    localManifest={localManifest}
+                    graphEdges={graphEdges}
+                    errors={errors}
+                    tree={tree}
+                    focusPath={focusPath}
+                    onFocusTree={handleFocusTree}
+                  />
+                </Suspense>
               ) : (
                 <ScreenState
                   status={

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor, graphPerformanceProfile, clusterCenters, applyClusterLayout, isCrossClusterLink, clusterKey } from './graphModel';
+import { buildGraphView, buildFileTree, defaultExpandedFolders, collapseFolder, expansionChainForFile, mergeErrorMaps, buildStackProfile, folderColor, parseExternalRef, buildNeighbourMap, neighbourhoodWithin, searchGraphNodes, resolveGraphColor, graphPerformanceProfile, clusterCenters, applyClusterLayout, isCrossClusterLink, clusterKey, hugeGraphOverviewKeep } from './graphModel';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -317,6 +317,7 @@ describe('graphPerformanceProfile (IG-13 perf)', () => {
     expect(p.tier).toBe('small');
     expect(p.sparseLabels).toBe(false);
     expect(p.enableNodeDrag).toBe(true);
+    expect(p.maxCanvasDpr).toBe(1);
   });
 
   it('caps canvas DPR and disables drag for huge graphs', () => {
@@ -326,6 +327,17 @@ describe('graphPerformanceProfile (IG-13 perf)', () => {
     expect(p.sparseLabels).toBe(true);
     expect(p.enableNodeDrag).toBe(false);
     expect(p.cooldownTicks).toBeLessThan(60);
+  });
+});
+
+describe('hugeGraphOverviewKeep (IG-14 perf)', () => {
+  it('keeps error files and top-degree files when capping overview', () => {
+    const files = Array.from({ length: 100 }, (_, i) => `src/f${i}.ts`);
+    const view = buildGraphView([], files, new Map([['src/f0.ts', 1]]), new Set(['src']), false);
+    const keep = hugeGraphOverviewKeep(view.nodes, 20);
+    expect(keep.has('src/f0.ts')).toBe(true);
+    expect(keep.size).toBe(21);
+    expect(keep.size).toBeLessThan(view.nodes.length);
   });
 });
 

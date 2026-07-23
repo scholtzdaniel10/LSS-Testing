@@ -16,6 +16,10 @@ import {
   MIN_RADIUS_PX,
   MAX_RADIUS_PX,
   LABEL_THRESHOLD,
+  radialPerformanceProfile,
+  capRadialComponentFiles,
+  capRadialEdges,
+  applyRadialRenderCap,
 } from './radialModel';
 import type { GraphEdge } from '../api/client';
 
@@ -458,5 +462,43 @@ describe('buildFolderLayout (IG-14)', () => {
     const layout = buildFolderLayout(files, edges, noErrors);
     const app = layout.components.find((c) => c.groupKey === 'application');
     expect(app?.edges).toHaveLength(1);
+  });
+});
+
+describe('radialPerformanceProfile (IG-14 perf)', () => {
+  it('allows full detail for small linked sets', () => {
+    const p = radialPerformanceProfile(30);
+    expect(p.tier).toBe('small');
+    expect(p.dotsOnly).toBe(false);
+    expect(p.straightEdges).toBe(false);
+  });
+
+  it('caps leaves and simplifies paths for huge linked sets', () => {
+    const p = radialPerformanceProfile(400);
+    expect(p.tier).toBe('huge');
+    expect(p.dotsOnly).toBe(true);
+    expect(p.straightEdges).toBe(true);
+    expect(p.maxLeavesPerCircle).toBeLessThan(50);
+  });
+
+  it('prioritises error files when capping leaves', () => {
+    const files = Array.from({ length: 10 }, (_, i) => `app/f${i}.php`);
+    const edges = files.slice(0, 9).map((f, i) => edge(f, files[i + 1]));
+    const classified = classifyEdges(edges, new Set(['app/f9.php']));
+    const { files: kept } = capRadialComponentFiles(files, classified, new Set(['app/f9.php']), 5);
+    expect(kept).toContain('app/f9.php');
+    expect(kept).toHaveLength(5);
+  });
+
+  it('rebuilds hierarchy when applying render cap', () => {
+    const files = Array.from({ length: 60 }, (_, i) => `app/f${i}.php`);
+    const edges = files.slice(0, 59).map((f, i) => edge(f, files[i + 1]));
+    const layout = buildRadialLayout(files, edges, noErrors);
+    const profile = radialPerformanceProfile(300);
+    const { component, cappedLeaves } = applyRadialRenderCap(layout.components[0], profile, noErrors);
+    expect(cappedLeaves).toBeGreaterThan(0);
+    expect(component.files.length).toBeLessThan(files.length);
+    expect(capRadialEdges(component.edges, new Set(component.files), profile.maxEdgesPerCircle).length)
+      .toBeLessThanOrEqual(profile.maxEdgesPerCircle);
   });
 });

@@ -426,11 +426,153 @@ export function shouldShowLabel(
   path: string,
   focusFile: string | null,
   activeNeighbours: ReadonlySet<string>,
+  dotsOnly = false,
 ): boolean {
+  if (dotsOnly) {
+    if (path === focusFile) return true;
+    if (activeNeighbours.has(path)) return true;
+    return false;
+  }
   if (memberCount <= LABEL_THRESHOLD) return true;
   if (path === focusFile) return true;
   if (activeNeighbours.has(path)) return true;
   return false;
+}
+
+// ── IG-14: radial render caps (SVG performance) ─────────────────────────────
+
+export type RadialPerfTier = 'small' | 'medium' | 'large' | 'huge';
+
+export type RadialPerformanceProfile = {
+  tier: RadialPerfTier;
+  maxLeavesPerCircle: number;
+  maxEdgesPerCircle: number;
+  maxCircles: number;
+  dotsOnly: boolean;
+  straightEdges: boolean;
+};
+
+/** Derive SVG draw caps from total linked file count (testable, no DOM). */
+export function radialPerformanceProfile(totalLinkedFiles: number): RadialPerformanceProfile {
+  if (totalLinkedFiles <= 60) {
+    return {
+      tier: 'small',
+      maxLeavesPerCircle: Number.POSITIVE_INFINITY,
+      maxEdgesPerCircle: Number.POSITIVE_INFINITY,
+      maxCircles: Number.POSITIVE_INFINITY,
+      dotsOnly: false,
+      straightEdges: false,
+    };
+  }
+  if (totalLinkedFiles <= 120) {
+    return {
+      tier: 'medium',
+      maxLeavesPerCircle: 80,
+      maxEdgesPerCircle: 200,
+      maxCircles: 12,
+      dotsOnly: false,
+      straightEdges: false,
+    };
+  }
+  if (totalLinkedFiles <= 250) {
+    return {
+      tier: 'large',
+      maxLeavesPerCircle: 50,
+      maxEdgesPerCircle: 120,
+      maxCircles: 8,
+      dotsOnly: true,
+      straightEdges: true,
+    };
+  }
+  return {
+    tier: 'huge',
+    maxLeavesPerCircle: 36,
+    maxEdgesPerCircle: 72,
+    maxCircles: 6,
+    dotsOnly: true,
+    straightEdges: true,
+  };
+}
+
+/** Rank files for radial cap: errors first, then degree, then path. */
+export function rankFilesForRadialCap(
+  files: string[],
+  edges: RadialEdge[],
+  errorFiles: ReadonlySet<string>,
+): string[] {
+  const degree = new Map<string, number>();
+  const bump = (path: string) => degree.set(path, (degree.get(path) ?? 0) + 1);
+  for (const e of edges) {
+    bump(e.from);
+    bump(e.to);
+  }
+  return [...files].sort((a, b) => {
+    const aErr = errorFiles.has(a) ? 1 : 0;
+    const bErr = errorFiles.has(b) ? 1 : 0;
+    if (aErr !== bErr) return bErr - aErr;
+    const degDiff = (degree.get(b) ?? 0) - (degree.get(a) ?? 0);
+    if (degDiff !== 0) return degDiff;
+    return a.localeCompare(b);
+  });
+}
+
+export function capRadialComponentFiles(
+  files: string[],
+  edges: RadialEdge[],
+  errorFiles: ReadonlySet<string>,
+  maxLeaves: number,
+): { files: string[]; cappedCount: number } {
+  if (!Number.isFinite(maxLeaves) || files.length <= maxLeaves) {
+    return { files, cappedCount: 0 };
+  }
+  const ranked = rankFilesForRadialCap(files, edges, errorFiles);
+  return { files: ranked.slice(0, maxLeaves), cappedCount: files.length - maxLeaves };
+}
+
+export function capRadialEdges(
+  edges: RadialEdge[],
+  visibleFiles: ReadonlySet<string>,
+  maxEdges: number,
+): RadialEdge[] {
+  const filtered = edges.filter((e) => visibleFiles.has(e.from) && visibleFiles.has(e.to));
+  if (!Number.isFinite(maxEdges) || filtered.length <= maxEdges) return filtered;
+  const brokenFirst = [...filtered].sort((a, b) => {
+    if (a.broken !== b.broken) return a.broken ? -1 : 1;
+    return 0;
+  });
+  return brokenFirst.slice(0, maxEdges);
+}
+
+/** Apply per-circle file/edge caps; rebuild hierarchy for capped file sets. */
+export function applyRadialRenderCap(
+  component: RadialComponent,
+  profile: RadialPerformanceProfile,
+  errorFiles: ReadonlySet<string>,
+): { component: RadialComponent; cappedLeaves: number; cappedEdges: number } {
+  const { files: cappedFiles, cappedCount: cappedLeaves } = capRadialComponentFiles(
+    component.files,
+    component.edges,
+    errorFiles,
+    profile.maxLeavesPerCircle,
+  );
+  const visible = new Set(cappedFiles);
+  const cappedEdgeList = capRadialEdges(component.edges, visible, profile.maxEdgesPerCircle);
+  const cappedEdges = component.edges.length - cappedEdgeList.length;
+
+  if (cappedLeaves === 0 && cappedEdges === 0) {
+    return { component, cappedLeaves: 0, cappedEdges: 0 };
+  }
+
+  return {
+    component: {
+      ...component,
+      files: cappedFiles,
+      root: buildHierarchy(cappedFiles),
+      edges: cappedEdgeList,
+    },
+    cappedLeaves,
+    cappedEdges,
+  };
 }
 
 // ── Folder key derivation (IG-27) ────────────────────────────────────────────

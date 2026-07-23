@@ -489,7 +489,7 @@ export function graphPerformanceProfile(nodeCount: number): GraphPerformanceProf
   if (nodeCount <= 80) {
     return {
       tier: 'small',
-      maxCanvasDpr: 2,
+      maxCanvasDpr: 1,
       sparseLabels: false,
       enableNodeDrag: true,
       warmupTicks: 60,
@@ -502,8 +502,8 @@ export function graphPerformanceProfile(nodeCount: number): GraphPerformanceProf
   if (nodeCount <= 140) {
     return {
       tier: 'medium',
-      maxCanvasDpr: 1.5,
-      sparseLabels: false,
+      maxCanvasDpr: 1,
+      sparseLabels: true,
       enableNodeDrag: true,
       warmupTicks: 40,
       cooldownTicks: 70,
@@ -515,7 +515,7 @@ export function graphPerformanceProfile(nodeCount: number): GraphPerformanceProf
   if (nodeCount <= 220) {
     return {
       tier: 'large',
-      maxCanvasDpr: 1.25,
+      maxCanvasDpr: 1,
       sparseLabels: true,
       enableNodeDrag: false,
       warmupTicks: 24,
@@ -536,6 +536,33 @@ export function graphPerformanceProfile(nodeCount: number): GraphPerformanceProf
     d3AlphaDecay: 0.04,
     d3VelocityDecay: 0.55,
   };
+}
+
+/** Node count above which the graph shows an overview cap until the user focuses. */
+export const HUGE_GRAPH_OVERVIEW_THRESHOLD = 220;
+
+/**
+ * When the graph is huge and nothing is selected, keep folder hubs, error files,
+ * and the highest-degree file nodes so the canvas stays a scannable graph.
+ */
+export function hugeGraphOverviewKeep(
+  nodes: readonly ForceGraphNode[],
+  fileCap = 80,
+): Set<string> {
+  const keep = new Set<string>();
+  const rankedFiles: ForceGraphNode[] = [];
+
+  for (const n of nodes) {
+    if (n.kind === 'folder' || n.errors > 0 || n.external) {
+      keep.add(n.id);
+      continue;
+    }
+    if (n.kind === 'file') rankedFiles.push(n);
+  }
+
+  rankedFiles.sort((a, b) => b.degree - a.degree || a.id.localeCompare(b.id));
+  for (const f of rankedFiles.slice(0, fileCap)) keep.add(f.id);
+  return keep;
 }
 
 // ── IG-13: neighbourhood focus + search helpers ───────────────────────────────

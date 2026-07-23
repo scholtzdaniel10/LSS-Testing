@@ -10,6 +10,8 @@ import {
   collapseFolder,
   expansionChainForFile,
   graphPerformanceProfile,
+  hugeGraphOverviewKeep,
+  HUGE_GRAPH_OVERVIEW_THRESHOLD,
   isCrossClusterLink,
   neighbourhoodWithin,
   resolveGraphColor,
@@ -143,12 +145,18 @@ const DependencyGraph: React.FC<Props> = ({
 
   const neighbours = useMemo(() => buildNeighbourMap(graphData.links), [graphData.links]);
 
+  const nodeCount = graphData.nodes.length;
+
   const focusNeighbourhood = useMemo(() => {
     if (!selected) return null;
     return neighbourhoodWithin(selected, neighbours, focusDepth);
   }, [selected, neighbours, focusDepth]);
 
-  const nodeCount = graphData.nodes.length;
+  const overviewKeep = useMemo(() => {
+    if (selected || nodeCount <= HUGE_GRAPH_OVERVIEW_THRESHOLD) return null;
+    return hugeGraphOverviewKeep(graphData.nodes);
+  }, [selected, nodeCount, graphData.nodes]);
+
   const perf = useMemo(() => graphPerformanceProfile(nodeCount), [nodeCount]);
   const denseGraph = nodeCount > 80;
 
@@ -163,10 +171,11 @@ const DependencyGraph: React.FC<Props> = ({
 
   const isHiddenByFocus = useCallback(
     (id: string) => {
+      if (overviewKeep && !overviewKeep.has(id)) return true;
       if (!focusNeighbourhood) return false;
       return !focusNeighbourhood.has(id);
     },
-    [focusNeighbourhood],
+    [focusNeighbourhood, overviewKeep],
   );
 
   const isDimmed = useCallback(
@@ -351,6 +360,15 @@ const DependencyGraph: React.FC<Props> = ({
 
   const nodeVisible = useCallback(
     (node: GraphNode) => !isHiddenByFocus(node.id),
+    [isHiddenByFocus],
+  );
+
+  const linkVisible = useCallback(
+    (link: GraphLink) => {
+      const src = linkEndpointId(link.source as string | GraphNode);
+      const tgt = linkEndpointId(link.target as string | GraphNode);
+      return !isHiddenByFocus(src) && !isHiddenByFocus(tgt);
+    },
     [isHiddenByFocus],
   );
 
@@ -579,6 +597,7 @@ const DependencyGraph: React.FC<Props> = ({
         <span className="graph-toolbar__spacer" />
         <span className="graph-toolbar__stat">
           {view.folderCount} folders · {view.fileNodeCount} files · clustered by module
+          {overviewKeep ? ` · overview (${overviewKeep.size} nodes)` : ''}
           {perf.sparseLabels ? ' · sparse labels' : denseGraph ? ' · labels adapt when zoomed' : ''}
         </span>
         {expanded.size > 0 && (
@@ -602,6 +621,12 @@ const DependencyGraph: React.FC<Props> = ({
             </button>
           ))}
         </div>
+      )}
+
+      {overviewKeep && !selectedNode && (
+        <p className="graph-wrap__hint" role="status" style={{ borderTop: 'none', paddingTop: 0 }}>
+          Large graph — showing folder hubs and top-linked files. Click a node or press <kbd>/</kbd> to search and focus a neighbourhood.
+        </p>
       )}
 
       {selectedNode && (
@@ -656,6 +681,7 @@ const DependencyGraph: React.FC<Props> = ({
           nodeId="id"
           nodeLabel={nodeTooltip}
           nodeVisibility={nodeVisible}
+          linkVisibility={linkVisible}
           linkColor={linkColor}
           linkWidth={linkWidth}
           linkDirectionalArrowLength={3.5}

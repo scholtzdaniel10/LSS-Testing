@@ -19,9 +19,10 @@
  *    appear for focused/hovered node and its direct neighbours.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RadialComponent, RadialEdge, RadialNode } from '../lib/radialModel';
 import {
+  applyRadialRenderCap,
   buildRadialLayout,
   buildFolderLayout,
   buildDrillComponent,
@@ -30,6 +31,7 @@ import {
   componentRadius,
   folderKeyOf,
   layoutLeavesHierarchical,
+  radialPerformanceProfile,
   shouldShowLabel,
 } from '../lib/radialModel';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
@@ -76,7 +78,9 @@ function bundlePath(
   x1: number, y1: number,
   cx: number, cy: number,
   beta = 0.85,
+  straight = false,
 ): string {
+  if (straight) return `M${x0},${y0} L${x1},${y1}`;
   const cp0x = x0 + beta * (cx - x0);
   const cp0y = y0 + beta * (cy - y0);
   const cp1x = x1 + beta * (cx - x1);
@@ -121,15 +125,18 @@ type ComponentCircleProps = {
   hoveredFile: string | null;
   onFileClick: (path: string) => void;
   onFileHover: (path: string | null) => void;
-  onFocusUrl: (path: string) => void;
   errorFiles: ReadonlySet<string>;
   /** When true, colour nodes by top-level folder (SERIES palette). */
   useFolderColors: boolean;
   /** Centre label for folder-grouped circles (e.g. application, system). */
   groupLabel?: string;
+  /** Skip bundled Bezier splines — straight segments only (large graphs). */
+  straightEdges?: boolean;
+  /** Hide permanent labels except on focus/neighbours (large graphs). */
+  dotsOnly?: boolean;
 };
 
-function ComponentCircle({
+const ComponentCircle = memo(function ComponentCircle({
   component,
   cx,
   cy,
@@ -138,10 +145,11 @@ function ComponentCircle({
   hoveredFile,
   onFileClick,
   onFileHover,
-  onFocusUrl,
   errorFiles,
   useFolderColors,
   groupLabel,
+  straightEdges = false,
+  dotsOnly = false,
 }: ComponentCircleProps) {
   const positions = useMemo(
     () => layoutLeaves(component.root, radius, cx, cy),
@@ -269,13 +277,13 @@ function ComponentCircle({
         return (
           <path
             key={i}
-            d={bundlePath(src.x, src.y, tgt.x, tgt.y, cx, cy)}
+            d={bundlePath(src.x, src.y, tgt.x, tgt.y, cx, cy, 0.85, straightEdges)}
             fill="none"
             stroke={edgeStroke(e)}
             strokeWidth={focusNb && isEdgeVisible(e) ? 1.5 : 1}
             opacity={edgeOpacity(e)}
             pointerEvents="none"
-            style={{ transition: 'opacity 0.15s, stroke 0.15s' }}
+            style={dotsOnly ? undefined : { transition: 'opacity 0.15s, stroke 0.15s' }}
           />
         );
       })}
@@ -287,13 +295,13 @@ function ComponentCircle({
         const op = nodeOpacity(path);
         const isFocused = path === focusFile;
         const basename = pos.node.name;
-        const showLabel = shouldShowLabel(memberCount, path, activeFocus, activeNeighbours);
+        const showLabel = shouldShowLabel(memberCount, path, activeFocus, activeNeighbours, dotsOnly);
 
         return (
           <g
             key={path}
             opacity={op}
-            style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
+            style={{ cursor: 'pointer', transition: dotsOnly ? undefined : 'opacity 0.15s' }}
             onClick={() => onFileClick(path)}
             onMouseEnter={() => onFileHover(path)}
             onMouseLeave={() => onFileHover(null)}
@@ -350,59 +358,9 @@ function ComponentCircle({
         );
       })}
 
-      {focusFile && positions.map((pos) => {
-        if (pos.node.id !== focusFile) return null;
-        return (
-          <g key="focus-info">
-            <foreignObject
-              x={cx - 120}
-              y={cy - 28}
-              width={240}
-              height={56}
-              style={{ pointerEvents: 'none' }}
-            >
-              {/* @ts-expect-error -- xmlns needed for SVG foreignObject */}
-              <div xmlns="http://www.w3.org/1999/xhtml"
-                style={{
-                  background: 'var(--surface-raised)',
-                  border: '1px solid var(--line-2)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '4px 8px',
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--ink-2)',
-                  pointerEvents: 'auto',
-                  textAlign: 'center',
-                  lineHeight: 1.4,
-                }}
-              >
-                <span style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
-                  {focusFile}
-                </span>
-                <br />
-                <button
-                  type="button"
-                  style={{
-                    marginTop: 2,
-                    fontSize: 'var(--text-xs)',
-                    color: 'var(--ink-3)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 0,
-                    textDecoration: 'underline',
-                  }}
-                  onClick={(ev) => { ev.stopPropagation(); onFocusUrl(focusFile); }}
-                >
-                  focus in tree &rarr;
-                </button>
-              </div>
-            </foreignObject>
-          </g>
-        );
-      })}
     </g>
   );
-}
+});
 
 // -- Layout packing -----------------------------------------------------------
 
@@ -635,10 +593,41 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     ? { components: [drillComponent], unlinked: { files: [] } }
     : baseLayout;
 
+  const totalLinkedFiles = useMemo(
+    () => layout.components.reduce((sum, c) => sum + c.files.length, 0),
+    [layout.components],
+  );
+
+  const radialPerf = useMemo(
+    () => radialPerformanceProfile(totalLinkedFiles),
+    [totalLinkedFiles],
+  );
+
+  const { renderComponents, cappedLeaves, cappedEdges } = useMemo(() => {
+    if (drillComponent) {
+      return { renderComponents: layout.components, cappedLeaves: 0, cappedEdges: 0 };
+    }
+    let leaves = 0;
+    let edges = 0;
+    const capped = layout.components
+      .slice(0, Number.isFinite(radialPerf.maxCircles) ? radialPerf.maxCircles : layout.components.length)
+      .map((component) => {
+        const result = applyRadialRenderCap(component, radialPerf, errorFiles);
+        leaves += result.cappedLeaves;
+        edges += result.cappedEdges;
+        return result.component;
+      });
+    return {
+      renderComponents: capped,
+      cappedLeaves: leaves,
+      cappedEdges: edges,
+    };
+  }, [drillComponent, layout.components, radialPerf, errorFiles]);
+
   const SVG_WIDTH = 1400;
   const { placements, totalHeight } = useMemo(
-    () => packComponents(layout.components, SVG_WIDTH),
-    [layout.components],
+    () => packComponents(renderComponents, SVG_WIDTH),
+    [renderComponents],
   );
   const svgHeight = Math.max(totalHeight, 80);
 
@@ -694,12 +683,12 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     ? Math.min(svgHeight, window.innerHeight * 0.65)
     : svgHeight;
 
-  const layoutFitKey = `${groupingMode}|${drillChain.join('>')}|${layout.components.map((c) => `${c.index}:${c.files.length}`).join(',')}`;
+  const layoutFitKey = `${groupingMode}|${drillChain.join('>')}|${renderComponents.map((c) => `${c.index}:${c.files.length}`).join(',')}`;
   const lastFitKey = useRef('');
 
   // Fit packed circles into the viewport when grouping or drill context changes.
   useEffect(() => {
-    if (layout.components.length === 0 || placements.length === 0) {
+    if (renderComponents.length === 0 || placements.length === 0) {
       resetView();
       return;
     }
@@ -742,8 +731,16 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
         }}
       >
         <span className="panel__hint">
-          {layout.components.length} component{layout.components.length !== 1 ? 's' : ''} &middot;{'  '}
+          {renderComponents.length} component{renderComponents.length !== 1 ? 's' : ''} &middot;{'  '}
           {totalEdges} edge{totalEdges !== 1 ? 's' : ''}
+          {radialPerf.tier !== 'small' ? ` · ${radialPerf.tier} map` : ''}
+          {(cappedLeaves > 0 || cappedEdges > 0) && (
+            <span style={{ color: 'var(--ink-3)', marginLeft: 6 }}>
+              &middot; capped {cappedLeaves > 0 ? `${cappedLeaves} leaves` : ''}
+              {cappedLeaves > 0 && cappedEdges > 0 ? ', ' : ''}
+              {cappedEdges > 0 ? `${cappedEdges} edges` : ''} — click to focus
+            </span>
+          )}
           {brokenCount > 0 && (
             <span style={{ color: 'var(--status-critical)', marginLeft: 6 }}>
               &middot; {brokenCount} broken
@@ -1029,7 +1026,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
             }}
           >
             <g transform={`scale(${zoom}) translate(${panX},${panY})`}>
-              {layout.components.map((component, i) => {
+              {renderComponents.map((component, i) => {
                 const pl = placements[i];
                 if (!pl) return null;
                 return (
@@ -1043,10 +1040,11 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
                     hoveredFile={hoveredFile}
                     onFileClick={handleFileClick}
                     onFileHover={handleHover}
-                    onFocusUrl={handleFocusUrl}
                     errorFiles={errorFiles}
                     useFolderColors={groupingMode === 'folder' || drillMode}
                     groupLabel={groupingMode === 'folder' ? component.groupKey : undefined}
+                    straightEdges={radialPerf.straightEdges}
+                    dotsOnly={radialPerf.dotsOnly}
                   />
                 );
               })}
