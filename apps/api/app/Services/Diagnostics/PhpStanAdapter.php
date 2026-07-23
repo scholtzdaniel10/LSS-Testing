@@ -162,7 +162,6 @@ final class PhpStanAdapter implements Analyzer
 
         $configPath = $this->ensureConfig($sandboxPath);
         $tmpDir = $this->writableTmpDir();
-        $cacheDir = $this->projectCacheDir($sandboxPath);
 
         $cmd = [
             PHP_BINARY,
@@ -174,10 +173,6 @@ final class PhpStanAdapter implements Analyzer
             '-c',
             $configPath,
         ];
-
-        if (config('speed.phpstan_cache_dir', true)) {
-            $cmd[] = '--cache-dir='.$cacheDir;
-        }
 
         if ($paths !== null) {
             foreach ($paths as $path) {
@@ -322,6 +317,13 @@ NEON;
     parallel:
         maximumNumberOfProcesses: {$parallel}
 NEON;
+
+        // PHPStan has no --cache-dir CLI flag; the result cache lives in the
+        // neon `tmpDir` parameter, so the per-project cache is wired up here.
+        if (config('speed.phpstan_cache_dir', true)) {
+            $cacheDir = str_replace('\\', '/', $this->projectCacheDir($sandboxPath));
+            $parallelBlock .= "\n    tmpDir: \"{$cacheDir}\"";
+        }
 
         if ($profile->isCi3) {
             $scanDirs = $deep
