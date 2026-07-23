@@ -6,6 +6,7 @@ use App\Services\Graph\IncrementalGraphBuilder;
 use App\Support\Sandbox\IgnoreRules;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 it('plans CI3 shards as application child dirs (Wave A)', function () {
     $root = storage_path('framework/testing/shards-'.uniqid());
@@ -33,7 +34,7 @@ it('reuses cached per-file edges when content hash is unchanged', function () {
     file_put_contents($file, "<?php\nrequire 'B.php';\n");
 
     $builder = new IncrementalGraphBuilder(new DependencyGraphBuilder(IgnoreRules::fromConfig()));
-    $projectId = (string) Illuminate\Support\Str::uuid();
+    $projectId = (string) Str::uuid();
 
     $first = $builder->buildIndexed($projectId, $root, ['A.php']);
     $second = $builder->buildIndexed($projectId, $root, ['A.php']);

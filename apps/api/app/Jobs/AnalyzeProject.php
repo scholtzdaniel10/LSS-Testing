@@ -13,6 +13,7 @@ use App\Support\Cache\ProjectReadCache;
 use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -196,7 +197,7 @@ class AnalyzeProject implements ShouldQueue
                 continue;
             }
             $rows[] = [
-                'id' => (string) \Illuminate\Support\Str::uuid(),
+                'id' => (string) Str::uuid(),
                 'scan_id' => $newScanId,
                 'source' => $error->source,
                 'rule_id' => $error->rule_id,
