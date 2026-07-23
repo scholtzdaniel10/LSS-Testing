@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none';" />
+<title>LSS Maintenance System — Database settings</title>
+<style>
+  /*
+   * Design tokens mirrored from apps/web/src/theme/tokens.css.
+   * This page ships outside the Vite bundle (loaded directly by Electron,
+   * before/without the web app), so it can't @import that file — the values
+   * below are copied, not invented; keep them in sync if tokens.css changes.
+   */
+  :root {
+    --surface-page: #252423;
+    --surface-panel: #2a2928;
+    --surface-raised: #302e2c;
+    --ink-1: #f6f4f2;
+    --ink-2: #cccac9;
+    --ink-3: #85837e;
+    --line-1: #3b3937;
+    --line-2: #4a4745;
+    --accent: #ff4b4b;
+    --accent-dim: #d34343;
+    --status-good: #07d38f;
+    --status-critical: #d34343;
+    --font-sans: "Helvetica Neue", Helvetica, Inter, Arial, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+    --text-xs: 11px;
+    --text-sm: 12.5px;
+    --text-base: 14px;
+    --text-lg: 20px;
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --sp-6: 32px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --ring-focus: 0 0 0 2px var(--surface-page), 0 0 0 4px var(--line-2);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--surface-page);
+    color: var(--ink-1);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  main {
+    width: 420px;
+    background: var(--surface-panel);
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-md);
+    padding: var(--sp-6);
+  }
+
+  h1 {
+    font-size: var(--text-lg);
+    margin: 0 0 var(--sp-1);
+  }
+
+  p.subtitle {
+    color: var(--ink-3);
+    font-size: var(--text-sm);
+    margin: 0 0 var(--sp-5);
+  }
+
+  label {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--ink-2);
+    margin-bottom: var(--sp-1);
+  }
+
+  .field {
+    margin-bottom: var(--sp-3);
+  }
+
+  .row {
+    display: flex;
+    gap: var(--sp-3);
+  }
+
+  .row .field {
+    flex: 1;
+  }
+
+  input {
+    width: 100%;
+    background: var(--surface-raised);
+    color: var(--ink-1);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm);
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--text-base);
+    font-family: var(--font-mono);
+  }
+
+  input:focus {
+    outline: none;
+    box-shadow: var(--ring-focus);
+    border-color: var(--line-2);
+  }
+
+  input:disabled {
+    opacity: 0.6;
+  }
+
+  .actions {
+    display: flex;
+    gap: var(--sp-3);
+    margin-top: var(--sp-5);
+  }
+
+  button {
+    flex: 1;
+    font-size: var(--text-base);
+    font-family: var(--font-sans);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line-2);
+    background: var(--surface-raised);
+    color: var(--ink-1);
+    padding: var(--sp-3);
+    cursor: pointer;
+  }
+
+  button:hover:not(:disabled) {
+    border-color: var(--ink-3);
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--surface-page);
+    font-weight: 600;
+  }
+
+  button.primary:hover:not(:disabled) {
+    background: var(--accent-dim);
+  }
+
+  .status {
+    margin-top: var(--sp-4);
+    padding: var(--sp-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    display: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* Four UI states, keyed off body[data-state] */
+  body[data-state="loading"] .status.loading { display: block; border: 1px solid var(--line-2); color: var(--ink-2); }
+  body[data-state="error"] .status.error { display: block; border: 1px solid var(--status-critical); color: var(--ink-1); background: rgba(211, 67, 67, 0.12); }
+  body[data-state="success"] .status.success { display: block; border: 1px solid var(--status-good); color: var(--ink-1); background: rgba(7, 211, 143, 0.12); }
+  body[data-state="idle"] .status.idle { display: block; border: 1px solid var(--line-1); color: var(--ink-3); }
+
+  .hint {
+    color: var(--ink-3);
+    font-size: var(--text-xs);
+    margin-top: var(--sp-1);
+  }
+</style>
+</head>
+<body data-state="idle">
+  <main>
+    <h1>Database settings</h1>
+    <p class="subtitle" id="subtitle">Connect the app to your own local Postgres.</p>
+
+    <div class="field">
+      <label for="host">Host</label>
+      <input id="host" type="text" autocomplete="off" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="port">Port</label>
+        <input id="port" type="number" min="1" max="65535" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="database">Database</label>
+        <input id="database" type="text" autocomplete="off" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" type="text" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="off" />
+        <div class="hint" id="password-hint"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="test-btn" type="button">Test connection</button>
+      <button id="save-btn" type="button" class="primary">Save &amp; start</button>
+    </div>
+
+    <div class="status idle" id="status-idle">Enter your Postgres connection details, then Test connection or Save &amp; start.</div>
+    <div class="status loading" id="status-loading">Working…</div>
+    <div class="status error" id="status-error"></div>
+    <div class="status success" id="status-success"></div>
+  </main>
+
+  <script src="db-setup-renderer.js"></script>
+</body>
+</html>

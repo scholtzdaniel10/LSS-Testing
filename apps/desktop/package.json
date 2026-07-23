@@ -22,6 +22,10 @@
       "main.js",
       "preload.js",
       "server.js",
+      "db-config.js",
+      "api-process.js",
+      "db-setup.html",
+      "db-setup-renderer.js",
       "../web/dist/**"
     ],
     "win": {
