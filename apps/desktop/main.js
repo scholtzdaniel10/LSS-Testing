@@ -20,6 +20,7 @@
  */
 
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { createServer } = require('./server');
@@ -51,6 +52,55 @@ let appPort = null; // port the local static/proxy server (server.js) is listeni
 let apiChild = null; // ChildProcess we spawned ourselves (self-contained mode only)
 let localLinkToken = process.env.LSS_LOCAL_LINK_TOKEN || null;
 
+/** Fail fast when index.html references a missing hashed bundle (classic white-screen cause). */
+function verifyDist(distDir) {
+  const indexPath = path.join(distDir, 'index.html');
+  if (!fs.existsSync(indexPath)) {
+    return {
+      ok: false,
+      message:
+        'apps/web/dist/index.html is missing.\n\nRun: cd apps/web && npm run build',
+    };
+  }
+
+  const html = fs.readFileSync(indexPath, 'utf8');
+  const match = html.match(/src="(\/assets\/[^"]+\.js)"/);
+  if (!match) {
+    return { ok: false, message: 'dist/index.html has no entry script tag.' };
+  }
+
+  const rel = match[1].replace(/^\//, '').split('/').join(path.sep);
+  const bundlePath = path.join(distDir, rel);
+  if (!fs.existsSync(bundlePath)) {
+    return {
+      ok: false,
+      message:
+        'dist is out of sync — ' + match[1] + ' is missing.\n\nRun: cd apps/web && npm run build',
+    };
+  }
+
+  return { ok: true };
+}
+
+function attachWindowDiagnostics(win) {
+  win.webContents.on('did-fail-load', (_event, code, description, url) => {
+    if (code === -3) return; // ERR_ABORTED during navigation — ignore
+    dialog.showErrorBox(
+      'LSS failed to load',
+      'Could not load the UI (' + code + '):\n' + description + '\n\nURL: ' + url +
+      '\n\nTry rebuilding the web app: cd apps/web && npm run build',
+    );
+  });
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    dialog.showErrorBox(
+      'LSS renderer crashed',
+      'The UI process exited unexpectedly (' + details.reason + '). ' +
+      'If this repeats on Explore, update and rebuild — heavy graph views are lazy-loaded.',
+    );
+  });
+}
+
 function createWindow(port) {
   mainWindow = new BrowserWindow({
     width : 1280,
@@ -78,6 +128,8 @@ function createWindow(port) {
       shell.openExternal(navUrl);
     }
   });
+
+  attachWindowDiagnostics(mainWindow);
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -249,6 +301,13 @@ function buildMenu() {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   buildMenu();
+
+  const distCheck = verifyDist(DIST_DIR);
+  if (!distCheck.ok) {
+    dialog.showErrorBox('LSS startup error', distCheck.message);
+    app.quit();
+    return;
+  }
 
   const apiUrlForProxy = LEGACY_MODE ? LEGACY_API_URL : SELF_CONTAINED_API_URL;
 

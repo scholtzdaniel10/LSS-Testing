@@ -1,11 +1,19 @@
 /* App-wide layout & component styles. Every value comes from tokens.css. */
 
 html,
+body,
+#root,
+ion-app {
+  height: 100%;
+}
+
+html,
 body {
   background: var(--surface-page);
   color: var(--ink-1);
   font-family: var(--font-sans);
   font-size: var(--text-base);
+  margin: 0;
 }
 
 .app-shell {

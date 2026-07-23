@@ -12,6 +12,11 @@ import { loadEditorSettings, openInIde } from '../types';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 
+type ExploreView = 'map' | 'graph';
+
+const CodebaseRadial = lazy(() => import('../components/CodebaseRadial'));
+const DependencyGraph = lazy(() => import('../components/DependencyGraph'));
+
 // ── RadialPanel — inner component to keep complex ternaries out of JSX attrs ──
 type RadialPanelProps = {
   status: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
@@ -81,11 +86,6 @@ const SERIES: Record<string, string> = {
   system: 'var(--series-2)',
   other: 'var(--series-other)',
 };
-
-type ExploreView = 'map' | 'graph';
-
-const CodebaseRadial = lazy(() => import('../components/CodebaseRadial'));
-const DependencyGraph = lazy(() => import('../components/DependencyGraph'));
 
 const ExplorePage: React.FC = () => {
   const ref = useEntrance();
