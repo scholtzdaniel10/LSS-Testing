@@ -23,4 +23,7 @@ return [
     /** API-owned PHPCS binary (composer dev dependency in apps/api). */
     'phpcs' => (bool) env('DIAGNOSTICS_PHPCS', true),
 
+    /** API-owned PHPMD binary (composer dev dependency in apps/api). */
+    'phpmd' => (bool) env('DIAGNOSTICS_PHPMD', true),
+
 ];

@@ -4,6 +4,7 @@ use App\Services\Diagnostics\AnalysisRunner;
 use App\Services\Diagnostics\AnalyzerRegistry;
 use App\Services\Diagnostics\EvidenceGate;
 use App\Services\Diagnostics\PhpcsAdapter;
+use App\Services\Diagnostics\PhpmdAdapter;
 use App\Services\Diagnostics\PhpStanAdapter;
 use App\Services\Diagnostics\PhpTestFrameworkAdapter;
 
@@ -95,13 +96,55 @@ it('reports missing_binary when Maintain API has no PHPCS (DX-27)', function () 
         ->and($adapter->runStatus())->toBe('missing_binary');
 });
 
+// ── DX-30 PhpmdAdapter ────────────────────────────────────────────────────────
+
+it('normalises PHPMD JSON output to C5 findings (DX-30)', function () {
+    $json = json_encode([
+        'files' => [
+            [
+                'file' => '/sandbox/application/models/User.php',
+                'relativePath' => 'application/models/User.php',
+                'violations' => [
+                    [
+                        'beginLine' => 12,
+                        'endLine' => 12,
+                        'rule' => 'UnusedPrivateField',
+                        'ruleSet' => 'UnusedCode',
+                        'description' => 'Avoid unused private fields such as \'$id\'.',
+                        'priority' => 3,
+                    ],
+                ],
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $adapter = PhpmdAdapter::withJsonRunner(fn () => $json);
+    $findings = $adapter->run('/sandbox');
+
+    expect($findings)->toHaveCount(1)
+        ->and($findings[0]['source'])->toBe('phpmd')
+        ->and($findings[0]['ruleId'])->toBe('UnusedCode.UnusedPrivateField')
+        ->and($findings[0]['file'])->toBe('application/models/User.php')
+        ->and($findings[0]['severity'])->toBe('warning')
+        ->and($adapter->runStatus())->toBe('ok');
+});
+
+it('reports missing_binary when Maintain API has no PHPMD (DX-30)', function () {
+    $adapter = new PhpmdAdapter(binary: '/nonexistent/phpmd-binary');
+    $findings = $adapter->run('/sandbox');
+
+    expect($findings)->toBe([])
+        ->and($adapter->runStatus())->toBe('missing_binary');
+});
+
 // ── Registry integration ──────────────────────────────────────────────────────
 
-it('accepts php-test and phpcs findings through EvidenceGate (DX-26/27)', function () {
+it('accepts php-test, phpcs, and phpmd findings through EvidenceGate (DX-26/27/30)', function () {
     $registry = new AnalyzerRegistry([
         new PhpStanAdapter,
         new PhpTestFrameworkAdapter,
         new PhpcsAdapter,
+        new PhpmdAdapter,
     ]);
     $gate = new EvidenceGate($registry);
 
@@ -125,16 +168,28 @@ it('accepts php-test and phpcs findings through EvidenceGate (DX-26/27)', functi
         'message' => 'Line exceeds 120 characters.',
     ]);
 
+    $phpmd = $gate->accept([
+        'source' => 'phpmd',
+        'ruleId' => 'UnusedCode.UnusedPrivateField',
+        'kind' => 'unused',
+        'severity' => 'warning',
+        'file' => 'application/Foo.php',
+        'range' => ['startLine' => 4, 'startCol' => 0, 'endLine' => 4, 'endCol' => 0],
+        'message' => 'Avoid unused private fields.',
+    ]);
+
     expect($phpTest['source'])->toBe('php-test')
-        ->and($phpcs['source'])->toBe('phpcs');
+        ->and($phpcs['source'])->toBe('phpcs')
+        ->and($phpmd['source'])->toBe('phpmd');
 });
 
-it('registers new adapters in AnalysisRunner defaults (DX-26/27)', function () {
+it('registers new adapters in AnalysisRunner defaults (DX-26/27/30)', function () {
     config([
         'diagnostics.phpstan' => false,
         'diagnostics.js' => false,
         'diagnostics.php_test' => true,
         'diagnostics.phpcs' => true,
+        'diagnostics.phpmd' => true,
     ]);
 
     $ids = array_map(
@@ -142,5 +197,5 @@ it('registers new adapters in AnalysisRunner defaults (DX-26/27)', function () {
         AnalysisRunner::defaultAdapters(),
     );
 
-    expect($ids)->toBe(['php-test', 'phpcs']);
+    expect($ids)->toBe(['php-test', 'phpcs', 'phpmd']);
 });

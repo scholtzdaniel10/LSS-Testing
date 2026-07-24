@@ -53,6 +53,9 @@ final class AnalysisRunner
         if (config('diagnostics.phpcs', true)) {
             $adapters[] = new PhpcsAdapter;
         }
+        if (config('diagnostics.phpmd', true)) {
+            $adapters[] = new PhpmdAdapter;
+        }
 
         return $adapters;
     }

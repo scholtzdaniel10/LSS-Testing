@@ -59,6 +59,22 @@
     "kind": "other",
     "explanation": "Line exceeds the configured maximum length \u2014 harder to review and diff."
   },
+  "phpmd:UnusedCode.UnusedPrivateField": {
+    "kind": "unused",
+    "explanation": "Private field is never read \u2014 dead state that can be removed or wired up."
+  },
+  "phpmd:Design.LongMethod": {
+    "kind": "other",
+    "explanation": "Method is long \u2014 harder to test and reason about; consider extracting helpers."
+  },
+  "phpmd:CodeSize.ExcessiveMethodLength": {
+    "kind": "other",
+    "explanation": "Method exceeds the configured line budget \u2014 split or simplify control flow."
+  },
+  "phpmd:Naming.ShortVariable": {
+    "kind": "other",
+    "explanation": "Very short variable name \u2014 prefer a descriptive identifier for maintainability."
+  },
   "eslint:no-unused-vars": {
     "kind": "unused",
     "explanation": "Variable declared but never used \u2014 dead code that inflates the module's surface area."
