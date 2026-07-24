@@ -1,6 +1,8 @@
-# Infrastructure + API engine for local/dev hosting (PLT-1).
-# Tier 1 Electron still spawns its own PHP sidecar — this stack is optional.
-# Web UI: run `cd apps/web && npm run dev` on the host (proxies /api → :8000).
+# Portable backend (PLT-1): api + worker + postgres + redis — no host PHP/Composer required.
+# Quick start: scripts/backend-up.ps1 (Windows) or scripts/backend-up.sh (Mac/Linux).
+# Tier 1 Electron (DSK-2) still bundles its own PHP sidecar on Windows — separate path.
+# Web UI stays on the host: `cd apps/web && npm run dev` (proxies /api → :8000).
+# Infra only (legacy host `php artisan serve`): docker compose up -d postgres redis
 
 x-api-service: &api-service
   build:

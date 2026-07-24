@@ -30,6 +30,50 @@ Playwright runner drives. No credentials are persisted for targets.
 
 ## Local development
 
+### Portable backend (any machine) — recommended for API
+
+**Portable** here means: clone the repo, install **Docker Desktop** (or Docker Engine on Linux), run one script — you get Postgres, Redis, the Laravel API on **:8000**, and a queue worker. **No global PHP or Composer on the host** is required for the backend.
+
+| Path | Role |
+|---|---|
+| **Docker Compose** (this repo) | Cross-platform shared backend for Daniel, Jean, and future devs (Windows / Mac / Linux) |
+| **Tier 1 Electron exe** (`apps/desktop`) | Windows-local product build; bundles its own PHP sidecar + user's Postgres (DSK-2). Unchanged by compose. |
+
+**Prerequisites:** Docker with Compose v2 (`docker compose version`).
+
+**Start (pick one):**
+
+```powershell
+# Windows
+.\scripts\backend-up.ps1
+```
+
+```sh
+# macOS / Linux
+chmod +x scripts/backend-up.sh scripts/backend-down.sh
+./scripts/backend-up.sh
+```
+
+Equivalent manual command from repo root: `docker compose up -d --build` (scripts also ensure `APP_KEY` in `apps/api/.env.docker`, wait for health, and print token steps).
+
+**Stop:**
+
+```powershell
+.\scripts\backend-down.ps1              # keep database volume
+.\scripts\backend-down.ps1 -RemoveVolumes   # wipe Postgres + API storage volumes
+```
+
+```sh
+./scripts/backend-down.sh
+./scripts/backend-down.sh --volumes
+```
+
+**Handoff (Jean):** `git pull`, then `.\scripts\backend-up.ps1` (or `./scripts/backend-up.sh`). First time: `docker compose exec api php artisan db:seed --force`, then `docker compose exec api php artisan token:issue jean@lss.local --label=web`. Paste the token in **Settings**. Run the web app: `cd apps/web && npm install && npm run dev` (Vite proxies `/api` → `http://127.0.0.1:8000`).
+
+**Local-link in Docker:** off by default (`SANDBOX_ALLOW_LOCAL_LINK=false` in `apps/api/.env.docker`). To link folders from the host, add read-only bind mounts under `x-api-service.volumes` in `docker-compose.yml` (e.g. `C:/LSS:/mnt/lss:ro`), set `SANDBOX_ALLOW_LOCAL_LINK=true` and `LOCAL_PATH_PREFIXES=/mnt/lss`, and use the **container** path in the UI.
+
+**Legacy — host PHP + compose infra only:** still supported for developers who prefer `php artisan serve` on the host: `docker compose up -d postgres redis` then configure `apps/api/.env` (see below). Not required for the portable path.
+
 ### Database
 
 **Postgres is the only supported local source-of-truth database (PLT-14).**
@@ -51,9 +95,7 @@ cp .env.example .env && php artisan key:generate
 php artisan migrate --seed
 ```
 
-**Happy path — Docker (API + worker + Postgres + Redis):**
-
-From the repo root:
+**Happy path — Docker (API + worker + Postgres + Redis):** use [Portable backend](#portable-backend-any-machine--recommended-for-api) (`scripts/backend-up.*`) or:
 
 ```sh
 docker compose up -d --build

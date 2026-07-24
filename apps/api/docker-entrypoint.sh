@@ -4,8 +4,10 @@ set -e
 cd /var/www/html
 
 if [ -z "${APP_KEY:-}" ] || [ "$APP_KEY" = "base64:" ]; then
-    echo "APP_KEY is missing. Set APP_KEY in apps/api/.env.docker (php artisan key:generate --show)."
-    exit 1
+    APP_KEY="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
+    export APP_KEY
+    echo "APP_KEY was missing — generated an ephemeral key for this container."
+    echo "Persist one in apps/api/.env.docker (run scripts/backend-up.* or: php artisan key:generate --show)."
 fi
 
 mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
