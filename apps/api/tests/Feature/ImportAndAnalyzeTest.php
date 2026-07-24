@@ -117,6 +117,7 @@ it('queues analyze and persists evidence-gated findings (DX-3/DX-17)', function 
         ],
     ], JSON_THROW_ON_ERROR);
 
+    $this->app->forgetInstance(AnalysisRunner::class);
     $this->app->instance(
         AnalysisRunner::class,
         AnalysisRunner::withAdapters([
@@ -147,6 +148,7 @@ it('re-scan queues analyze then snapshot chain (UI-4)', function () {
     $project->update(['sandbox_path' => $root, 'last_imported_at' => now()]);
     $project->files()->create(['path' => 'src/A.php', 'size' => 6, 'lang' => 'php']);
 
+    $this->app->forgetInstance(AnalysisRunner::class);
     $this->app->instance(
         AnalysisRunner::class,
         AnalysisRunner::withAdapters([
