@@ -28,11 +28,21 @@ npm install
 # 2. Build the web app (from repo root or apps/web)
 npm --prefix apps/web run build
 
-# 3. Launch
+# 3. Launch (self-contained: migrates Postgres, spawns API + queue:listen on :8000)
 npm --prefix apps/desktop start
 # or from apps/desktop:
 npm start
 ```
+
+When launched **without** `LSS_API_TOKEN` (portable exe / `npm start` directly),
+Electron owns the Laravel API **and** a `php artisan queue:listen --timeout=660`
+worker with the same injected `DB_*`, `SESSION_DRIVER=file`, and `CACHE_STORE=file`
+env. Both processes are killed on app quit.
+
+**Legacy mode** (`desktop.bat` or any launcher that pre-sets `LSS_API_TOKEN` and
+starts `artisan serve` externally): Electron does not spawn API or queue workers —
+run `php artisan queue:listen --timeout=660` in a separate terminal yourself
+(same as the root README dev workflow).
 
 ## API URL override
 

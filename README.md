@@ -79,6 +79,8 @@ cd apps/api
 php -d upload_max_filesize=512M -d post_max_size=512M artisan serve   # http://127.0.0.1:8000 — /api/v1/health
 # Required when QUEUE_CONNECTION=database|redis (default in .env.example):
 #   php artisan queue:listen --timeout=660
+# `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER` default to 720s in config (must stay above the 660s job timeout).
+# Self-contained desktop (`cd apps/desktop && npm start`, no LSS_API_TOKEN) spawns API + queue worker together.
 # Optional Redis speed pack: docker compose up -d redis, then QUEUE_CONNECTION=redis CACHE_STORE=redis
 # PHPStan: shards + cache-dir on by default; set PHPSTAN_DEEP=true for CI3 system/ Wave B
 

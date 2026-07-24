@@ -12,11 +12,12 @@
  * desktop.bat — the portable-exe path), main.js owns the whole local-Postgres
  * lifecycle itself: first-run/settings UI (db-setup.html), encrypted config
  * storage (db-config.js), migrating, and spawning the `php artisan serve`
- * sidecar with the user's own DB credentials injected into ONLY that child
- * process's environment (api-process.js) — never written to any .env file.
+ * sidecar plus `queue:listen --timeout=660` with the user's own DB credentials
+ * injected into ONLY those child processes' environment (api-process.js) — never
+ * written to any .env file.
  * Launches via desktop.bat (LSS_API_TOKEN already set) are unaffected: this
  * file just proxies to the already-running, already-configured API exactly
- * as before ("legacy mode" below).
+ * as before ("legacy mode" below). Start `queue:listen` yourself for that path.
  */
 
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
@@ -50,6 +51,7 @@ if (!gotLock) {
 let mainWindow = null;
 let appPort = null; // port the local static/proxy server (server.js) is listening on
 let apiChild = null; // ChildProcess we spawned ourselves (self-contained mode only)
+let queueChild = null; // queue:listen sidecar (same mode as apiChild)
 let localLinkToken = process.env.LSS_LOCAL_LINK_TOKEN || null;
 
 /** Fail fast when index.html references a missing hashed bundle (classic white-screen cause). */
@@ -145,11 +147,25 @@ function loadDbSetup(errorMessage) {
   mainWindow.loadFile(DB_SETUP_HTML, options);
 }
 
-function killApiChild() {
-  if (apiChild && !apiChild.killed) {
-    try { apiChild.kill(); } catch (_err) { /* already gone */ }
+function killSidecarChild(childRef) {
+  if (childRef && !childRef.killed) {
+    try { childRef.kill(); } catch (_err) { /* already gone */ }
   }
+}
+
+function killApiChild() {
+  killSidecarChild(apiChild);
   apiChild = null;
+}
+
+function killQueueChild() {
+  killSidecarChild(queueChild);
+  queueChild = null;
+}
+
+function killAllSidecars() {
+  killApiChild();
+  killQueueChild();
 }
 
 /**
@@ -175,7 +191,7 @@ async function startSelfContainedApi(cfg) {
     return { ok: false, message: apiProcess.interpretDbError(migrate.stderr + '\n' + migrate.stdout) };
   }
 
-  killApiChild();
+  killAllSidecars();
   const spawned = apiProcess.spawnApiServer(API_HOST, API_PORT, extraEnv);
   apiChild = spawned;
   spawned.on('exit', (code) => {
@@ -185,6 +201,18 @@ async function startSelfContainedApi(cfg) {
       dialog.showErrorBox(
         'LSS API stopped',
         'The local API process exited unexpectedly (code ' + code + '). Restart the application.',
+      );
+    }
+  });
+
+  const spawnedQueue = apiProcess.spawnQueueWorker(extraEnv);
+  queueChild = spawnedQueue;
+  spawnedQueue.on('exit', (code) => {
+    if (queueChild !== spawnedQueue) return;
+    if (code !== 0 && code !== null) {
+      dialog.showErrorBox(
+        'LSS queue worker stopped',
+        'The local queue worker exited unexpectedly (code ' + code + '). Restart the application.',
       );
     }
   });
@@ -373,7 +401,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// PLT-14: never leave an orphaned PHP sidecar running after the app quits.
+// PLT-14: never leave orphaned PHP sidecars running after the app quits.
 app.on('will-quit', () => {
-  killApiChild();
+  killAllSidecars();
 });

@@ -58,7 +58,10 @@ try {
 }
 `;
 
-/** Builds the DB_* + SESSION_DRIVER env block injected into the PHP child process. */
+/** Must exceed longest queued job timeout (AnalyzeProject = 660s). */
+const QUEUE_LISTEN_TIMEOUT_SEC = 660;
+
+/** Builds the DB_* + session/cache env block injected into PHP child processes. */
 function buildDbEnv(dbConfig) {
   return {
     DB_CONNECTION: 'pgsql',
@@ -68,6 +71,7 @@ function buildDbEnv(dbConfig) {
     DB_USERNAME: dbConfig.username,
     DB_PASSWORD: dbConfig.password,
     SESSION_DRIVER: 'file',
+    CACHE_STORE: 'file',
   };
 }
 
@@ -178,6 +182,25 @@ function spawnApiServer(host, port, extraEnv) {
 }
 
 /**
+ * Spawns `php artisan queue:listen` with the same env as the API sidecar.
+ * Caller owns lifetime (kill on app quit / API restart).
+ */
+function spawnQueueWorker(extraEnv) {
+  return spawn(
+    'php',
+    [
+      'artisan', 'queue:listen',
+      '--timeout=' + String(QUEUE_LISTEN_TIMEOUT_SEC),
+    ],
+    {
+      cwd: API_DIR,
+      env: Object.assign({}, process.env, extraEnv),
+      windowsHide: true,
+    },
+  );
+}
+
+/**
  * Attempts `CREATE DATABASE` for cfg.database against cfg's Postgres server,
  * connecting to the `postgres` maintenance database. Idempotent: an
  * "already exists" error is treated as success (created: false), since the
@@ -276,10 +299,12 @@ function tail(text, maxLen = 600) {
 
 module.exports = {
   API_DIR,
+  QUEUE_LISTEN_TIMEOUT_SEC,
   buildDbEnv,
   runArtisan,
   waitForHealth,
   spawnApiServer,
+  spawnQueueWorker,
   interpretDbError,
   isValidDatabaseName,
   isMissingDatabaseError,
