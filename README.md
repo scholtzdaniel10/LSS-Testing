@@ -51,16 +51,31 @@ cp .env.example .env && php artisan key:generate
 php artisan migrate --seed
 ```
 
-**Happy path — Docker, where available:**
+**Happy path — Docker (API + worker + Postgres + Redis):**
+
+From the repo root:
 
 ```sh
-docker compose up -d postgres
+docker compose up -d --build
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+Services: **Postgres** `localhost:5432`, **Redis** `localhost:6379`, **API** `http://127.0.0.1:8000` (`GET /api/v1/health`). Env for containers: `apps/api/.env.docker` (override `APP_KEY` with `php artisan key:generate --show` if you rotate it). The entrypoint waits for Postgres, runs `migrate --force`, then starts `artisan serve` or `queue:listen --timeout=660`.
+
+**Web UI against Docker API:** `cd apps/web && npm install && npm run dev` — Vite proxies `/api` to `http://127.0.0.1:8000`. Paste a Sanctum token from `docker compose exec api php artisan token:issue daniel@lss.local --label=web` (after seeding users if needed: `docker compose exec api php artisan db:seed`).
+
+**Local folder linking with Docker:** the API runs in a Linux container, so Windows paths from Settings must map to bind-mounted paths inside the container. In `docker-compose.yml` under `x-api-service.volumes`, add e.g. `C:/LSS:/mnt/lss:ro`, then set `SANDBOX_ALLOW_LOCAL_LINK=true` and `LOCAL_PATH_PREFIXES=/mnt/lss` in `apps/api/.env.docker`. Use the **container** path (`/mnt/lss/...`) as the local project root in the UI, not `C:\...`. Tier 1 Electron is unchanged — it still uses the native PHP sidecar on the host.
+
+**Happy path — Docker, infra only (native API):**
+
+```sh
+docker compose up -d postgres redis
 cd apps/api
 cp .env.example .env && php artisan key:generate
 php artisan migrate --seed
 ```
 
-`docker-compose.yml` provisions Postgres (`lss` / `lss` / database `lss` on port 5432).
+`docker-compose.yml` provisions Postgres (`lss` / `lss` / database `lss` on port 5432) and Redis on 6379.
 
 **SQLite — CI/Pest only, do not use for `artisan serve` or queue workers.**
 `phpunit.xml` already points Pest at an in-memory SQLite DB; no setup needed
@@ -71,8 +86,11 @@ No demo data is seeded — the app starts empty and real projects are registered
 ### Run the apps
 
 ```sh
-# infrastructure (optional — postgres/redis only)
-docker compose up -d
+# full stack (postgres + redis + api + worker) — see "Docker" under Database
+docker compose up -d --build
+
+# or infrastructure only (native php artisan serve on host)
+docker compose up -d postgres redis
 
 # api — raise PHP upload limits for folder imports (default 2M is too small)
 cd apps/api

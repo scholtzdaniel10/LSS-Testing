@@ -1,7 +1,30 @@
-# Infrastructure services for local development (PLT-1).
-# The api and web apps run natively during early development
-# (see CLAUDE.md "Running locally"); app containers are added
-# when PLT-1's full acceptance criterion is closed out.
+# Infrastructure + API engine for local/dev hosting (PLT-1).
+# Tier 1 Electron still spawns its own PHP sidecar — this stack is optional.
+# Web UI: run `cd apps/web && npm run dev` on the host (proxies /api → :8000).
+
+x-api-service: &api-service
+  build:
+    context: ./apps/api
+    dockerfile: Dockerfile
+  env_file:
+    - ./apps/api/.env.docker
+  environment:
+    DB_HOST: postgres
+    REDIS_HOST: redis
+  volumes:
+    - api_storage:/var/www/html/storage
+    # Local-link (optional): expose host folders inside the Linux container, then set
+    # SANDBOX_ALLOW_LOCAL_LINK=true and LOCAL_PATH_PREFIXES to the *container* paths.
+    # Windows Docker Desktop examples:
+    #   - C:/LSS:/mnt/lss:ro
+    #   - C:/Projects:/mnt/projects:ro
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -29,5 +52,22 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    <<: *api-service
+    ports:
+      - "8000:8000"
+    command: ["serve"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  worker:
+    <<: *api-service
+    command: ["worker"]
+
 volumes:
   pgdata:
+  api_storage:
