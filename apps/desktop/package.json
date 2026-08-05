@@ -2,13 +2,16 @@
   "name": "lss-desktop",
   "version": "0.1.0",
   "description": "Electron wrapper for LSS Maintenance System",
+  "author": "scholtzdaniel10",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win"
+    "dist": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win",
+    "dist:dir": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --dir"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "electron": "^31.0.0",
     "electron-builder": "^24.0.0"
   },
@@ -24,14 +27,37 @@
       "server.js",
       "db-config.js",
       "api-process.js",
+      "pg-bundle.js",
       "db-setup.html",
-      "db-setup-renderer.js",
-      "../web/dist/**"
+      "db-setup-renderer.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web-dist"
+      },
+      {
+        "from": "../api",
+        "to": "api",
+        "filter": [
+          "**/*",
+          "!.env",
+          "!.env.*",
+          "!storage/**",
+          "!tests/**",
+          "!database/*.sqlite",
+          "!database/*.sqlite-journal",
+          "!phpunit.xml",
+          "!.phpunit.result.cache",
+          "!composer.phar"
+        ]
+      }
     ],
     "win": {
+      "signAndEditExecutable": false,
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "nsis", "arch": ["x64"] }
       ]
     },
     "nsis": {

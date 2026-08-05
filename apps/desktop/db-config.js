@@ -3,12 +3,12 @@
 /**
  * PLT-14 — local Postgres connection config for portable-exe users.
  *
- * The config (host/port/database/username/password) is stored as JSON in
- * Electron's per-user `userData` directory — never inside the repo/app
- * directory, and never written into any `.env` file. The password is
- * encrypted at rest with Electron `safeStorage` when the OS keychain/DPAPI
- * backend is available; otherwise it is stored plaintext with an explicit
- * `encrypted: false` flag so callers/UI can surface that fact.
+ * The password is owned by the Electron main process only:
+ *   1. previously saved value (safeStorage-encrypted in userData), or
+ *   2. process.env.LSS_DB_PASSWORD, or
+ *   3. DEFAULTS.password
+ * It is injected into the PHP sidecar via buildDbEnv() — never sent to the
+ * renderer / db-setup UI.
  */
 
 const fs = require('fs');
@@ -24,6 +24,8 @@ const DEFAULTS = Object.freeze({
   username: 'lss',
   password: 'lss',
 });
+
+/** @typedef {'bundled' | 'external'} DbMode */
 
 function configPath() {
   return path.join(app.getPath('userData'), CONFIG_FILE_NAME);
@@ -69,14 +71,16 @@ function readRawConfig() {
 function loadConfig() {
   const raw = readRawConfig();
   if (!raw) {
-    return { ...DEFAULTS, isDefault: true, encrypted: false };
+    return { ...DEFAULTS, mode: null, isDefault: true, encrypted: false };
   }
+  const mode = raw.mode === 'bundled' || raw.mode === 'external' ? raw.mode : 'external';
   return {
     host: raw.host || DEFAULTS.host,
     port: Number(raw.port) || DEFAULTS.port,
     database: raw.database || DEFAULTS.database,
     username: raw.username || DEFAULTS.username,
     password: decryptPassword(raw.password, raw.encrypted !== false),
+    mode,
     isDefault: false,
     encrypted: raw.encrypted !== false,
   };
@@ -88,12 +92,14 @@ function loadConfig() {
  * normalised, decrypted-in-memory config (same shape as loadConfig()).
  */
 function saveConfig(cfg) {
+  const mode = cfg.mode === 'bundled' ? 'bundled' : (cfg.mode === 'external' ? 'external' : undefined);
   const normalised = {
     host: (cfg.host || DEFAULTS.host).trim(),
     port: Number(cfg.port) || DEFAULTS.port,
     database: (cfg.database || DEFAULTS.database).trim(),
     username: (cfg.username || DEFAULTS.username).trim(),
   };
+  if (mode) normalised.mode = mode;
   const { password, encrypted } = encryptPassword(cfg.password || '');
 
   const dir = path.dirname(configPath());
@@ -104,7 +110,13 @@ function saveConfig(cfg) {
     { mode: 0o600 },
   );
 
-  return { ...normalised, password: cfg.password || '', isDefault: false, encrypted };
+  return {
+    ...normalised,
+    mode: mode || 'external',
+    password: cfg.password || '',
+    isDefault: false,
+    encrypted,
+  };
 }
 
 /**
@@ -118,6 +130,7 @@ function maskConfig(cfg) {
     port: cfg.port,
     database: cfg.database,
     username: cfg.username,
+    mode: cfg.mode || null,
     hasPassword: Boolean(cfg.password),
     isDefault: Boolean(cfg.isDefault),
     encrypted: Boolean(cfg.encrypted),

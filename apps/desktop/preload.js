@@ -17,16 +17,10 @@
  *     when running outside the desktop launcher (e.g. browser dev).
  *
  *   window.lssDesktop.db  (PLT-14 — Database settings page only)
- *     getStatus() → Promise<{ host, port, database, username, hasPassword,
- *       isDefault, encrypted }>  — never the raw password.
- *     test(candidate) → Promise<{ ok: boolean, message?: string }>
- *       Runs `artisan migrate:status` against the candidate connection.
- *     save(candidate) → Promise<{ ok: boolean, message?: string }>
- *       Persists the config, migrates, and (re)starts the API sidecar.
- *     candidate shape: { host, port, database, username, password }. Typed
- *     values never leave this process except to main.js over IPC — the
- *     renderer never receives another window/tab's or a previously-saved
- *     credential back beyond what the operator just typed.
+ *     getStatus() → masked config — NEVER password.
+ *     test/save(candidate) → host/port/database/username only.
+ *       Password is resolved entirely in main.js (saved safeStorage,
+ *       else LSS_DB_PASSWORD env, else DEFAULTS.password).
  */
 
 const { contextBridge, ipcRenderer } = require('electron');

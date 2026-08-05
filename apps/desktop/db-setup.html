@@ -198,16 +198,10 @@
       </div>
     </div>
 
-    <div class="row">
-      <div class="field">
-        <label for="username">Username</label>
-        <input id="username" type="text" autocomplete="off" />
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input id="password" type="password" autocomplete="off" />
-        <div class="hint" id="password-hint"></div>
-      </div>
+    <div class="field">
+      <label for="username">Username</label>
+      <input id="username" type="text" autocomplete="off" />
+      <div class="hint" id="password-hint">Password is a main-process secret only — not shown or typed here. Uses the saved value, else <code>LSS_DB_PASSWORD</code>, else the built-in default.</div>
     </div>
 
     <div class="actions">
@@ -215,7 +209,7 @@
       <button id="save-btn" type="button" class="primary">Save &amp; start</button>
     </div>
 
-    <div class="status idle" id="status-idle">Enter your Postgres connection details, then Test connection or Save &amp; start.</div>
+    <div class="status idle" id="status-idle">Enter host, port, database, and username. The DB password never appears in the UI.</div>
     <div class="status loading" id="status-loading">Working…</div>
     <div class="status error" id="status-error"></div>
     <div class="status success" id="status-success"></div>

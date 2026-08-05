@@ -31,7 +31,10 @@ const apiProcess = require('./api-process');
 // ── Configuration ─────────────────────────────────────────────────────────────
 const API_HOST = '127.0.0.1';
 const API_PORT = 8000;
-const DIST_DIR = path.resolve(__dirname, '..', 'web', 'dist');
+// Dev: apps/web/dist. Packaged: extraResources copies that folder to resources/web-dist.
+const DIST_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'web-dist')
+  : path.resolve(__dirname, '..', 'web', 'dist');
 const DB_SETUP_HTML = path.join(__dirname, 'db-setup.html');
 const SELF_CONTAINED_API_URL = 'http://' + API_HOST + ':' + API_PORT;
 
@@ -232,16 +235,22 @@ async function startSelfContainedApi(cfg) {
   return { ok: true };
 }
 
-/** Merges a renderer-typed candidate with the stored config's password as a fallback. */
+/** Resolves connection fields from the UI; password never comes from the renderer. */
 function resolveCandidate(candidate) {
   const stored = dbConfig.loadConfig();
   const c = candidate || {};
+  const fromEnv = process.env.LSS_DB_PASSWORD;
+  const password =
+    (typeof fromEnv === 'string' && fromEnv.length > 0)
+      ? fromEnv
+      : (stored.password || dbConfig.DEFAULTS.password);
   return {
     host: (c.host || '').trim() || dbConfig.DEFAULTS.host,
     port: Number(c.port) || dbConfig.DEFAULTS.port,
     database: (c.database || '').trim() || dbConfig.DEFAULTS.database,
     username: (c.username || '').trim() || dbConfig.DEFAULTS.username,
-    password: c.password ? c.password : stored.password,
+    password,
+    mode: c.mode || stored.mode || 'external',
   };
 }
 

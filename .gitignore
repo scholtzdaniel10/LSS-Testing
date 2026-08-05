@@ -11,6 +11,10 @@ desktop.ini
 # Node
 node_modules/
 
+# Electron build output (portable/NSIS + unpacked Chromium)
+apps/desktop/dist-electron*/
+apps/desktop/dist-electron-out*/
+
 # Logs
 *.log
 

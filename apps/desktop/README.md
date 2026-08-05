@@ -60,18 +60,35 @@ set LSS_API_URL=http://192.168.1.10:8000 && npm start
 
 ## Building a distributable installer (Windows)
 
-Requires [electron-builder](https://www.electron.build/) (included as devDependency)
-and must be run on Windows:
+Requires [electron-builder](https://www.electron.build/) (included as a
+devDependency) and must be run on Windows:
 
-```sh
-cd apps/desktop
+```powershell
+# Close any running "LSS Maintenance System" / Electron windows first
+# (otherwise app.asar is locked and the build fails).
+
+cd C:\LSS\LSS-Testing\apps\web
+npm run build
+
+cd C:\LSS\LSS-Testing\apps\desktop
 npm install
 npm run dist
 ```
 
+Signing is **disabled** for local builds (`signAndEditExecutable: false` +
+`CSC_IDENTITY_AUTO_DISCOVERY=false`) so Windows does not need Developer Mode /
+symlink privileges for the unused macOS bits inside `winCodeSign`.
+
 Outputs to `apps/desktop/dist-electron/`:
-- `LSS Maintenance System Setup x.x.x.exe` — NSIS installer
 - `LSS Maintenance System x.x.x.exe` — portable single-file exe
+- `LSS Maintenance System Setup x.x.x.exe` — NSIS installer
+
+If you see `app.asar: … being used by another process`, quit the app (and any
+leftover `electron.exe`), delete `dist-electron\win-unpacked` if needed, then
+re-run `npm run dist`.
+
+Ignore `EBADPLATFORM` / `@esbuild/linux-x64` during `npm install` on Windows —
+that optional dependency is for Linux CI; the web build still succeeds.
 
 ## How it works
 
