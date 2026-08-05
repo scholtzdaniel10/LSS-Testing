@@ -53,7 +53,9 @@ final class UsageReportBuilder
 
         if ($profile->isCi3) {
             $frameworks[] = 'codeigniter-3';
-            $missingDeps[] = 'composer.json (CodeIgniter 3 codebase has no Composer autoloader)';
+        }
+        if ($profile->isLegacyPhpLayout) {
+            $missingDeps[] = 'composer.json (legacy application/ + system/ layout has no Composer autoloader)';
         }
         if ($profile->hasAngular) {
             $frameworks[] = 'angular';

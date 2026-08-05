@@ -24,17 +24,41 @@ final class StackDetector
         $hasPlaywright = is_file($sandboxPath.$sep.'playwright.config.ts')
             || is_file($sandboxPath.$sep.'playwright.config.js');
 
-        // CodeIgniter 3: has application/ + system/ directories but no composer.json.
-        $isCi3 = is_dir($sandboxPath.$sep.'application')
-            && is_dir($sandboxPath.$sep.'system')
-            && ! $hasComposer;
+        $hasLegacyDirs = is_dir($sandboxPath.$sep.'application')
+            && is_dir($sandboxPath.$sep.'system');
+
+        // Legacy PHP layout: application/ + system/ with no Composer autoloader.
+        // Drives PHPStan strategy only — says nothing about which framework.
+        $isLegacyPhpLayout = $hasLegacyDirs && ! $hasComposer;
+
+        // CodeIgniter 3 requires positive evidence (DX-31). The layout alone is
+        // not proof: hand-rolled PHP frameworks use application/ + system/ too,
+        // which made every such codebase report as CodeIgniter 3.
+        $isCi3 = $hasLegacyDirs && $this->hasCodeIgniterMarkers($sandboxPath);
 
         return new StackProfile(
             isCi3: $isCi3,
+            isLegacyPhpLayout: $isLegacyPhpLayout,
             hasComposer: $hasComposer,
             hasPackage: $hasPackage,
             hasAngular: $hasAngular,
             hasPlaywright: $hasPlaywright,
         );
+    }
+
+    /**
+     * Positive CodeIgniter 3 marker files/directories shipped by the framework
+     * itself. Any one of these is proof; their absence means we do not claim it.
+     */
+    private function hasCodeIgniterMarkers(string $sandboxPath): bool
+    {
+        $sep = DIRECTORY_SEPARATOR;
+        $system = $sandboxPath.$sep.'system'.$sep;
+
+        return is_file($system.'core'.$sep.'CodeIgniter.php')
+            || is_file($system.'core'.$sep.'Controller.php')
+            || is_dir($system.'libraries')
+            || is_dir($system.'helpers')
+            || is_dir($system.'database');
     }
 }

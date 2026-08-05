@@ -440,6 +440,11 @@ describe('layoutLeavesHierarchical (IG-14)', () => {
     expect(Math.abs(byFolder.controllers[0] - byFolder.controllers[1])).toBeLessThan(
       Math.abs(byFolder.controllers[0] - libAngle),
     );
+    // app/models is a sibling of app/controllers, so it must sit inside the same
+    // parent sector — closer than the unrelated top-level lib/ folder.
+    expect(Math.abs(byFolder.controllers[0] - modelAngle)).toBeLessThan(
+      Math.abs(byFolder.controllers[0] - libAngle),
+    );
     expect(countLeaves(root)).toBe(4);
   });
 });

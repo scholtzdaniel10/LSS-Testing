@@ -104,7 +104,7 @@ final class PhpStanAdapter implements Analyzer
         $profile = $this->stackDetector->detect($sandboxPath);
         $deep = (bool) config('speed.phpstan_deep', false);
 
-        if ($profile->isCi3) {
+        if ($profile->isLegacyPhpLayout) {
             $shards = [];
             $appRoot = $sandboxPath.DIRECTORY_SEPARATOR.'application';
             if (is_dir($appRoot)) {
@@ -327,7 +327,7 @@ NEON;
             $parallelBlock .= "\n    tmpDir: \"{$cacheDir}\"";
         }
 
-        if ($profile->isCi3) {
+        if ($profile->isLegacyPhpLayout) {
             $scanDirs = $deep
                 ? "        - application\n        - system"
                 : '        - application';
