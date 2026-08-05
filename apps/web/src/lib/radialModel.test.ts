@@ -440,6 +440,11 @@ describe('layoutLeavesHierarchical (IG-14)', () => {
     expect(Math.abs(byFolder.controllers[0] - byFolder.controllers[1])).toBeLessThan(
       Math.abs(byFolder.controllers[0] - libAngle),
     );
+    // app/models shares a parent sector with app/controllers, so it should sit
+    // closer to controllers than the unrelated top-level lib/ folder does.
+    const modelToCtrl = Math.min(...byFolder.controllers.map((a) => Math.abs(a - modelAngle)));
+    const libToCtrl = Math.min(...byFolder.controllers.map((a) => Math.abs(a - libAngle)));
+    expect(modelToCtrl).toBeLessThan(libToCtrl);
     expect(countLeaves(root)).toBe(4);
   });
 });

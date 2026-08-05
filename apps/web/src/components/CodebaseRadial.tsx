@@ -660,13 +660,6 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     });
   }, [radialPerf.tier]);
 
-  const handleFocusUrl = useCallback(
-    (path: string) => {
-      onFocusTree(path);
-    },
-    [onFocusTree],
-  );
-
   const clearFocus = useCallback(() => {
     setFocusFile(null);
     setHoveredFile(null);
