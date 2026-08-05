@@ -9,7 +9,9 @@ namespace App\Services\Import;
 final class StackProfile
 {
     public function __construct(
-        /** Whether the sandbox looks like a CodeIgniter 3 project. */
+        /** application/ + system/ dirs with no Composer autoloader (layout only, not a framework claim). */
+        public readonly bool $isLegacyPhpLayout,
+        /** Whether the sandbox has a verified CodeIgniter 3 marker (DX-31: not just layout). */
         public readonly bool $isCi3,
         /** Whether a composer.json exists. */
         public readonly bool $hasComposer,
