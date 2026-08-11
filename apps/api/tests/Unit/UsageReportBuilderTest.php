@@ -90,6 +90,39 @@ it('reports no services when nothing mentions a known database', function () {
     expect($report['needs']['services'])->toBe([]);
 });
 
+it('does not report react for a preact-only package.json (DX-34)', function () {
+    $root = usageReportSandbox([
+        'package.json' => json_encode(['dependencies' => ['preact' => '^10.0.0']]),
+    ]);
+
+    $report = (new UsageReportBuilder)->build($root);
+    usageReportCleanup($root);
+
+    expect($report['uses']['frameworks'])->not->toContain('react');
+});
+
+it('reports react for an actual react dependency (DX-34)', function () {
+    $root = usageReportSandbox([
+        'package.json' => json_encode(['dependencies' => ['react' => '^18.0.0']]),
+    ]);
+
+    $report = (new UsageReportBuilder)->build($root);
+    usageReportCleanup($root);
+
+    expect($report['uses']['frameworks'])->toContain('react');
+});
+
+it('reports ionic only from an actual @ionic/ dependency, not a coincidental mention (DX-34)', function () {
+    $root = usageReportSandbox([
+        'package.json' => json_encode(['dependencies' => ['@ionic/react' => '^7.0.0']]),
+    ]);
+
+    $report = (new UsageReportBuilder)->build($root);
+    usageReportCleanup($root);
+
+    expect($report['uses']['frameworks'])->toContain('ionic');
+});
+
 it('does not claim CodeIgniter and does detect postgres for the real pilot corpus (opt-in, LSS_PILOT_PATH)', function () {
     $pilotPath = getenv('LSS_PILOT_PATH');
     if ($pilotPath === false || $pilotPath === '' || ! is_dir($pilotPath)) {

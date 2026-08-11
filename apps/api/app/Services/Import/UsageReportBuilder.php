@@ -67,10 +67,10 @@ final class UsageReportBuilder
         }
         if ($profile->hasPackage) {
             $deps = array_merge($deps, $this->npmDeps($sandboxPath));
-            if (! $profile->hasAngular && $this->packageHas($sandboxPath, '@ionic')) {
+            if (! $profile->hasAngular && $this->hasNpmDependencyPrefixed($sandboxPath, '@ionic/')) {
                 $frameworks[] = 'ionic';
             }
-            if ($this->packageHas($sandboxPath, 'react')) {
+            if ($this->hasNpmDependency($sandboxPath, 'react')) {
                 $frameworks[] = 'react';
             }
         }
@@ -214,11 +214,36 @@ final class UsageReportBuilder
         return $out;
     }
 
-    private function packageHas(string $root, string $needle): bool
+    /**
+     * DX-34: exact dependency-key match, not a raw substring search over the
+     * whole file - "react" as a substring also matches unrelated packages
+     * like "preact" or "reactive-extensions".
+     */
+    private function hasNpmDependency(string $root, string $name): bool
     {
-        $raw = (string) File::get($root.DIRECTORY_SEPARATOR.'package.json');
+        return array_key_exists($name, $this->npmDependencyMap($root));
+    }
 
-        return str_contains($raw, $needle);
+    private function hasNpmDependencyPrefixed(string $root, string $prefix): bool
+    {
+        foreach (array_keys($this->npmDependencyMap($root)) as $key) {
+            if (str_starts_with($key, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, string> */
+    private function npmDependencyMap(string $root): array
+    {
+        $json = json_decode((string) File::get($root.DIRECTORY_SEPARATOR.'package.json'), true);
+        if (! is_array($json)) {
+            return [];
+        }
+
+        return array_merge($json['dependencies'] ?? [], $json['devDependencies'] ?? []);
     }
 
     /** @return list<string> */
