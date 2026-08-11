@@ -19,7 +19,6 @@ export type StackProfile = {
  * Falls back to sensible defaults for unknown stacks.
  */
 export function buildStackProfile(frameworks: string[]): StackProfile {
-  // Base token map — extended per stack below
   const folderTokens: Record<string, string> = {
     app: '--series-1',
     application: '--series-1',
@@ -34,27 +33,6 @@ export function buildStackProfile(frameworks: string[]): StackProfile {
     services: '--series-4',
     other: '--series-other',
   };
-
-  // Laravel: use app/ as primary
-  if (frameworks.includes('laravel')) {
-    folderTokens['app'] = '--series-1';
-    folderTokens['routes'] = '--series-2';
-    folderTokens['resources'] = '--series-3';
-    folderTokens['database'] = '--series-4';
-  }
-
-  // CI3: application/ = primary, system/ = secondary
-  if (frameworks.includes('codeigniter-3')) {
-    folderTokens['application'] = '--series-1';
-    folderTokens['system'] = '--series-2';
-  }
-
-  // React/Ionic: src/components, src/pages prominent
-  if (frameworks.includes('react') || frameworks.includes('ionic')) {
-    folderTokens['src'] = '--series-1';
-    folderTokens['components'] = '--series-3';
-    folderTokens['pages'] = '--series-3';
-  }
 
   return { frameworks, folderTokens };
 }
