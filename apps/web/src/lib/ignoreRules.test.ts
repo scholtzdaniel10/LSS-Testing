@@ -30,6 +30,11 @@ describe('IG-17 ignore rules', () => {
     expect(shouldIgnorePath('cache/foo.txt', ['cache', 'logs'])).toBe('cache');
     expect(shouldIgnorePath('src/bar.ts', ['cache', 'logs'])).toBeNull();
   });
+
+  it('skips .phpunit.cache (IG-27: PHPUnit 10+ cache dir, same class as coverage/test-results)', () => {
+    expect(shouldIgnorePath('.phpunit.cache/code-coverage/abc123')).toBe('.phpunit.cache');
+    expect(shouldIgnorePath('.phpunit.cache/test-results')).toBe('.phpunit.cache');
+  });
 });
 
 // ── DX-25: resolveIgnoreDirs merges stack overlays ───────────────────────────

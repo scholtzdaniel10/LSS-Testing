@@ -26,6 +26,7 @@ export const IGNORE_DIRS = [
   '__pycache__',
   'playwright-report',
   'test-results',
+  '.phpunit.cache',
 ] as const;
 
 export type IgnoreStats = {

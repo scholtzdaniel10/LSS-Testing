@@ -43,6 +43,7 @@ return [
         '__pycache__',
         'playwright-report',
         'test-results',
+        '.phpunit.cache',
         'uploads',
         'storage',
         'cache',
