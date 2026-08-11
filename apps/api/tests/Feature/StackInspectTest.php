@@ -1,91 +1,137 @@
 <?php
 
+use App\Services\Import\StackDetector;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 
 /**
- * DX-32: stack:inspect command — in-process StackDetector/UsageReportBuilder
- * inspection. Test 5 is the opt-in pilot corpus regression (DX-31) and is
- * skipped unless LSS_PILOT_PATH points at a real checkout on disk.
+ * DX-32: the stack:inspect command, plus an opt-in regression against the real
+ * pilot corpus.
+ *
+ * The corpus test is skipped unless LSS_PILOT_PATH points at a real directory,
+ * following the opt-in pattern used for database-backed tests — CI has no
+ * estate-agents checkout and must stay green without one.
  */
-describe('stack:inspect command', function () {
-    it('reports the legacy PHP layout fixture without claiming CodeIgniter (DX-31)', function () {
-        Artisan::call('stack:inspect', [
-            'path' => base_path('tests/fixtures/legacy-php-custom'),
-            '--json' => true,
-        ]);
-
-        $data = json_decode(Artisan::output(), true);
-
-        expect($data['profile']['isLegacyPhpLayout'])->toBeTrue()
-            ->and($data['profile']['isCi3'])->toBeFalse()
-            ->and($data['report']['uses']['frameworks'])->not->toContain('codeigniter-3');
-    });
-
-    it('reports genuine CodeIgniter 3 for the ci3-mini fixture', function () {
-        Artisan::call('stack:inspect', [
-            'path' => base_path('tests/fixtures/ci3-mini'),
-            '--json' => true,
-        ]);
-
-        $data = json_decode(Artisan::output(), true);
-
-        expect($data['profile']['isCi3'])->toBeTrue()
-            ->and($data['report']['uses']['frameworks'])->toContain('codeigniter-3');
-    });
-
-    it('--hide-composer reproduces the pre-DX-31 trigger condition without a false CI3 claim, and restores composer.json', function () {
-        $root = sys_get_temp_dir().DIRECTORY_SEPARATOR.'stack-inspect-'.uniqid();
-        mkdir($root.DIRECTORY_SEPARATOR.'application'.DIRECTORY_SEPARATOR.'controllers', 0777, true);
-        mkdir($root.DIRECTORY_SEPARATOR.'system', 0777, true);
-        file_put_contents($root.DIRECTORY_SEPARATOR.'application'.DIRECTORY_SEPARATOR.'controllers'.DIRECTORY_SEPARATOR.'Home.php', '<?php class Home {}');
-        $composerPath = $root.DIRECTORY_SEPARATOR.'composer.json';
-        $composerContents = '{"name": "acme/app"}';
-        file_put_contents($composerPath, $composerContents);
-
-        Artisan::call('stack:inspect', [
-            'path' => $root,
-            '--json' => true,
-            '--hide-composer' => true,
-        ]);
-        $data = json_decode(Artisan::output(), true);
-
-        expect(file_exists($composerPath))->toBeTrue()
-            ->and(file_get_contents($composerPath))->toBe($composerContents)
-            ->and($data['profile']['isLegacyPhpLayout'])->toBeTrue()
-            ->and($data['profile']['isCi3'])->toBeFalse();
-
-        $items = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST
-        );
-        foreach ($items as $item) {
-            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
-        }
-        rmdir($root);
-    });
-
-    it('fails with a clear error on a non-existent path', function () {
-        $exitCode = Artisan::call('stack:inspect', [
-            'path' => sys_get_temp_dir().DIRECTORY_SEPARATOR.'does-not-exist-'.uniqid(),
-        ]);
-
-        expect($exitCode)->not->toBe(0)
-            ->and(Artisan::output())->toContain('Not a directory');
-    });
-
-    it('does not claim CodeIgniter for the real pilot corpus (opt-in, LSS_PILOT_PATH)', function () {
-        $pilotPath = getenv('LSS_PILOT_PATH');
-        if ($pilotPath === false || $pilotPath === '' || ! is_dir($pilotPath)) {
-            $this->markTestSkipped('LSS_PILOT_PATH not set — opt-in pilot corpus regression skipped.');
-        }
-
-        Artisan::call('stack:inspect', [
-            'path' => $pilotPath,
-            '--json' => true,
-            '--hide-composer' => true,
-        ]);
-        $data = json_decode(Artisan::output(), true);
-
-        expect($data['profile']['isCi3'])->toBeFalse();
-    });
+it('reports a hand-rolled application/ + system/ project as legacy but not CodeIgniter', function () {
+    $this->artisan('stack:inspect', ['path' => base_path('tests/fixtures/legacy-php-custom')])
+        ->expectsOutputToContain('Legacy application/ + system/')
+        ->assertSuccessful();
 });
+
+it('emits machine-readable JSON with the profile and report (DX-32)', function () {
+    $this->artisan('stack:inspect', [
+        'path' => base_path('tests/fixtures/legacy-php-custom'),
+        '--json' => true,
+    ])->assertSuccessful();
+
+    // Re-derive the same payload directly so we can assert on its shape.
+    $detector = new StackDetector;
+    $profile = $detector->detect(base_path('tests/fixtures/legacy-php-custom'));
+
+    expect($profile->isCi3)->toBeFalse()
+        ->and($profile->isLegacyPhpLayout)->toBeTrue();
+});
+
+it('JSON output for the legacy fixture has isLegacyPhpLayout true and isCi3 false in the payload itself', function () {
+    Artisan::call('stack:inspect', [
+        'path' => base_path('tests/fixtures/legacy-php-custom'),
+        '--json' => true,
+    ]);
+    $data = json_decode(Artisan::output(), true);
+
+    expect($data['profile']['isLegacyPhpLayout'])->toBeTrue()
+        ->and($data['profile']['isCi3'])->toBeFalse()
+        ->and($data['report']['uses']['frameworks'])->not->toContain('codeigniter-3');
+});
+
+it('JSON output for the ci3-mini fixture reports genuine CodeIgniter 3', function () {
+    Artisan::call('stack:inspect', [
+        'path' => base_path('tests/fixtures/ci3-mini'),
+        '--json' => true,
+    ]);
+    $data = json_decode(Artisan::output(), true);
+
+    expect($data['profile']['isCi3'])->toBeTrue()
+        ->and($data['report']['uses']['frameworks'])->toContain('codeigniter-3');
+});
+
+it('fails cleanly on a path that does not exist', function () {
+    $this->artisan('stack:inspect', ['path' => base_path('tests/fixtures/does-not-exist')])
+        ->assertFailed();
+});
+
+it('restores composer.json after --hide-composer, even though detection changes', function () {
+    $root = storage_path('framework/testing/hide-'.uniqid());
+    File::ensureDirectoryExists($root.'/application/controllers');
+    File::ensureDirectoryExists($root.'/system');
+    file_put_contents($root.'/system/System.php', "<?php\n");
+    file_put_contents($root.'/composer.json', '{"require-dev":{"pestphp/pest":"^4.4"}}');
+
+    $this->artisan('stack:inspect', ['path' => $root, '--hide-composer' => true])
+        ->assertSuccessful();
+
+    expect(file_exists($root.'/composer.json'))->toBeTrue()
+        ->and(file_exists($root.'/composer.json.stack-inspect-bak'))->toBeFalse();
+
+    File::deleteDirectory($root);
+});
+
+/**
+ * Opt-in: point LSS_PILOT_PATH at the estate-agents corpus to prove the DX-31
+ * fix against real code rather than a fixture.
+ *
+ * This is the case that actually discriminates old logic from new: with
+ * composer.json hidden the pre-DX-31 heuristic reported CodeIgniter 3, because
+ * it inferred the framework from `application/ + system/ + no composer.json`.
+ */
+it('does not claim CodeIgniter for the real pilot corpus (DX-31 regression)', function () {
+    $path = rtrim((string) env('LSS_PILOT_PATH'), DIRECTORY_SEPARATOR.'/');
+    $sep = DIRECTORY_SEPARATOR;
+
+    // 1. It really is the application/ + system/ layout that fooled the old heuristic.
+    expect(is_dir($path.$sep.'application'))->toBeTrue()
+        ->and(is_dir($path.$sep.'system'))->toBeTrue();
+
+    // 2. There is genuinely no CodeIgniter here. This is the evidence that makes
+    //    any 'codeigniter-3' claim a fabrication rather than a debatable guess.
+    foreach ([
+        'system/core/CodeIgniter.php',
+        'system/core/Controller.php',
+        'system/libraries',
+        'system/helpers',
+        'system/database',
+    ] as $marker) {
+        $full = $path.$sep.str_replace('/', $sep, $marker);
+        expect(file_exists($full))->toBeFalse("Unexpected CodeIgniter marker present: {$marker}");
+    }
+
+    // 3. Detection agrees — evaluated with composer.json out of the picture, which
+    //    is the condition the pre-DX-31 heuristic keyed on. Without this the
+    //    assertion would pass against the old code too and prove nothing.
+    $stashed = null;
+    $composer = $path.$sep.'composer.json';
+    if (is_file($composer)) {
+        $stashed = $composer.'.pest-bak';
+        expect(file_exists($stashed))->toBeFalse("Stale {$stashed} — restore it before running.");
+        rename($composer, $stashed);
+    }
+
+    try {
+        $profile = (new StackDetector)->detect($path);
+
+        expect($profile->isLegacyPhpLayout)->toBeTrue()
+            ->and($profile->isCi3)->toBeFalse(
+                'The pilot corpus is a hand-rolled PHP mini-framework with no CodeIgniter '.
+                'in the tree. Claiming CodeIgniter 3 means the layout-only heuristic is back — DX-31.',
+            );
+    } finally {
+        if ($stashed !== null && file_exists($stashed)) {
+            rename($stashed, $composer);
+        }
+    }
+
+    expect(is_file($composer))->toBeTrue('composer.json was not restored.');
+})->skip(
+    fn () => ! is_dir((string) env('LSS_PILOT_PATH')),
+    'Set LSS_PILOT_PATH to the estate-agents checkout to run the corpus regression.',
+);

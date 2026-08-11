@@ -115,3 +115,42 @@ it('detects hasPlaywright from playwright.config.js', function () {
 
     expect($profile->hasPlaywright)->toBeTrue();
 });
+
+it('keeps the legacy-layout PHPStan strategy independent of framework identity (DX-31)', function () {
+    $ci3 = (new StackDetector)->detect(base_path('tests/fixtures/ci3-mini'));
+    $custom = (new StackDetector)->detect(base_path('tests/fixtures/legacy-php-custom'));
+
+    // Both need scanDirectories/level-0 handling because neither has an
+    // autoloader — that must not depend on recognising the framework.
+    expect($ci3->isLegacyPhpLayout)->toBe($custom->isLegacyPhpLayout);
+});
+
+it('stops treating a project as legacy layout once Composer is present', function () {
+    $root = stackDetectorSandbox([
+        'application/controllers/Home.php' => '<?php class Home {}',
+        'system/System.php' => "<?php\n",
+    ]);
+
+    $before = (new StackDetector)->detect($root);
+    file_put_contents($root.DIRECTORY_SEPARATOR.'composer.json', '{"require-dev":{"pestphp/pest":"^4.4"}}');
+    $after = (new StackDetector)->detect($root);
+    stackDetectorCleanup($root);
+
+    // Adding a dev-only Composer manifest (e.g. a Pest harness) changes the
+    // autoloader situation but must never be read as framework identity.
+    expect($before->isLegacyPhpLayout)->toBeTrue()
+        ->and($after->isLegacyPhpLayout)->toBeFalse()
+        ->and($before->isCi3)->toBeFalse()
+        ->and($after->isCi3)->toBeFalse();
+});
+
+it('reports no PHP stack for an unrelated directory', function () {
+    $root = stackDetectorSandbox(['src/App.php' => '<?php class App {}']);
+
+    $profile = (new StackDetector)->detect($root);
+    stackDetectorCleanup($root);
+
+    expect($profile->isCi3)->toBeFalse()
+        ->and($profile->isLegacyPhpLayout)->toBeFalse()
+        ->and($profile->hasComposer)->toBeFalse();
+});
