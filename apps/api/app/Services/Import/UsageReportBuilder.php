@@ -240,11 +240,35 @@ final class UsageReportBuilder
         return $keys;
     }
 
+    /**
+     * DX-33: legacy layouts don't all keep DB config under application/ —
+     * system/config/database.{php,conf} is another shape seen in the wild
+     * (e.g. a hand-rolled PHP app with a system/ dir of its own, not CI3).
+     */
     private function mentions(string $root, string $needle): bool
     {
-        foreach (['.env.example', 'composer.json', 'package.json', 'application/config/database.php'] as $rel) {
+        foreach ([
+            '.env.example',
+            'composer.json',
+            'package.json',
+            'application/config/database.php',
+            'system/config/database.php',
+            'system/config/database.conf',
+        ] as $rel) {
             $path = $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $rel);
-            if (is_file($path) && str_contains(strtolower((string) File::get($path)), strtolower($needle))) {
+            if (! is_file($path)) {
+                continue;
+            }
+
+            $contents = (string) File::get($path);
+            if (str_ends_with($rel, '.conf')) {
+                // .conf files use "# ..." comment lines that can list every
+                // supported driver ("ex. PostgreSQL or MySQL") without any
+                // of them being configured - strip comments before matching.
+                $contents = (string) preg_replace('/^\s*#.*$/m', '', $contents);
+            }
+
+            if (str_contains(strtolower($contents), strtolower($needle))) {
                 return true;
             }
         }
