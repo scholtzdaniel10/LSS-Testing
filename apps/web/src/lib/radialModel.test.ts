@@ -470,6 +470,55 @@ describe('buildFolderLayout (IG-14)', () => {
   });
 });
 
+// -- NaN-free coordinate invariant (impact-chain regression) ------------------
+describe('radial layout produces finite coordinates', () => {
+  const polar = (angle: number, r: number, cx: number, cy: number): [number, number] => [
+    cx + r * Math.sin(angle),
+    cy - r * Math.cos(angle),
+  ];
+
+  // Mirror of the impact chain d.php → c.php → b.php → a.php, plus unlinked files.
+  const files = ['a.php', 'b.php', 'c.php', 'd.php', 'unlinked1.php', 'unlinked2.php'];
+  const chainEdges = [edge('b.php', 'a.php'), edge('c.php', 'b.php'), edge('d.php', 'c.php')];
+
+  const assertFinite = (layout: ReturnType<typeof buildRadialLayout>) => {
+    for (const component of layout.components) {
+      const total = countLeaves(component.root);
+      const radius = componentRadius(component.files.length);
+      expect(Number.isFinite(radius)).toBe(true);
+      const { component: capped } = applyRadialRenderCap(
+        component,
+        radialPerformanceProfile(total),
+        noErrors,
+      );
+      const positions = layoutLeavesHierarchical(capped.root, radius, 100, 100, polar);
+      expect(positions.length).toBeGreaterThan(0);
+      for (const p of positions) {
+        expect(Number.isNaN(p.angle)).toBe(false);
+        expect(Number.isNaN(p.x)).toBe(false);
+        expect(Number.isNaN(p.y)).toBe(false);
+        expect(Number.isNaN(p.labelX)).toBe(false);
+        expect(Number.isNaN(p.labelY)).toBe(false);
+      }
+    }
+  };
+
+  it('component grouping yields no NaN leaf/label coordinates', () => {
+    assertFinite(buildRadialLayout(files, chainEdges, noErrors));
+  });
+
+  it('folder grouping yields no NaN leaf/label coordinates', () => {
+    assertFinite(buildFolderLayout(files, chainEdges, noErrors));
+  });
+
+  it('layoutLeavesHierarchical stays finite for a single-leaf hierarchy', () => {
+    const positions = layoutLeavesHierarchical(buildHierarchy(['solo.php']), 60, 0, 0, polar);
+    expect(positions).toHaveLength(1);
+    expect(Number.isNaN(positions[0].x)).toBe(false);
+    expect(Number.isNaN(positions[0].y)).toBe(false);
+  });
+});
+
 describe('radialPerformanceProfile (IG-14 perf)', () => {
   it('allows full detail for small linked sets', () => {
     const p = radialPerformanceProfile(30);

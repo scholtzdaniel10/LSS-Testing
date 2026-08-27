@@ -1009,7 +1009,11 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
           cursor: 'grab',
           overscrollBehavior: 'contain',
           touchAction: 'none',
-          contain: 'strict',
+          // `content` (layout+paint+style) isolates the heavy SVG for perf without
+          // `size` containment. `strict` would add size containment, sizing this
+          // auto-height box as if empty → it collapses to ~0px and `overflow:hidden`
+          // clips the SVG, blanking the map.
+          contain: 'content',
         }}
         role="img"
         aria-label="Codebase radial map"
