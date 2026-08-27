@@ -2,6 +2,7 @@
 
 namespace App\Services\Graph;
 
+use App\Support\Contracts\ContractDocuments;
 use App\Support\Sandbox\IgnoreRules;
 
 /**
@@ -84,7 +85,7 @@ final class DependencyGraphBuilder
     /**
      * Walk the sandbox tree (legacy zip imports). Prefer {@see buildIndexed} when file list exists.
      *
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
+     * @return list<array<string, mixed>>
      */
     public function build(string $sandboxPath): array
     {
@@ -114,7 +115,7 @@ final class DependencyGraphBuilder
      * Scan only known project files (fast path for local-linked large trees).
      *
      * @param  list<string>  $relativePaths
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
+     * @return list<array<string, mixed>>
      */
     public function buildIndexed(string $sandboxPath, array $relativePaths): array
     {
@@ -151,7 +152,7 @@ final class DependencyGraphBuilder
             }
 
             foreach ($parser->parse($relative, $source) as $edge) {
-                $edges[] = $edge;
+                $edges[] = ContractDocuments::edge($edge);
             }
         }
 

@@ -18,7 +18,7 @@ interface FileParser
     /**
      * Extract dependency edges from the source of a single file.
      *
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
+     * @return list<array<string, mixed>>
      */
     public function parse(string $relativePath, string $source): array;
 }

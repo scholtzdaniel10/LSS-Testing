@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Requests\StoreTargetEnvironmentRequest;
 use App\Models\Project;
 use App\Models\TargetEnvironment;
+use App\Support\Contracts\ContractDocuments;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\JsonResponse;
 
@@ -71,12 +72,12 @@ class TargetEnvironmentController extends Controller
     /** @return array<string, mixed> */
     private function serialize(TargetEnvironment $env): array
     {
-        return [
+        return ContractDocuments::targetEnvironment([
             'id' => $env->id,
             'projectId' => $env->project_id,
             'name' => $env->name,
             'baseUrl' => $env->base_url,
             'notes' => $env->notes,
-        ];
+        ]);
     }
 }

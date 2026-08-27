@@ -4,6 +4,11 @@
   "private": true,
   "description": "JSON Schemas for contracts C1-C7 (spec: vault note '00 Architecture & Contracts'). Single source of truth for both apps.",
   "files": [
-    "*.schema.json"
-  ]
+    "*.schema.json",
+    "taxonomy.json"
+  ],
+  "exports": {
+    "./*.schema.json": "./*.schema.json",
+    "./taxonomy.json": "./taxonomy.json"
+  }
 }

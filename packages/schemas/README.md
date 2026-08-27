@@ -17,4 +17,7 @@ C7 (API conventions: envelope, pagination, rate limits) is behavioural, not a
 payload shape — it is enforced by `apps/api` middleware and contract tests.
 
 **Changing a schema requires a decision-log row in the vault Roadmap and a
-version bump in note 00.** Wiring these into both apps' builds is task PLT-9.
+version bump in note 00.** PLT-9 wires these files into both apps: the API
+validates C1–C6 through `App\Support\Contracts\ContractSchema` (same directory
+this package lives in); the web app imports the JSON files and validates with
+Ajv. Never duplicate a schema inside either app.

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Project;
 use App\Support\Cache\ProjectReadCache;
+use App\Support\Contracts\ContractSchema;
 use Illuminate\Http\JsonResponse;
 
 class UsageReportController extends Controller
@@ -18,9 +19,14 @@ class UsageReportController extends Controller
                 return null;
             }
 
+            $document = $report->report;
+            if (is_array($document)) {
+                ContractSchema::validate(ContractSchema::C4, $document);
+            }
+
             return [
                 'projectId' => $project->id,
-                'report' => $report->report,
+                'report' => $document,
                 'createdAt' => $report->created_at?->toIso8601String(),
             ];
         });

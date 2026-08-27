@@ -13,7 +13,7 @@ final class HtmlFileParser implements FileParser
     }
 
     /**
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
+     * @return list<array<string, mixed>>
      */
     public function parse(string $relativePath, string $source): array
     {
@@ -27,11 +27,11 @@ final class HtmlFileParser implements FileParser
                 $to = str_starts_with($target, 'http://') || str_starts_with($target, 'https://') || str_starts_with($target, '//')
                     ? 'pkg:'.$target
                     : $this->resolveRelative($relativePath, $target);
+                // C3: omit `line` when unknown (integer min 1; null is invalid).
                 $edges[] = [
                     'from' => $relativePath,
                     'to' => $to,
                     'kind' => 'include',
-                    'line' => null,
                 ];
             }
         }
