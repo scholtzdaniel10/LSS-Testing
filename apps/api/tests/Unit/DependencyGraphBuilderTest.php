@@ -15,6 +15,11 @@ it('extracts html script and stylesheet links', function () {
     expect($edges)->toHaveCount(2)
         ->and(collect($edges)->pluck('to')->all())->toContain('deeltitel.css', 'finwaardes.js');
 
+    foreach ($edges as $edge) {
+        expect($edge)->not->toHaveKey('line')
+            ->and($edge['kind'])->toBe('include');
+    }
+
     array_map('unlink', glob($root.'/*') ?: []);
     rmdir($root);
 });

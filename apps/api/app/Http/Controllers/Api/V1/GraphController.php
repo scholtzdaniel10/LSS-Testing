@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Project;
 use App\Support\Cache\ProjectReadCache;
+use App\Support\Contracts\ContractDocuments;
 use Illuminate\Http\JsonResponse;
 
 class GraphController extends Controller
@@ -26,7 +27,13 @@ class GraphController extends Controller
                 return [
                     'projectId' => $project->id,
                     'scannedAt' => $snapshot->scanned_at?->toIso8601String(),
-                    'edges' => $snapshot->edges,
+                    'edges' => array_values(array_map(
+                        static fn (array $edge): array => ContractDocuments::edge($edge),
+                        array_filter(
+                            is_array($snapshot->edges) ? $snapshot->edges : [],
+                            'is_array',
+                        ),
+                    )),
                 ];
             },
         );

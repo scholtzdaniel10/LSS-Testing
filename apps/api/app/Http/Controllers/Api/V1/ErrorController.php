@@ -8,6 +8,7 @@ use App\Models\Project;
 use App\Models\Scan;
 use App\Services\Diagnostics\ImpactResolver;
 use App\Support\Api\ApiResponse;
+use App\Support\Contracts\ContractDocuments;
 use Illuminate\Http\JsonResponse;
 
 class ErrorController extends Controller
@@ -51,7 +52,7 @@ class ErrorController extends Controller
 
         $paginator = $query
             ->cursorPaginate($filters['per_page'] ?? 50)
-            ->through(fn (DiagnosticError $error): array => [
+            ->through(fn (DiagnosticError $error): array => ContractDocuments::finding([
                 'id' => $error->id,
                 'source' => $error->source,
                 'ruleId' => $error->rule_id,
@@ -67,7 +68,7 @@ class ErrorController extends Controller
                 'downstream' => $resolver !== null
                     ? $resolver->downstream($error->file, $depth)
                     : ($error->downstream ?? []),
-            ]);
+            ]));
 
         /** @var array<string, string> $analyserStatus */
         $analyserStatus = is_array($scan->analyser_status) ? $scan->analyser_status : [];

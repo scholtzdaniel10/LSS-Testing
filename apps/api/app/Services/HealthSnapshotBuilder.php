@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\DiagnosticError;
 use App\Models\Project;
 use App\Models\Scan;
+use App\Support\Contracts\ContractSchema;
 use Illuminate\Support\Collection;
 
 /**
@@ -59,7 +60,7 @@ class HealthSnapshotBuilder
             $hotspots,
         );
 
-        return [
+        $document = [
             'projectId' => $project->id,
             'takenAt' => now()->toIso8601String(),
             'scores' => $scores,
@@ -76,6 +77,10 @@ class HealthSnapshotBuilder
             ],
             'topIssues' => $this->topIssues($this->worstErrors($scan), $needs, $hotspots),
         ];
+
+        ContractSchema::validate(ContractSchema::C2, $document);
+
+        return $document;
     }
 
     /**
@@ -212,7 +217,7 @@ class HealthSnapshotBuilder
                 'dimension' => 'errors',
                 'refType' => 'error',
                 'refId' => $error->id,
-                'summary' => $error->message,
+                'summary' => $error->message !== '' ? $error->message : (string) $error->rule_id,
             ];
         }
 

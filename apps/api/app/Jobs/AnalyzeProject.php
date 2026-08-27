@@ -10,6 +10,7 @@ use App\Services\Graph\DependencyGraphBuilder;
 use App\Services\Graph\IncrementalGraphBuilder;
 use App\Services\Import\UsageReportBuilder;
 use App\Support\Cache\ProjectReadCache;
+use App\Support\Contracts\ContractDocuments;
 use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -55,7 +56,7 @@ class AnalyzeProject implements ShouldQueue
             ->pluck('path')
             ->all();
 
-        $edges = $incrementalGraph->buildIndexed($project->id, $sandbox, $paths);
+        $edges = ContractDocuments::edges($incrementalGraph->buildIndexed($project->id, $sandbox, $paths));
         $project->graphSnapshots()->create([
             'scanned_at' => now(),
             'edges' => $edges,

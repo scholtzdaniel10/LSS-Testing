@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Models\Project;
 use App\Models\UsageReport;
+use App\Support\Contracts\ContractSchema;
 use Illuminate\Support\Facades\File;
 
 /**
@@ -94,7 +95,7 @@ final class UsageReportBuilder
             $services[] = 'mysql';
         }
 
-        return [
+        $report = [
             'uses' => [
                 'languages' => array_values(array_unique($languages)),
                 'frameworks' => array_values(array_unique($frameworks)),
@@ -106,6 +107,10 @@ final class UsageReportBuilder
                 'services' => array_values(array_unique($services)),
             ],
         ];
+
+        ContractSchema::validate(ContractSchema::C4, $report);
+
+        return $report;
     }
 
     public function persist(Project $project, array $report): UsageReport

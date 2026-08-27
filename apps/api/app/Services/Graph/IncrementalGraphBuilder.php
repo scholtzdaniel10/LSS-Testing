@@ -2,6 +2,7 @@
 
 namespace App\Services\Graph;
 
+use App\Support\Contracts\ContractDocuments;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -15,7 +16,7 @@ final class IncrementalGraphBuilder
 
     /**
      * @param  list<string>  $relativePaths
-     * @return list<array{from: string, to: string, kind: string, line: int|null}>
+     * @return list<array<string, mixed>>
      */
     public function buildIndexed(string $projectId, string $sandboxPath, array $relativePaths): array
     {
@@ -55,7 +56,9 @@ final class IncrementalGraphBuilder
                 $cached = Cache::get($edgesKey);
                 if (is_array($cached)) {
                     foreach ($cached as $edge) {
-                        $edges[] = $edge;
+                        if (is_array($edge)) {
+                            $edges[] = ContractDocuments::edge($edge);
+                        }
                     }
 
                     continue;

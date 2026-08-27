@@ -1,3 +1,5 @@
+import { assertContract } from '../lib/contracts';
+
 export type ApiProblem = {
   status?: number;
   title?: string;
@@ -244,30 +246,53 @@ export const api = {
     });
   },
   job: (id: string) => request<JobStatus>(`/jobs/${id}`),
-  healthReport: (id: string) => request<HealthSnapshot | null>(`/projects/${id}/health-report`),
-  healthHistory: (id: string) => request<HealthSnapshot[]>(`/projects/${id}/health-report/history`),
+  healthReport: (id: string) =>
+    request<HealthSnapshot | null>(`/projects/${id}/health-report`).then((env) => {
+      if (env.data) assertContract('health-snapshot', env.data);
+      return env;
+    }),
+  healthHistory: (id: string) =>
+    request<HealthSnapshot[]>(`/projects/${id}/health-report/history`).then((env) => {
+      for (const snap of env.data ?? []) assertContract('health-snapshot', snap);
+      return env;
+    }),
   bootstrap: (id: string) =>
     request<{
       project: Project;
       health: HealthSnapshot | null;
       usage: UsageReport | null;
       analysers: AnalyserStatuses;
-    }>(`/projects/${id}/bootstrap`),
+    }>(`/projects/${id}/bootstrap`).then((env) => {
+      if (env.data.health) assertContract('health-snapshot', env.data.health);
+      if (env.data.usage) assertContract('usage-report', env.data.usage);
+      return env;
+    }),
   graph: (id: string) =>
-    request<{ projectId: string; scannedAt: string; edges: GraphEdge[] } | null>(`/projects/${id}/graph`),
+    request<{ projectId: string; scannedAt: string; edges: GraphEdge[] } | null>(`/projects/${id}/graph`).then(
+      (env) => {
+        for (const edge of env.data?.edges ?? []) assertContract('dependency-edge', edge);
+        return env;
+      },
+    ),
   usageReport: (id: string) =>
     request<{ projectId: string; report: UsageReport; createdAt: string | null } | null>(
       `/projects/${id}/usage-report`,
-    ),
+    ).then((env) => {
+      if (env.data?.report) assertContract('usage-report', env.data.report);
+      return env;
+    }),
   // DX-9: depth 1–3 controls the downstream view (default 1 = direct dependents).
   errors: (id: string, depth?: number) =>
     request<DiagnosticFinding[]>(
       `/projects/${id}/errors${depth ? `?depth=${depth}` : ''}`,
-    ).then((env) => ({
-      ...env,
-      analysers: (env.meta?.analysers as AnalyserStatuses | undefined) ?? {},
-      chains: (env.meta?.chains as ErrorChain[] | undefined) ?? [],
-    })),
+    ).then((env) => {
+      for (const finding of env.data ?? []) assertContract('diagnostic-error', finding);
+      return {
+        ...env,
+        analysers: (env.meta?.analysers as AnalyserStatuses | undefined) ?? {},
+        chains: (env.meta?.chains as ErrorChain[] | undefined) ?? [],
+      };
+    }),
   tree: (id: string) => request<TreeFile[]>(`/projects/${id}/tree`),
   file: (id: string, path: string) =>
     request<{
@@ -282,12 +307,19 @@ export const api = {
     request<{ analyzeJobId: string; snapshotJobId: string }>(`/projects/${id}/rescan`, { method: 'POST' }),
   analyze: (id: string) => request<{ jobId: string }>(`/projects/${id}/analyze`, { method: 'POST' }),
   snapshot: (id: string) => request<{ jobId: string }>(`/projects/${id}/snapshot`, { method: 'POST' }),
-  targetEnvs: (id: string) => request<TargetEnvironment[]>(`/projects/${id}/target-environments`),
+  targetEnvs: (id: string) =>
+    request<TargetEnvironment[]>(`/projects/${id}/target-environments`).then((env) => {
+      for (const item of env.data ?? []) assertContract('target-environment', item);
+      return env;
+    }),
   saveTargetEnv: (id: string, body: { name: string; baseUrl: string; notes?: string }) =>
     request<TargetEnvironment>(`/projects/${id}/target-environments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    }).then((env) => {
+      assertContract('target-environment', env.data);
+      return env;
     }),
   probeTarget: (projectId: string, envId: string) =>
     request<{ reachable: boolean; status: number | null; error: string | null }>(
