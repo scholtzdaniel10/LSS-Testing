@@ -717,7 +717,13 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     }
     const contentW = maxX - minX;
     const contentH = maxY - minY;
-    const viewW = svgRef.current?.clientWidth ?? SVG_WIDTH;
+    // Before the canvas is laid out, `clientWidth` is 0. `?? SVG_WIDTH` does NOT
+    // catch that (0 is not nullish), so viewW became 0 → the fit divided the
+    // viewport by an unmeasured width, clamping zoom to its floor and panning the
+    // map off-screen (looks blank). Treat any non-positive width as unmeasured
+    // and fall back to the fixed canvas width so the fit stays sane.
+    const measuredWidth = svgRef.current?.clientWidth ?? 0;
+    const viewW = measuredWidth > 0 ? measuredWidth : SVG_WIDTH;
     const fitZoom = Math.min(1, (viewW - pad * 2) / contentW, (svgDisplayHeight - pad * 2) / contentH);
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
