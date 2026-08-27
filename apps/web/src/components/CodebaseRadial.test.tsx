@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import CodebaseRadial from './CodebaseRadial';
 import type { DiagnosticFinding, GraphEdge, TreeFile } from '../api/client';
+import { resizeObserverMocks, triggerResizeObservers } from '../setupTests';
 
 // Impact-chain fixture: d.php → c.php → b.php → a.php (one connected component).
 const files: TreeFile[] = [
@@ -122,6 +123,44 @@ describe('CodebaseRadial — map renders', () => {
     expect(Number.isFinite(scale)).toBe(true);
     expect(Number.isFinite(tx)).toBe(true);
     expect(Number.isFinite(ty)).toBe(true);
+  });
+
+  it('re-fits the Map once the canvas width is measured (ResizeObserver)', () => {
+    // The canvas mounts unmeasured/tiny (fit clamps zoom to its 0.2 floor and
+    // pans the map off-screen → blank). A ResizeObserver must feed the real
+    // width back in and re-run the fit. Without it the first fit is locked by
+    // `lastFitKey` and never recovers.
+    resizeObserverMocks.length = 0;
+    const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+    let width = 100; // small, measured width → clamped fit
+    Object.defineProperty(Element.prototype, 'clientWidth', {
+      configurable: true,
+      get() { return width; },
+    });
+    try {
+      const { container } = renderMap();
+      const before = readTransform(container);
+      // Mounted tiny → zoom pinned to the floor.
+      expect(before.scale).toBeCloseTo(0.2, 5);
+
+      // The browser measures the canvas at its real width.
+      width = 640;
+      act(() => { triggerResizeObservers(); });
+
+      const after = readTransform(container);
+      expect(after.scale).toBeGreaterThan(0.2);
+      expect(after.tx).toBeGreaterThan(0);
+      expect(after.scale).not.toBeCloseTo(before.scale, 5);
+
+      // Geometry stays NaN-free through the re-fit.
+      const svg = container.querySelector('svg[viewBox]')!;
+      const bad: string[] = [];
+      svg.querySelectorAll('circle').forEach((c) => { if (c.getAttribute('cx') === 'NaN') bad.push('cx NaN'); });
+      svg.querySelectorAll('path').forEach((p) => { const d = p.getAttribute('d'); if (d && d.includes('NaN')) bad.push('d NaN'); });
+      expect(bad).toEqual([]);
+    } finally {
+      if (desc) Object.defineProperty(Element.prototype, 'clientWidth', desc);
+    }
   });
 
   it('does not collapse the fit when the canvas width is still unmeasured (0)', () => {

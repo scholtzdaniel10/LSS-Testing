@@ -487,8 +487,25 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
   const didPan = useRef(false);
   const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
   const hoverPending = useRef<string | null>(null);
   const hoverRaf = useRef<number | null>(null);
+
+  // Measured canvas width, 0 until the browser lays the canvas out. The fit
+  // effect needs the real viewport width to centre content; on the first render
+  // (and while a lazy Suspense chunk mounts) the canvas is still unmeasured, so
+  // a ResizeObserver feeds the measurement back in and re-runs the fit.
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+
+  useEffect(() => {
+    const el = canvasWrapRef.current;
+    if (!el) return;
+    const measure = () => setMeasuredWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => () => {
     if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current);
@@ -691,7 +708,10 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     ? Math.min(svgHeight, window.innerHeight * 0.65)
     : svgHeight;
 
-  const layoutFitKey = `${groupingMode}|${drillChain.join('>')}|${renderComponents.map((c) => `${c.index}:${c.files.length}`).join(',')}`;
+  // Include the measured width so the fit re-runs once the canvas is actually
+  // sized (and on later resizes). Without it the first fit — computed while the
+  // canvas is unmeasured — is locked by `lastFitKey` and the map stays blank.
+  const layoutFitKey = `${groupingMode}|${drillChain.join('>')}|${Math.round(measuredWidth)}|${renderComponents.map((c) => `${c.index}:${c.files.length}`).join(',')}`;
   const lastFitKey = useRef('');
 
   // Fit packed circles into the viewport when grouping or drill context changes.
@@ -717,12 +737,9 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     }
     const contentW = maxX - minX;
     const contentH = maxY - minY;
-    // Before the canvas is laid out, `clientWidth` is 0. `?? SVG_WIDTH` does NOT
-    // catch that (0 is not nullish), so viewW became 0 → the fit divided the
-    // viewport by an unmeasured width, clamping zoom to its floor and panning the
-    // map off-screen (looks blank). Treat any non-positive width as unmeasured
-    // and fall back to the fixed canvas width so the fit stays sane.
-    const measuredWidth = svgRef.current?.clientWidth ?? 0;
+    // Before the canvas is laid out, the measured width is 0. Fall back to the
+    // fixed canvas width so the fit stays sane; the ResizeObserver re-runs this
+    // effect (via `measuredWidth` in the fit key) once the real width is known.
     const viewW = measuredWidth > 0 ? measuredWidth : SVG_WIDTH;
     const fitZoom = Math.min(1, (viewW - pad * 2) / contentW, (svgDisplayHeight - pad * 2) / contentH);
     const cx = (minX + maxX) / 2;
@@ -731,7 +748,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     setZoom(z);
     setPanX(viewW / (2 * z) - cx);
     setPanY(svgDisplayHeight / (2 * z) - cy);
-  }, [layoutFitKey, layout.components.length, placements, svgDisplayHeight, resetView]);
+  }, [layoutFitKey, layout.components.length, placements, svgDisplayHeight, measuredWidth, resetView]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
@@ -1006,6 +1023,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
 
       {/* SVG radial canvas with zoom/pan */}
       <div
+        ref={canvasWrapRef}
         style={{
           overflow: 'hidden',
           maxHeight: '65vh',
