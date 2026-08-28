@@ -7,25 +7,21 @@ import {
   defaultExpandedFolders,
   expansionChainForFile,
 } from '../lib/graphModel';
-import { useProject } from '../state/ProjectContext';
+import { useProject, type RollupMeta } from '../state/ProjectContext';
 import { loadEditorSettings, openInIde } from '../types';
-import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
+import type { GraphRollup } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 
 type ExploreView = 'map' | 'graph';
 
-const CodebaseRadial = lazy(() => import('../components/CodebaseRadial'));
+const RollupMap = lazy(() => import('../components/RollupMap'));
 const DependencyGraph = lazy(() => import('../components/DependencyGraph'));
 
-// ── RadialPanel — inner component to keep complex ternaries out of JSX attrs ──
 type RadialPanelProps = {
   status: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
   errorMessage: string | null;
-  allFilePaths: string[];
-  localManifest: LocalProjectManifest | null;
-  graphEdges: GraphEdge[];
-  errors: DiagnosticFinding[];
-  tree: TreeFile[];
+  rollup: GraphRollup | null;
+  rollupMeta: RollupMeta;
   focusPath: string | null;
   onFocusTree: (path: string) => void;
 };
@@ -33,48 +29,42 @@ type RadialPanelProps = {
 function RadialPanel({
   status,
   errorMessage,
-  allFilePaths,
-  localManifest,
-  graphEdges,
-  errors,
-  tree,
+  rollup,
+  rollupMeta,
   focusPath,
   onFocusTree,
 }: RadialPanelProps) {
-  const hasData = allFilePaths.length > 0 || localManifest != null;
   let screenStatus: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
   if (status === 'error') {
     screenStatus = 'error';
-  } else if (status === 'ready' && !hasData) {
+  } else if (status === 'empty') {
     screenStatus = 'empty';
-  } else if (hasData) {
+  } else if (status === 'ready' && rollup != null) {
     screenStatus = 'ready';
+  } else if (status === 'ready') {
+    screenStatus = 'empty';
   } else {
     screenStatus = status;
   }
 
-  const treeFiles: TreeFile[] = tree.length > 0
-    ? tree
-    : (localManifest?.files ?? []).map((f) => ({ path: f.path, size: 0, lang: null as string | null }));
+  const emptyHint =
+    rollupMeta.reason === 'no-graph-yet'
+      ? 'No snapshot yet — run Analyze or Re-scan from the Projects page.'
+      : 'No folders in the rollup — Map waits for graph/rollup, not file dots.';
 
   return (
-    <ScreenState
-      status={screenStatus}
-      errorMessage={errorMessage}
-      emptyHint="No snapshot yet — run Analyze or Re-scan from the Projects page."
-    >
-      <CodebaseRadial
-        edges={graphEdges}
-        findings={errors}
-        files={treeFiles}
-        focusParam={focusPath}
-        onFocusTree={onFocusTree}
-      />
+    <ScreenState status={screenStatus} errorMessage={errorMessage} emptyHint={emptyHint}>
+      {rollup != null && (
+        <RollupMap
+          rollup={rollup}
+          meta={rollupMeta}
+          focusParam={focusPath}
+          onSelectFolder={onFocusTree}
+        />
+      )}
     </ScreenState>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 const SERIES: Record<string, string> = {
   app: 'var(--series-1)',
@@ -91,7 +81,26 @@ const ExplorePage: React.FC = () => {
   const ref = useEntrance();
   const location = useLocation();
   const history = useHistory();
-  const { tree, graphEdges, errors, localManifest, status, errorMessage, usage, project, ensureExploreData } = useProject();
+  const {
+    tree,
+    graphEdges,
+    graphRollup,
+    rollupStatus,
+    rollupError,
+    rollupMeta,
+    errors,
+    localManifest,
+    status,
+    errorMessage,
+    usage,
+    project,
+    ensureExploreData,
+    ensureMapRollup,
+  } = useProject();
+
+  useEffect(() => {
+    if (status === 'ready' && project?.id) void ensureMapRollup();
+  }, [ensureMapRollup, project?.id, status]);
 
   useEffect(() => {
     void ensureExploreData();
@@ -218,9 +227,9 @@ const ExplorePage: React.FC = () => {
   );
 
   const outerScreenStatus = (
-    status === 'ready' && treeNodes.length === 0 && !localManifest ? 'empty'
+    status === 'ready' && treeNodes.length === 0 && !localManifest && rollupStatus !== 'ready' && rollupStatus !== 'loading' ? 'empty'
     : status === 'error' ? 'error'
-    : treeNodes.length > 0 || localManifest ? 'ready'
+    : treeNodes.length > 0 || localManifest || rollupStatus === 'ready' || rollupStatus === 'loading' ? 'ready'
     : status
   ) as 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 
@@ -332,7 +341,7 @@ const ExplorePage: React.FC = () => {
                 </h2>
                 <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
                   <span className="panel__hint">
-                    {activeView === 'map' ? 'folder sectors · hierarchical layout' : 'module clusters · drill down on click'}
+                    {activeView === 'map' ? 'folder hubs · from rollup' : 'module clusters · drill down on click'}
                   </span>
                   <div
                     role="group"
@@ -378,13 +387,10 @@ const ExplorePage: React.FC = () => {
               {activeView === 'map' ? (
                 <Suspense fallback={<p className="panel__hint">Loading map…</p>}>
                   <RadialPanel
-                    status={status}
-                    errorMessage={errorMessage}
-                    allFilePaths={allFilePaths}
-                    localManifest={localManifest}
-                    graphEdges={graphEdges}
-                    errors={errors}
-                    tree={tree}
+                    status={rollupStatus}
+                    errorMessage={rollupError}
+                    rollup={graphRollup}
+                    rollupMeta={rollupMeta}
                     focusPath={focusPath}
                     onFocusTree={handleFocusTree}
                   />
