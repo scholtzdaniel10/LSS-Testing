@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AnalyzeController;
 use App\Http\Controllers\Api\V1\BootstrapController;
 use App\Http\Controllers\Api\V1\ErrorController;
+use App\Http\Controllers\Api\V1\GraphAggregateController;
 use App\Http\Controllers\Api\V1\GraphController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\HealthReportController;
@@ -43,6 +44,9 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::get('/projects/{project}/health-report', [HealthReportController::class, 'show']);
         Route::get('/projects/{project}/health-report/history', [HealthReportController::class, 'history']);
         Route::get('/projects/{project}/graph', [GraphController::class, 'show']);
+        // IG-29: ranked overview slice — does not replace GET /graph.
+        Route::get('/projects/{project}/graph/overview', [GraphAggregateController::class, 'overview']);
+        Route::get('/projects/{project}/graph/rollup', [GraphAggregateController::class, 'rollup']);
         Route::get('/projects/{project}/usage-report', [UsageReportController::class, 'show']);
         Route::get('/projects/{project}/errors', [ErrorController::class, 'index']);
         Route::get('/projects/{project}/bootstrap', [BootstrapController::class, 'show']);
