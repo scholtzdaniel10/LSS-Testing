@@ -11,8 +11,8 @@ use Illuminate\Http\JsonResponse;
 class GraphAggregateController extends Controller
 {
     /**
-     * GET /projects/{project}/graph/overview — ranked folder-hub + file slice.
-     * Existing GET /graph is unchanged.
+     * IG-29: GET /projects/{project}/graph/overview — ranked folder-hub + file
+     * slice. Existing GET /graph is unchanged.
      */
     public function overview(
         GraphOverviewRequest $request,

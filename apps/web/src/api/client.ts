@@ -282,6 +282,7 @@ export const api = {
     }>(`/projects/${id}/bootstrap`),
   graph: (id: string) =>
     request<{ projectId: string; scannedAt: string; edges: GraphEdge[] } | null>(`/projects/${id}/graph`),
+  /** IG-29: ranked overview slice — does not replace `graph()`. */
   graphOverview: (id: string, limit?: number) =>
     request<GraphOverview | null>(
       `/projects/${id}/graph/overview${limit != null ? `?limit=${limit}` : ''}`,

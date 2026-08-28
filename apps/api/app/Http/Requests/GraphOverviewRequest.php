@@ -5,7 +5,7 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Query params for GET /projects/{project}/graph/overview.
+ * IG-29: query params for GET /projects/{project}/graph/overview.
  * `limit` is a fileCap (default 40); out-of-range values are clamped to
  * 1…config('graph.aggregate_max_nodes'). Non-numeric values still 422.
  */

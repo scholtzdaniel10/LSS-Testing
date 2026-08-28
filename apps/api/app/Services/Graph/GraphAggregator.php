@@ -3,8 +3,8 @@
 namespace App\Services\Graph;
 
 /**
- * Server-side graph overview: collapsed folder hubs plus a ranked file slice
- * so the client can paint an overview without downloading the full C3 blob.
+ * IG-29: server-side graph overview so the client can paint an overview
+ * without downloading the full C3 blob.
  *
  * Ranking copies apps/web/src/lib/graphModel.ts (folderOf, isExternalRef,
  * collapse with expanded=∅ / showExternal=false, hugeGraphOverviewKeep).
