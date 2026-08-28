@@ -1,40 +1,43 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import ScreenState, { COMPUTING_HINT } from './ScreenState';
+import ScreenState, { LOADING_HINT, toScreenStatus } from './ScreenState';
 
 describe('ScreenState', () => {
-  it('keeps children mounted while computing and shows a Laying out hint', () => {
-    render(
-      <ScreenState status="computing" errorMessage={null} emptyHint="">
-        <div data-testid="last-frame">previous canvas</div>
-      </ScreenState>,
-    );
-
-    expect(screen.getByTestId('last-frame')).toHaveTextContent('previous canvas');
-    expect(screen.getByRole('status')).toHaveTextContent(COMPUTING_HINT);
-    expect(document.querySelector('.skeleton-block')).toBeNull();
+  it('maps fetch idle/ready onto note 09 loading/loaded', () => {
+    expect(toScreenStatus('idle')).toBe('loading');
+    expect(toScreenStatus('ready')).toBe('loaded');
+    expect(toScreenStatus('loading')).toBe('loading');
+    expect(toScreenStatus('empty')).toBe('empty');
+    expect(toScreenStatus('error')).toBe('error');
   });
 
-  it('replaces children with a skeleton while loading', () => {
+  it('keeps children mounted while loading when a last frame exists', () => {
     render(
       <ScreenState status="loading" errorMessage={null} emptyHint="">
         <div data-testid="last-frame">previous canvas</div>
       </ScreenState>,
     );
 
-    expect(screen.queryByTestId('last-frame')).not.toBeInTheDocument();
-    expect(document.querySelector('.skeleton-block')).not.toBeNull();
-    expect(screen.queryByText(COMPUTING_HINT)).not.toBeInTheDocument();
+    expect(screen.getByTestId('last-frame')).toHaveTextContent('previous canvas');
+    expect(screen.getByRole('status')).toHaveTextContent(LOADING_HINT);
+    expect(document.querySelector('.skeleton-block')).toBeNull();
   });
 
-  it('renders children alone when ready', () => {
+  it('shows a skeleton while loading when there is no last frame', () => {
+    render(<ScreenState status="loading" errorMessage={null} emptyHint="" />);
+
+    expect(document.querySelector('.skeleton-block')).not.toBeNull();
+    expect(screen.queryByText(LOADING_HINT)).not.toBeInTheDocument();
+  });
+
+  it('renders children alone when loaded', () => {
     render(
-      <ScreenState status="ready" errorMessage={null} emptyHint="">
+      <ScreenState status="loaded" errorMessage={null} emptyHint="">
         <div data-testid="last-frame">canvas</div>
       </ScreenState>,
     );
 
     expect(screen.getByTestId('last-frame')).toBeInTheDocument();
-    expect(screen.queryByText(COMPUTING_HINT)).not.toBeInTheDocument();
+    expect(screen.queryByText(LOADING_HINT)).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
-import ScreenState from '../components/ScreenState';
+import ScreenState, { toScreenStatus, type ScreenStatus } from '../components/ScreenState';
 import ExploreFileTree from '../components/ExploreFileTree';
 import {
   buildFileTree,
@@ -32,17 +32,17 @@ function RadialPanel({
   rollupMeta,
   focusPath,
 }: RadialPanelProps) {
-  let screenStatus: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+  let screenStatus: ScreenStatus;
   if (status === 'error') {
     screenStatus = 'error';
   } else if (status === 'empty') {
     screenStatus = 'empty';
   } else if (status === 'ready' && rollup != null) {
-    screenStatus = 'ready';
+    screenStatus = 'loaded';
   } else if (status === 'ready') {
     screenStatus = 'empty';
   } else {
-    screenStatus = status;
+    screenStatus = toScreenStatus(status);
   }
 
   const emptyHint =
@@ -52,13 +52,13 @@ function RadialPanel({
 
   return (
     <ScreenState status={screenStatus} errorMessage={errorMessage} emptyHint={emptyHint}>
-      {rollup != null && (
+      {screenStatus === 'loaded' && rollup != null ? (
         <RollupMap
           rollup={rollup}
           meta={rollupMeta}
           focusParam={focusPath}
         />
-      )}
+      ) : null}
     </ScreenState>
   );
 }
@@ -210,12 +210,12 @@ const ExplorePage: React.FC = () => {
 
   const mapHasState =
     rollupStatus === 'loading' || rollupStatus === 'ready' || rollupStatus === 'empty' || rollupStatus === 'error';
-  const outerScreenStatus = (
+  const outerScreenStatus: ScreenStatus = (
     status === 'error' ? 'error'
     : status === 'ready' && !project && !localManifest && !mapHasState ? 'empty'
-    : treeNodes.length > 0 || localManifest || mapHasState || project ? 'ready'
-    : status
-  ) as 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+    : treeNodes.length > 0 || localManifest || mapHasState || project ? 'loaded'
+    : toScreenStatus(status)
+  );
 
   return (
     <div className="page">
@@ -246,6 +246,7 @@ const ExplorePage: React.FC = () => {
           errorMessage={errorMessage}
           emptyHint="No project open yet."
         >
+          {outerScreenStatus === 'loaded' ? (
           <div className="split" data-animate>
             <div className="panel">
               <div className="panel__head">
@@ -333,8 +334,8 @@ const ExplorePage: React.FC = () => {
                       : status === 'ready' && graphEdges.length === 0 && allFilePaths.length === 0
                         ? 'empty'
                         : graphEdges.length > 0 || allFilePaths.length > 0
-                          ? 'ready'
-                          : status
+                          ? 'loaded'
+                          : toScreenStatus(status)
                   }
                   errorMessage={errorMessage}
                   emptyHint="No graph yet — open a project from Projects and run Analyze."
@@ -379,6 +380,7 @@ const ExplorePage: React.FC = () => {
               )}
             </div>
           </div>
+          ) : null}
         </ScreenState>
 
         {status !== 'loading' && status !== 'idle' && !project && (

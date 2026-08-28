@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
-import ScreenState from '../components/ScreenState';
+import ScreenState, { toScreenStatus } from '../components/ScreenState';
 import { useProject } from '../state/ProjectContext';
 import { relativeTime } from '../lib/timeFormat';
 import { api, ApiError, pollJob } from '../api/client';
@@ -178,12 +178,13 @@ const ProjectsPage: React.FC = () => {
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const pageStatus =
+  const pageStatus = toScreenStatus(
     status === 'loading' || status === 'idle'
       ? status
       : projects.length === 0
         ? 'empty'
-        : 'ready';
+        : 'ready',
+  );
 
   return (
     <div className="page">

@@ -197,7 +197,7 @@ body {
   color: var(--ink-4);
 }
 
-.screen-state__computing-hint {
+.screen-state__loading-hint {
   position: absolute;
   top: var(--sp-2);
   left: var(--sp-2);

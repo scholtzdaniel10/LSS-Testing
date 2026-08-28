@@ -64,18 +64,18 @@ describe('useGraphView', () => {
       { initialProps: { showExternal: false } },
     );
 
-    await waitFor(() => expect(result.current.status).toBe('ready'));
+    await waitFor(() => expect(result.current.status).toBe('loaded'));
     const postsAfterFirst = posts.length;
     expect(postsAfterFirst).toBeGreaterThanOrEqual(1);
     const firstView = result.current.data;
 
     rerender({ showExternal: false });
-    expect(result.current.status).toBe('ready');
+    expect(result.current.status).toBe('loaded');
     expect(result.current.data).toBe(firstView);
     expect(posts).toHaveLength(postsAfterFirst);
   });
 
-  it('starts in computing then becomes ready (main thread is not blocked by a sync build)', async () => {
+  it('starts in loading then becomes loaded (main thread is not blocked by a sync build)', async () => {
     const { worker } = countingWorker();
     setModelWorkerFactoryForTests(() => worker);
 
@@ -91,12 +91,12 @@ describe('useGraphView', () => {
       }),
     );
 
-    expect(result.current.status).toBe('computing');
-    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.status).toBe('loading');
+    await waitFor(() => expect(result.current.status).toBe('loaded'));
     expect(result.current.data?.folderCount).toBeGreaterThan(0);
   });
 
-  it('keeps the last frame and reports computing while a new job is in flight', async () => {
+  it('keeps the last frame and reports loading while a new job is in flight', async () => {
     const listeners = new Set<EventListener>();
     const pending: ModelJob[] = [];
     const worker: ModelWorkerLike = {
@@ -134,12 +134,12 @@ describe('useGraphView', () => {
       const event = { data: handleModelJob(pending[0]) } as MessageEvent<ModelResult>;
       for (const listener of listeners) listener(event);
     });
-    await waitFor(() => expect(result.current.status).toBe('ready'));
+    await waitFor(() => expect(result.current.status).toBe('loaded'));
     const firstView = result.current.data;
     expect(firstView).not.toBeNull();
 
     rerender({ showExternal: true });
-    expect(result.current.status).toBe('computing');
+    expect(result.current.status).toBe('loading');
     expect(result.current.data).toBe(firstView);
     expect(result.current.error).toBeNull();
   });
@@ -214,7 +214,7 @@ describe('useGraphView', () => {
     flush(firstJob);
     flush(secondJob);
 
-    await waitFor(() => expect(result.current.status).toBe('ready'));
+    await waitFor(() => expect(result.current.status).toBe('loaded'));
     expect(result.current.data?.hiddenExternal).toBe(0);
   });
 

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { COMPUTING_HINT } from './ScreenState';
+import { LOADING_HINT } from './ScreenState';
 
 class ResizeObserverStub {
   observe(): void {}
@@ -11,7 +11,7 @@ vi.stubGlobal('ResizeObserver', ResizeObserverStub);
 
 vi.mock('../lib/useModelWorker', () => ({
   useGraphView: () => ({
-    status: 'computing',
+    status: 'loading',
     data: {
       nodes: [
         {
@@ -42,8 +42,8 @@ vi.mock('react-force-graph-2d', () => ({
 
 import DependencyGraph from './DependencyGraph';
 
-describe('DependencyGraph worker computing', () => {
-  it('keeps the last graph frame mounted and shows Laying out, not a skeleton', () => {
+describe('DependencyGraph worker loading', () => {
+  it('keeps the last graph frame mounted and shows loading, not a skeleton', () => {
     render(
       <DependencyGraph
         snapshotId="p1:t1"
@@ -57,7 +57,7 @@ describe('DependencyGraph worker computing', () => {
     );
 
     expect(document.querySelector('.skeleton-block')).toBeNull();
-    expect(screen.getByText(COMPUTING_HINT)).toBeInTheDocument();
+    expect(screen.getByText(LOADING_HINT)).toBeInTheDocument();
     expect(screen.getByTestId('force-graph-canvas')).toBeInTheDocument();
     expect(screen.getByText(/1 files/)).toBeInTheDocument();
   });

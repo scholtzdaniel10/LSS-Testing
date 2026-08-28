@@ -19,7 +19,7 @@ import type { RadialLayout } from './radialModel';
 export type ModelStatus = ScreenStatus;
 
 function settledStatus(value: GraphView | RadialLayout): ModelStatus {
-  return isEmptyModelValue(value) ? 'empty' : 'ready';
+  return isEmptyModelValue(value) ? 'empty' : 'loaded';
 }
 
 type ModelWorkerLike = {
@@ -102,8 +102,8 @@ function useModelJob<T extends GraphView | RadialLayout>(
   const key = request ? cacheKeyForRequest(request) : null;
   const cached = key ? (resultCache.get(key) as T | undefined) : undefined;
   const [status, setStatus] = useState<ModelStatus>(() => {
-    if (!request) return 'idle';
-    return cached ? settledStatus(cached) : 'computing';
+    if (!request) return 'loading';
+    return cached ? settledStatus(cached) : 'loading';
   });
   const [data, setData] = useState<T | null>(() => cached ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +111,7 @@ function useModelJob<T extends GraphView | RadialLayout>(
 
   useEffect(() => {
     if (!request || !key) {
-      setStatus('idle');
+      setStatus('loading');
       setData(null);
       setError(null);
       return;
@@ -126,7 +126,7 @@ function useModelJob<T extends GraphView | RadialLayout>(
 
     const requestId = nextRequestId++;
     latestId.current = requestId;
-    setStatus('computing');
+    setStatus('loading');
     setError(null);
 
     const worker = getWorker();
@@ -154,7 +154,7 @@ function useModelJob<T extends GraphView | RadialLayout>(
 
   return {
     status,
-    data: data ?? (status === 'ready' || status === 'empty' ? empty : data),
+    data: data ?? (status === 'loaded' || status === 'empty' ? empty : data),
     error,
   };
 }

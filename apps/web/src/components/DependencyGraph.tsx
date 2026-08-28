@@ -551,7 +551,7 @@ const DependencyGraph: React.FC<Props> = ({
 
   const expandedList = useMemo(() => [...expanded].sort(), [expanded]);
   const neighbourCount = focusNeighbourhood ? Math.max(0, focusNeighbourhood.size - 1) : 0;
-  const showComputingHint = modelStatus === 'computing' || modelStatus === 'loading';
+  const showLoadingHint = modelStatus === 'loading';
 
   if (modelStatus === 'error') {
     return (
@@ -703,8 +703,9 @@ const DependencyGraph: React.FC<Props> = ({
         </div>
       )}
 
-      <div className="graph-canvas-wrap" aria-busy={showComputingHint}>
-        <ForceGraph2D
+      <div className="graph-canvas-wrap" aria-busy={showLoadingHint}>
+        <ScreenState status={showLoadingHint ? 'loading' : 'loaded'} errorMessage={null} emptyHint="">
+          <ForceGraph2D
           ref={graphRef}
           width={width}
           height={GRAPH_HEIGHT}
@@ -763,12 +764,7 @@ const DependencyGraph: React.FC<Props> = ({
             /* links are visual only — avoid stealing clicks from node labels */
           }}
         />
-
-        {showComputingHint ? (
-          <ScreenState status="computing" errorMessage={null} emptyHint="">
-            {null}
-          </ScreenState>
-        ) : null}
+        </ScreenState>
 
         <div className="graph-zoom-controls" aria-label="Graph zoom controls">
           <button type="button" className="graph-zoom-controls__btn" onClick={() => zoomBy(1.35)} title="Zoom in">

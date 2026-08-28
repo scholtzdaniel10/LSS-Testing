@@ -1022,17 +1022,18 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
         }}
         role="img"
         aria-label="Codebase radial map"
-        aria-busy={layoutStatus === 'computing' || layoutStatus === 'loading'}
+        aria-busy={layoutStatus === 'loading'}
       >
         {layoutStatus === 'error' ? (
           <ScreenState status="error" errorMessage={layoutError ?? 'Could not compute the map.'} emptyHint="">
             {null}
           </ScreenState>
-        ) : layout.components.length === 0 && layoutStatus !== 'computing' && layoutStatus !== 'loading' ? (
+        ) : layout.components.length === 0 && layoutStatus !== 'loading' ? (
           <ScreenState status="empty" errorMessage={null} emptyHint="No linked files to display.">
             {null}
           </ScreenState>
         ) : (
+          <ScreenState status={layoutStatus === 'loading' ? 'loading' : 'loaded'} errorMessage={null} emptyHint="">
           <svg
             ref={svgRef}
             width="100%"
@@ -1073,12 +1074,8 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
               })}
             </g>
           </svg>
-        )}
-        {layoutStatus === 'computing' || layoutStatus === 'loading' ? (
-          <ScreenState status="computing" errorMessage={null} emptyHint="">
-            {null}
           </ScreenState>
-        ) : null}
+        )}
       </div>
 
       {/* Selected file detail strip */}
