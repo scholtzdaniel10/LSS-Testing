@@ -56,7 +56,10 @@ describe('Graph overview API', function () {
                 ->etc()
             )
             ->assertJsonMissingPath('data.edges')
-            ->assertJsonMissingPath('data.nodes.0.color');
+            ->assertJsonMissingPath('data.files')
+            ->assertJsonMissingPath('data.nodes.0.color')
+            ->assertJsonMissingPath('meta.page')
+            ->assertJsonMissingPath('meta.per_page');
 
         $ids = collect($this->getJson("/api/v1/projects/{$this->project->id}/graph/overview?limit=20")->json('data.nodes'))
             ->pluck('id')
@@ -104,14 +107,17 @@ describe('Graph overview API', function () {
             'edges' => $edges,
         ]);
 
-        $this->getJson("/api/v1/projects/{$this->project->id}/graph")
+        $body = $this->getJson("/api/v1/projects/{$this->project->id}/graph")
             ->assertOk()
-            ->assertJsonPath('data.projectId', $this->project->id)
-            ->assertJsonPath('data.edges.0.from', 'app/A.php')
-            ->assertJsonPath('data.edges.0.to', 'app/B.php')
-            ->assertJsonPath('data.edges.0.kind', 'import')
-            ->assertJsonMissingPath('data.nodes')
-            ->assertJsonMissingPath('data.links');
+            ->json('data');
+
+        expect(array_keys($body))->toBe(['projectId', 'scannedAt', 'edges'])
+            ->and($body['edges'][0])->toMatchArray([
+                'from' => 'app/A.php',
+                'to' => 'app/B.php',
+                'kind' => 'import',
+                'line' => 1,
+            ]);
     });
 
     it('serves cached overview until forgetGraph clears the limit bucket', function () {

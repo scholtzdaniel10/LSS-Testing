@@ -123,7 +123,7 @@ final class GraphAggregator
         foreach ($this->internalEdges($edges) as [$from, $to]) {
             $src = $this->mapCollapsedEndpoint($nodes, $from, $errorCounts);
             $tgt = $this->mapCollapsedEndpoint($nodes, $to, $errorCounts);
-            if ($src === null || $tgt === null || $src === $tgt) {
+            if ($src === $tgt) {
                 continue;
             }
             $key = $src.' '.$tgt;
@@ -293,7 +293,7 @@ final class GraphAggregator
      * @param  array<string, array<string, mixed>>  $nodes
      * @param  array<string, int>  $errorCounts
      */
-    private function mapCollapsedEndpoint(array &$nodes, string $id, array $errorCounts): ?string
+    private function mapCollapsedEndpoint(array &$nodes, string $id, array $errorCounts): string
     {
         $target = $this->collapseFile($id);
         if ($target['kind'] === 'folder') {

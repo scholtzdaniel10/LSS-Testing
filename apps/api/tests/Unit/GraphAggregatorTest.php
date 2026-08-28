@@ -35,7 +35,13 @@ it('matches hugeGraphOverviewKeep file selection and keeps the collapsed folder 
     $expected = [...$expectedFiles, 'dir:src'];
     sort($expected);
 
-    expect($ids)->toBe($expected)
+    $fileIds = array_values(array_filter($ids, fn (string $id): bool => ! str_starts_with($id, 'dir:')));
+    sort($fileIds);
+    $expectedFileIds = $expectedFiles;
+    sort($expectedFileIds);
+
+    expect($fileIds)->toBe($expectedFileIds)
+        ->and($ids)->toBe($expected)
         ->and($view['nodes'])->toHaveCount(22)
         ->and($view['total'])->toBe(101)
         ->and($view['returned'])->toBe(22)
