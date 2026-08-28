@@ -24,6 +24,26 @@ function overviewFixtureKeptFiles(): array
     ];
 }
 
+it('hugeGraphOverviewKeep matches the client fixture (error file + fileCap)', function () {
+    $nodes = [];
+    for ($i = 0; $i < 100; $i++) {
+        $path = "src/f{$i}.ts";
+        $nodes[] = [
+            'id' => $path,
+            'kind' => 'file',
+            'errors' => $i === 0 ? 1 : 0,
+            'external' => false,
+            'degree' => 0,
+        ];
+    }
+
+    $keep = GraphAggregator::hugeGraphOverviewKeep($nodes, 20);
+
+    expect($keep)->toHaveKey('src/f0.ts')
+        ->and(count($keep))->toBe(21)
+        ->and(array_keys($keep))->toEqualCanonicalizing(overviewFixtureKeptFiles());
+});
+
 it('matches hugeGraphOverviewKeep file selection and keeps the collapsed folder hub', function () {
     $files = overviewFixtureFiles();
     $view = (new GraphAggregator)->overview([], $files, ['src/f0.ts' => 1], 20);

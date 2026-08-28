@@ -49,7 +49,7 @@ final class GraphAggregator
             $uncapped[$id] = $node;
         }
 
-        $keep = $this->overviewKeep($uncapped, $fileCap);
+        $keep = self::hugeGraphOverviewKeep(array_values($uncapped), $fileCap);
 
         $droppedFiles = false;
         foreach ($files as $id => $node) {
@@ -179,10 +179,14 @@ final class GraphAggregator
     }
 
     /**
-     * @param  array<string, array<string, mixed>>  $nodes
+     * Port of hugeGraphOverviewKeep in apps/web/src/lib/graphModel.ts.
+     * Always keeps folder hubs, error files, and externals; then the top
+     * $fileCap files by degree desc, id strcmp. Not a total node cap.
+     *
+     * @param  list<array{id: string, kind: string, errors: int, external: bool, degree?: int}>  $nodes
      * @return array<string, true>
      */
-    private function overviewKeep(array $nodes, int $fileCap): array
+    public static function hugeGraphOverviewKeep(array $nodes, int $fileCap = 40): array
     {
         $keep = [];
         $ranked = [];
@@ -199,7 +203,7 @@ final class GraphAggregator
         }
 
         usort($ranked, function (array $a, array $b): int {
-            $deg = $b['degree'] <=> $a['degree'];
+            $deg = ($b['degree'] ?? 0) <=> ($a['degree'] ?? 0);
             if ($deg !== 0) {
                 return $deg;
             }
@@ -207,7 +211,7 @@ final class GraphAggregator
             return strcmp((string) $a['id'], (string) $b['id']);
         });
 
-        foreach (array_slice($ranked, 0, $fileCap) as $file) {
+        foreach (array_slice($ranked, 0, max(0, $fileCap)) as $file) {
             $keep[$file['id']] = true;
         }
 
