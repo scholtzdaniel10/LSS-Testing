@@ -8,11 +8,20 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
+import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphRollup, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 import { deleteLocalProjectsForServerId, listLocalProjects } from '../lib/localProjectStore';
+import { isRollupFolderNode } from '../lib/rollupMapModel';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+
+export type RollupMeta = {
+  total?: number;
+  returned?: number;
+  truncated?: boolean;
+  cap?: number;
+  reason?: string;
+};
 
 type ProjectContextValue = {
   token: string;
@@ -24,6 +33,10 @@ type ProjectContextValue = {
   health: HealthSnapshot | null;
   healthHistory: HealthSnapshot[];
   graphEdges: GraphEdge[];
+  graphRollup: GraphRollup | null;
+  rollupStatus: LoadState;
+  rollupError: string | null;
+  rollupMeta: RollupMeta;
   usage: UsageReport | null;
   errors: DiagnosticFinding[];
   analysers: AnalyserStatuses;
@@ -36,8 +49,12 @@ type ProjectContextValue = {
   errorMessage: string | null;
   jobMessage: string | null;
   reloadAll: () => Promise<void>;
-  /** Lazy-load graph + tree for Explore (cache hit = ms). */
+  /** Lazy-load GET /graph (+ /tree if needed) after the user opens Graph. */
   ensureExploreData: () => Promise<void>;
+  /** Node tree: GET /tree without /graph. Safe beside Map first-paint. */
+  ensureTree: () => Promise<void>;
+  /** IG-32: folder-only rollup for Map first-paint. Does not call /graph or /graph/overview. */
+  ensureMapRollup: () => Promise<void>;
   rescan: () => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
 };
@@ -49,6 +66,17 @@ const ProjectContext = createContext<ProjectContextValue | null>(null);
   if (injected) setApiToken(injected);
 }
 
+function asRollupMeta(meta: Record<string, unknown> | undefined): RollupMeta {
+  if (!meta) return {};
+  return {
+    total: typeof meta.total === 'number' ? meta.total : undefined,
+    returned: typeof meta.returned === 'number' ? meta.returned : undefined,
+    truncated: typeof meta.truncated === 'boolean' ? meta.truncated : undefined,
+    cap: typeof meta.cap === 'number' ? meta.cap : undefined,
+    reason: typeof meta.reason === 'string' ? meta.reason : undefined,
+  };
+}
+
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState(getApiToken);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -56,6 +84,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [health, setHealth] = useState<HealthSnapshot | null>(null);
   const [healthHistory, setHealthHistory] = useState<HealthSnapshot[]>([]);
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
+  const [graphRollup, setGraphRollup] = useState<GraphRollup | null>(null);
+  const [rollupStatus, setRollupStatus] = useState<LoadState>('idle');
+  const [rollupError, setRollupError] = useState<string | null>(null);
+  const [rollupMeta, setRollupMeta] = useState<RollupMeta>({});
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [errors, setErrors] = useState<DiagnosticFinding[]>([]);
   const [analysers, setAnalysers] = useState<AnalyserStatuses>({});
@@ -67,6 +99,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [jobMessage, setJobMessage] = useState<string | null>(null);
   const exploreLoadedFor = useRef<string | null>(null);
+  const treeLoadedFor = useRef<string | null>(null);
+  const rollupLoadedFor = useRef<string | null>(null);
 
   const setToken = (t: string) => {
     setApiToken(t);
@@ -96,8 +130,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setStatus('loading');
     setErrorMessage(null);
     exploreLoadedFor.current = null;
+    treeLoadedFor.current = null;
+    rollupLoadedFor.current = null;
     setGraphEdges([]);
     setTree([]);
+    setGraphRollup(null);
+    setRollupStatus('idle');
+    setRollupError(null);
+    setRollupMeta({});
     try {
       await refreshProjects();
       const id = getActiveProjectId();
@@ -132,17 +172,60 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshProjects]);
 
+  const ensureTree = useCallback(async () => {
+    const id = getActiveProjectId();
+    if (!id || !getApiToken()) return;
+    if (treeLoadedFor.current === id) return;
+    try {
+      const treeEnv = await api.tree(id);
+      setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+      treeLoadedFor.current = id;
+    } catch (e) {
+      setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load tree');
+    }
+  }, []);
+
+  /** Graph tab only — GET /graph. Never part of Map first-paint. */
   const ensureExploreData = useCallback(async () => {
     const id = getActiveProjectId();
     if (!id || !getApiToken()) return;
     if (exploreLoadedFor.current === id) return;
     try {
-      const [graph, treeEnv] = await Promise.all([api.graph(id), api.tree(id)]);
+      const graphPromise = api.graph(id);
+      const treePromise = treeLoadedFor.current === id ? Promise.resolve(null) : api.tree(id);
+      const [graph, treeEnv] = await Promise.all([graphPromise, treePromise]);
       setGraphEdges(graph.data?.edges ?? []);
-      setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+      if (treeEnv) {
+        setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+        treeLoadedFor.current = id;
+      }
       exploreLoadedFor.current = id;
     } catch (e) {
       setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load explore data');
+    }
+  }, []);
+
+  const ensureMapRollup = useCallback(async () => {
+    const id = getActiveProjectId();
+    if (!id || !getApiToken()) return;
+    if (rollupLoadedFor.current === id) return;
+    setRollupStatus('loading');
+    setRollupError(null);
+    try {
+      const env = await api.graphRollup(id, 1);
+      rollupLoadedFor.current = id;
+      setRollupMeta(asRollupMeta(env.meta));
+      if (env.data == null) {
+        setGraphRollup(null);
+        setRollupStatus('empty');
+        return;
+      }
+      setGraphRollup(env.data);
+      const folderCount = env.data.nodes.filter(isRollupFolderNode).length;
+      setRollupStatus(folderCount === 0 ? 'empty' : 'ready');
+    } catch (e) {
+      setRollupStatus('error');
+      setRollupError(e instanceof ApiError ? e.message : 'Failed to load map rollup');
     }
   }, []);
 
@@ -202,6 +285,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       health,
       healthHistory,
       graphEdges,
+      graphRollup,
+      rollupStatus,
+      rollupError,
+      rollupMeta,
       usage,
       errors,
       analysers,
@@ -215,6 +302,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       jobMessage,
       reloadAll,
       ensureExploreData,
+      ensureTree,
+      ensureMapRollup,
       rescan,
       deleteProject,
     }),
@@ -227,6 +316,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       health,
       healthHistory,
       graphEdges,
+      graphRollup,
+      rollupStatus,
+      rollupError,
+      rollupMeta,
       usage,
       errors,
       analysers,
@@ -239,6 +332,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       jobMessage,
       reloadAll,
       ensureExploreData,
+      ensureTree,
+      ensureMapRollup,
       rescan,
       deleteProject,
     ],
