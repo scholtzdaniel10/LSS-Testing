@@ -101,6 +101,33 @@ export type ErrorChain = {
 
 export type GraphEdge = { from: string; to: string; kind?: string; line?: number | null };
 
+export type GraphOverviewNode = {
+  id: string;
+  name: string;
+  kind: 'file' | 'folder' | 'external';
+  folder: string;
+  folderPath?: string;
+  fileCount: number;
+  errors: number;
+  degree: number;
+  inDegree: number;
+  external: boolean;
+};
+
+export type GraphOverviewLink = {
+  source: string;
+  target: string;
+  weight: number;
+  externalTarget: boolean;
+};
+
+export type GraphOverview = {
+  projectId: string;
+  scannedAt: string | null;
+  nodes: GraphOverviewNode[];
+  links: GraphOverviewLink[];
+};
+
 export type UsageReport = {
   uses: { languages: string[]; frameworks: string[]; deps: Array<{ name: string; version: string; source: string }> };
   needs: { missingDeps: string[]; envVars: string[]; services: string[] };
@@ -255,6 +282,10 @@ export const api = {
     }>(`/projects/${id}/bootstrap`),
   graph: (id: string) =>
     request<{ projectId: string; scannedAt: string; edges: GraphEdge[] } | null>(`/projects/${id}/graph`),
+  graphOverview: (id: string, limit?: number) =>
+    request<GraphOverview | null>(
+      `/projects/${id}/graph/overview${limit != null ? `?limit=${limit}` : ''}`,
+    ),
   usageReport: (id: string) =>
     request<{ projectId: string; report: UsageReport; createdAt: string | null } | null>(
       `/projects/${id}/usage-report`,

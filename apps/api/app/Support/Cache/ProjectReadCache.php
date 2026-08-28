@@ -17,11 +17,10 @@ final class ProjectReadCache
 
     public static function forgetProject(string $projectId): void
     {
-        Cache::forget("graph:{$projectId}");
+        self::forgetGraph($projectId);
         Cache::forget("tree:{$projectId}");
         Cache::forget("usage:{$projectId}");
         Cache::forget("health:{$projectId}:latest");
-        Cache::forget("bootstrap:{$projectId}");
         Cache::forget("size:{$projectId}");
     }
 
@@ -29,6 +28,20 @@ final class ProjectReadCache
     {
         Cache::forget("graph:{$projectId}");
         Cache::forget("bootstrap:{$projectId}");
+        self::forgetOverview($projectId);
+    }
+
+    /**
+     * File/array cache has no wildcard delete. Track overview limit buckets
+     * under graph:{id}:overview:index so rescan cannot leave stale slices.
+     *
+     * @param  callable(): mixed  $resolver
+     */
+    public static function rememberOverview(string $projectId, int $limit, callable $resolver): mixed
+    {
+        self::trackOverviewLimit($projectId, $limit);
+
+        return self::remember("graph:{$projectId}:overview:{$limit}", $resolver);
     }
 
     public static function forgetHealth(string $projectId): void
@@ -61,5 +74,30 @@ final class ProjectReadCache
     public static function put(string $key, mixed $value): void
     {
         Cache::put($key, $value, self::ttl());
+    }
+
+    private static function trackOverviewLimit(string $projectId, int $limit): void
+    {
+        $indexKey = "graph:{$projectId}:overview:index";
+        $index = Cache::get($indexKey, []);
+        if (! is_array($index)) {
+            $index = [];
+        }
+        if (! in_array($limit, $index, true)) {
+            $index[] = $limit;
+            Cache::put($indexKey, $index, self::ttl());
+        }
+    }
+
+    private static function forgetOverview(string $projectId): void
+    {
+        $indexKey = "graph:{$projectId}:overview:index";
+        $index = Cache::get($indexKey, []);
+        if (is_array($index)) {
+            foreach ($index as $limit) {
+                Cache::forget("graph:{$projectId}:overview:{$limit}");
+            }
+        }
+        Cache::forget($indexKey);
     }
 }
