@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Requests\GraphOverviewRequest;
+use App\Http\Requests\GraphRollupRequest;
 use App\Models\Project;
 use App\Services\Graph\GraphAggregator;
 use App\Support\Cache\ProjectReadCache;
@@ -34,6 +35,55 @@ class GraphAggregateController extends Controller
                 $errorCounts = $this->errorCounts($project);
                 $edges = is_array($snapshot->edges) ? $snapshot->edges : [];
                 $view = $aggregator->overview($edges, $files, $errorCounts, $limit);
+
+                return [
+                    'data' => [
+                        'projectId' => $project->id,
+                        'scannedAt' => $snapshot->scanned_at?->toIso8601String(),
+                        'nodes' => $view['nodes'],
+                        'links' => $view['links'],
+                    ],
+                    'meta' => [
+                        'total' => $view['total'],
+                        'returned' => $view['returned'],
+                        'truncated' => $view['truncated'],
+                        'cap' => $view['cap'],
+                    ],
+                ];
+            },
+        );
+
+        if ($cached === null) {
+            return $this->respond(null, ['reason' => 'no-graph-yet']);
+        }
+
+        return $this->respond($cached['data'], $cached['meta']);
+    }
+
+    /**
+     * IG-29: GET /projects/{project}/graph/rollup — folder-only weighted graph.
+     * Existing GET /graph and /graph/overview ranking are unchanged.
+     */
+    public function rollup(
+        GraphRollupRequest $request,
+        Project $project,
+        GraphAggregator $aggregator,
+    ): JsonResponse {
+        $depth = $request->depth();
+
+        $cached = ProjectReadCache::rememberRollup(
+            $project->id,
+            $depth,
+            function () use ($project, $depth, $aggregator): ?array {
+                $snapshot = $project->graphSnapshots()->orderByDesc('scanned_at')->first();
+                if ($snapshot === null) {
+                    return null;
+                }
+
+                $files = $project->files()->orderBy('path')->pluck('path')->all();
+                $errorCounts = $this->errorCounts($project);
+                $edges = is_array($snapshot->edges) ? $snapshot->edges : [];
+                $view = $aggregator->rollup($edges, $files, $errorCounts, $depth);
 
                 return [
                     'data' => [

@@ -168,3 +168,70 @@ it('detects pkg/php/npm/ext external prefixes', function () {
         ->and(GraphAggregator::isExternalRef('ext:pdo'))->toBeTrue()
         ->and(GraphAggregator::isExternalRef('app/A.php'))->toBeFalse();
 });
+
+it('rollup matches buildGraphView folder weighting on the two-folder fixture', function () {
+    $files = ['app/A.php', 'app/B.php', 'lib/C.php', 'lib/D.php'];
+    $edges = [
+        ['from' => 'app/A.php', 'to' => 'lib/C.php', 'kind' => 'import'],
+        ['from' => 'app/B.php', 'to' => 'lib/D.php', 'kind' => 'import'],
+    ];
+    $view = (new GraphAggregator)->rollup($edges, $files, [], 1);
+
+    expect($view['nodes'])->toHaveCount(2)
+        ->and(array_column($view['nodes'], 'kind'))->each->toBe('folder')
+        ->and($view['links'])->toHaveCount(1)
+        ->and($view['links'][0]['source'])->toBe('dir:app')
+        ->and($view['links'][0]['target'])->toBe('dir:lib')
+        ->and($view['links'][0]['weight'])->toBe(2)
+        ->and($view['links'][0]['externalTarget'])->toBeFalse()
+        ->and($view['truncated'])->toBeFalse()
+        ->and($view['cap'])->toBe(1)
+        ->and($view['total'])->toBe(2)
+        ->and($view['returned'])->toBe(2);
+
+    $app = collect($view['nodes'])->firstWhere('id', 'dir:app');
+    $lib = collect($view['nodes'])->firstWhere('id', 'dir:lib');
+    expect($app['fileCount'])->toBe(2)
+        ->and($app['folderPath'])->toBe('app')
+        ->and($app['folder'])->toBe('app')
+        ->and($app['name'])->toBe('app/')
+        ->and($lib['fileCount'])->toBe(2)
+        ->and($lib['folderPath'])->toBe('lib');
+
+    foreach ($view['nodes'] as $node) {
+        expect($node)->not->toHaveKey('color')
+            ->and($node)->not->toHaveKey('x')
+            ->and($node['kind'])->toBe('folder');
+    }
+});
+
+it('rollup omits root-level files and does not emit file nodes', function () {
+    $files = ['composer.json', 'app/A.php'];
+    $view = (new GraphAggregator)->rollup([], $files, [], 1);
+
+    expect(array_column($view['nodes'], 'id'))->toBe(['dir:app'])
+        ->and($view['nodes'][0]['fileCount'])->toBe(1);
+});
+
+it('rollup depth=2 collapses to the second path segment', function () {
+    $files = ['application/controllers/A.php', 'application/models/M.php'];
+    $view = (new GraphAggregator)->rollup([], $files, [], 2);
+
+    $ids = array_column($view['nodes'], 'id');
+    expect($ids)->toEqualCanonicalizing(['dir:application/controllers', 'dir:application/models'])
+        ->and($view['cap'])->toBe(2);
+});
+
+it('rollup truncates extra folders by fileCount then errors then id, never filling with files', function () {
+    config(['graph.aggregate_max_nodes' => 1]);
+    $files = ['app/A.php', 'app/B.php', 'lib/C.php'];
+    $view = (new GraphAggregator)->rollup([], $files, [], 1);
+
+    expect($view['truncated'])->toBeTrue()
+        ->and($view['total'])->toBe(2)
+        ->and($view['returned'])->toBe(1)
+        ->and($view['cap'])->toBe(1)
+        ->and($view['nodes'])->toHaveCount(1)
+        ->and($view['nodes'][0]['id'])->toBe('dir:app')
+        ->and($view['nodes'][0]['kind'])->toBe('folder');
+});

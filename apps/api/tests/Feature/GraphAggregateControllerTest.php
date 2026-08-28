@@ -155,3 +155,134 @@ describe('Graph overview API', function () {
         expect($fresh)->toBe([]);
     });
 });
+
+describe('Graph rollup API', function () {
+    beforeEach(function () {
+        asUser();
+        Cache::flush();
+        $this->project = Project::factory()->create(['name' => 'rollup-fixture']);
+    });
+
+    it('returns no-graph-yet with data null when no snapshot exists', function () {
+        $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup")
+            ->assertOk()
+            ->assertJsonPath('data', null)
+            ->assertJsonPath('meta.reason', 'no-graph-yet')
+            ->assertJsonPath('errors', []);
+    });
+
+    it('returns folder nodes and weighted links matching buildGraphView', function () {
+        foreach (['app/A.php', 'app/B.php', 'lib/C.php', 'lib/D.php'] as $path) {
+            $this->project->files()->create(['path' => $path, 'size' => 1, 'lang' => 'php']);
+        }
+        GraphSnapshot::factory()->create([
+            'project_id' => $this->project->id,
+            'edges' => [
+                ['from' => 'app/A.php', 'to' => 'lib/C.php', 'kind' => 'import', 'line' => 1],
+                ['from' => 'app/B.php', 'to' => 'lib/D.php', 'kind' => 'import', 'line' => 2],
+            ],
+        ]);
+
+        $body = $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup")
+            ->assertOk()
+            ->assertJsonMissingPath('data.edges')
+            ->assertJsonMissingPath('meta.page')
+            ->assertJsonMissingPath('meta.per_page')
+            ->json();
+
+        expect($body['meta']['cap'])->toBe(1)
+            ->and($body['meta']['truncated'])->toBeFalse()
+            ->and($body['meta']['total'])->toBe(2)
+            ->and($body['meta']['returned'])->toBe(2)
+            ->and($body['data']['nodes'])->toHaveCount(2)
+            ->and(array_column($body['data']['nodes'], 'kind'))->each->toBe('folder')
+            ->and($body['data']['links'])->toHaveCount(1)
+            ->and($body['data']['links'][0]['weight'])->toBe(2);
+
+        $byId = collect($body['data']['nodes'])->keyBy('id');
+        expect($byId['dir:app']['fileCount'])->toBe(2)
+            ->and($byId['dir:lib']['fileCount'])->toBe(2);
+    });
+
+    it('clamps depth to 1..4 and defaults to 1', function () {
+        $this->project->files()->create(['path' => 'app/A.php', 'size' => 1, 'lang' => 'php']);
+        GraphSnapshot::factory()->create([
+            'project_id' => $this->project->id,
+            'edges' => [],
+        ]);
+
+        $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup")
+            ->assertOk()
+            ->assertJsonPath('meta.cap', 1);
+
+        $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup?depth=0")
+            ->assertOk()
+            ->assertJsonPath('meta.cap', 1);
+
+        $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup?depth=99")
+            ->assertOk()
+            ->assertJsonPath('meta.cap', 4);
+    });
+
+    it('rejects a non-numeric depth with a 422 field-path violation', function () {
+        GraphSnapshot::factory()->create([
+            'project_id' => $this->project->id,
+            'edges' => [],
+        ]);
+
+        $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup?depth=abc")
+            ->assertStatus(422)
+            ->assertJsonPath('errors.0.violations.0.field', 'depth');
+    });
+
+    it('does not change GET /graph data shape', function () {
+        $edges = [
+            ['from' => 'app/A.php', 'to' => 'lib/C.php', 'kind' => 'import', 'line' => 1],
+        ];
+        GraphSnapshot::factory()->create([
+            'project_id' => $this->project->id,
+            'edges' => $edges,
+        ]);
+
+        $body = $this->getJson("/api/v1/projects/{$this->project->id}/graph")
+            ->assertOk()
+            ->json('data');
+
+        expect(array_keys($body))->toBe(['projectId', 'scannedAt', 'edges']);
+    });
+
+    it('serves cached rollup until forgetGraph clears the depth bucket', function () {
+        $this->project->files()->create(['path' => 'app/A.php', 'size' => 1, 'lang' => 'php']);
+        $this->project->files()->create(['path' => 'lib/B.php', 'size' => 1, 'lang' => 'php']);
+        GraphSnapshot::factory()->create([
+            'project_id' => $this->project->id,
+            'scanned_at' => now()->subMinute(),
+            'edges' => [
+                ['from' => 'app/A.php', 'to' => 'lib/B.php', 'kind' => 'import', 'line' => 1],
+            ],
+        ]);
+
+        $first = $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup?depth=1")
+            ->assertOk()
+            ->json('data.links');
+        expect($first)->toHaveCount(1);
+
+        GraphSnapshot::factory()->create([
+            'project_id' => $this->project->id,
+            'scanned_at' => now(),
+            'edges' => [],
+        ]);
+
+        $cached = $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup?depth=1")
+            ->assertOk()
+            ->json('data.links');
+        expect($cached)->toBe($first);
+
+        ProjectReadCache::forgetGraph($this->project->id);
+
+        $fresh = $this->getJson("/api/v1/projects/{$this->project->id}/graph/rollup?depth=1")
+            ->assertOk()
+            ->json('data.links');
+        expect($fresh)->toBe([]);
+    });
+});

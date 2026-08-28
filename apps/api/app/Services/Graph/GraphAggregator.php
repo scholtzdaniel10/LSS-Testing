@@ -79,6 +79,105 @@ final class GraphAggregator
         ];
     }
 
+    /**
+     * IG-29: folder-only rollup. depth=1 is the first path segment (same
+     * collapse as buildGraphView with expanded=∅). Root-level files (no
+     * slash) are omitted. showExternal=false.
+     *
+     * @param  list<array{from?: mixed, to?: mixed, kind?: mixed, line?: mixed}>  $edges
+     * @param  list<string>  $allFiles
+     * @param  array<string, int>  $errorCounts
+     * @return array{
+     *     nodes: list<array<string, mixed>>,
+     *     links: list<array{source: string, target: string, weight: int, externalTarget: bool}>,
+     *     total: int,
+     *     returned: int,
+     *     truncated: bool,
+     *     cap: int
+     * }
+     */
+    public function rollup(array $edges, array $allFiles, array $errorCounts, int $depth): array
+    {
+        $depth = max(1, min(4, $depth));
+        $max = max(1, (int) config('graph.aggregate_max_nodes', 200));
+
+        $nodes = [];
+        foreach ($allFiles as $path) {
+            $folderPath = $this->folderPathAtDepth((string) $path, $depth);
+            if ($folderPath === null) {
+                continue;
+            }
+            $folder = $this->ensureFolder($nodes, $folderPath);
+            $folder['fileCount']++;
+            $folder['errors'] += $errorCounts[$path] ?? 0;
+            $nodes[$folder['id']] = $folder;
+        }
+
+        $linkWeights = [];
+        foreach ($this->internalEdges($edges) as [$from, $to]) {
+            $srcPath = $this->folderPathAtDepth($from, $depth);
+            $tgtPath = $this->folderPathAtDepth($to, $depth);
+            if ($srcPath === null || $tgtPath === null || $srcPath === $tgtPath) {
+                continue;
+            }
+            $src = $this->ensureFolder($nodes, $srcPath);
+            $tgt = $this->ensureFolder($nodes, $tgtPath);
+            $key = $src['id'].' '.$tgt['id'];
+            if (! isset($linkWeights[$key])) {
+                $linkWeights[$key] = [
+                    'source' => $src['id'],
+                    'target' => $tgt['id'],
+                    'weight' => 0,
+                    'externalTarget' => false,
+                ];
+            }
+            $linkWeights[$key]['weight']++;
+        }
+
+        $this->applyDegrees($nodes, $linkWeights);
+
+        $total = count($nodes);
+        $truncated = $total > $max;
+        if ($truncated) {
+            $ranked = array_values($nodes);
+            usort($ranked, function (array $a, array $b): int {
+                $byCount = $b['fileCount'] <=> $a['fileCount'];
+                if ($byCount !== 0) {
+                    return $byCount;
+                }
+                $byErrors = $b['errors'] <=> $a['errors'];
+                if ($byErrors !== 0) {
+                    return $byErrors;
+                }
+
+                return strcmp((string) $a['id'], (string) $b['id']);
+            });
+            $keep = [];
+            foreach (array_slice($ranked, 0, $max) as $node) {
+                $keep[$node['id']] = true;
+            }
+            $nodes = array_filter($nodes, fn (array $node): bool => isset($keep[$node['id']]));
+            $linkWeights = array_filter(
+                $linkWeights,
+                fn (array $link): bool => isset($keep[$link['source']]) && isset($keep[$link['target']]),
+            );
+        }
+
+        $serialized = [];
+        foreach ($nodes as $node) {
+            $serialized[] = $this->serializeNode($node);
+        }
+
+        return [
+            'nodes' => array_values($serialized),
+            'links' => array_values($linkWeights),
+            'total' => $total,
+            'returned' => count($serialized),
+            'truncated' => $truncated,
+            'cap' => $depth,
+        ];
+    }
+
     public static function folderOf(string $path): string
     {
         $top = explode('/', $path)[0] ?? 'other';
@@ -291,6 +390,21 @@ final class GraphAggregator
         }
 
         return ['id' => $path, 'kind' => 'file', 'folderPath' => ''];
+    }
+
+    /**
+     * First $depth folder segments of $path, or null for a root-level file.
+     */
+    private function folderPathAtDepth(string $path, int $depth): ?string
+    {
+        $parts = explode('/', $path);
+        if (count($parts) < 2) {
+            return null;
+        }
+        $folderParts = array_slice($parts, 0, -1);
+        $take = min($depth, count($folderParts));
+
+        return implode('/', array_slice($folderParts, 0, $take));
     }
 
     /**

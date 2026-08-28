@@ -28,20 +28,27 @@ final class ProjectReadCache
     {
         Cache::forget("graph:{$projectId}");
         Cache::forget("bootstrap:{$projectId}");
-        self::forgetOverview($projectId);
+        self::forgetIndexed("graph:{$projectId}:overview");
+        self::forgetIndexed("graph:{$projectId}:rollup");
     }
 
     /**
-     * File/array cache has no wildcard delete. Track overview limit buckets
-     * under graph:{id}:overview:index so rescan cannot leave stale slices.
+     * File/array cache has no wildcard delete. Track derived buckets under
+     * `{prefix}:index` so rescan cannot leave stale slices.
      *
      * @param  callable(): mixed  $resolver
      */
     public static function rememberOverview(string $projectId, int $limit, callable $resolver): mixed
     {
-        self::trackOverviewLimit($projectId, $limit);
+        return self::rememberIndexed("graph:{$projectId}:overview", $limit, $resolver);
+    }
 
-        return self::remember("graph:{$projectId}:overview:{$limit}", $resolver);
+    /**
+     * @param  callable(): mixed  $resolver
+     */
+    public static function rememberRollup(string $projectId, int $depth, callable $resolver): mixed
+    {
+        return self::rememberIndexed("graph:{$projectId}:rollup", $depth, $resolver);
     }
 
     public static function forgetHealth(string $projectId): void
@@ -76,26 +83,28 @@ final class ProjectReadCache
         Cache::put($key, $value, self::ttl());
     }
 
-    private static function trackOverviewLimit(string $projectId, int $limit): void
+    private static function rememberIndexed(string $prefix, int $bucket, callable $resolver): mixed
     {
-        $indexKey = "graph:{$projectId}:overview:index";
+        $indexKey = "{$prefix}:index";
         $index = Cache::get($indexKey, []);
         if (! is_array($index)) {
             $index = [];
         }
-        if (! in_array($limit, $index, true)) {
-            $index[] = $limit;
+        if (! in_array($bucket, $index, true)) {
+            $index[] = $bucket;
             Cache::put($indexKey, $index, self::ttl());
         }
+
+        return self::remember("{$prefix}:{$bucket}", $resolver);
     }
 
-    private static function forgetOverview(string $projectId): void
+    private static function forgetIndexed(string $prefix): void
     {
-        $indexKey = "graph:{$projectId}:overview:index";
+        $indexKey = "{$prefix}:index";
         $index = Cache::get($indexKey, []);
         if (is_array($index)) {
-            foreach ($index as $limit) {
-                Cache::forget("graph:{$projectId}:overview:{$limit}");
+            foreach ($index as $bucket) {
+                Cache::forget("{$prefix}:{$bucket}");
             }
         }
         Cache::forget($indexKey);

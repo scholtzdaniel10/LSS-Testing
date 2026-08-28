@@ -7,10 +7,10 @@ return [
     | Overview aggregation cap
     |--------------------------------------------------------------------------
     |
-    | Hard maximum for GET /projects/{project}/graph/overview?limit=. The
-    | query param is a fileCap (hugeGraphOverviewKeep), not a total node
-    | ceiling — folder hubs and error files are always kept, so the payload
-    | may contain more nodes than this value.
+    | Hard maximum for GET /projects/{project}/graph/overview?limit= (fileCap)
+    | and GET /graph/rollup folder count. Overview may still return more nodes
+    | than this value because folder hubs and error files are always kept.
+    | Rollup never fills leftover slots with files.
     |
     */
 

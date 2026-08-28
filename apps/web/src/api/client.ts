@@ -128,6 +128,13 @@ export type GraphOverview = {
   links: GraphOverviewLink[];
 };
 
+export type GraphRollup = {
+  projectId: string;
+  scannedAt: string | null;
+  nodes: GraphOverviewNode[];
+  links: GraphOverviewLink[];
+};
+
 export type UsageReport = {
   uses: { languages: string[]; frameworks: string[]; deps: Array<{ name: string; version: string; source: string }> };
   needs: { missingDeps: string[]; envVars: string[]; services: string[] };
@@ -286,6 +293,11 @@ export const api = {
   graphOverview: (id: string, limit?: number) =>
     request<GraphOverview | null>(
       `/projects/${id}/graph/overview${limit != null ? `?limit=${limit}` : ''}`,
+    ),
+  /** IG-29: folder-only rollup — does not replace `graph()`. */
+  graphRollup: (id: string, depth?: number) =>
+    request<GraphRollup | null>(
+      `/projects/${id}/graph/rollup${depth != null ? `?depth=${depth}` : ''}`,
     ),
   usageReport: (id: string) =>
     request<{ projectId: string; report: UsageReport; createdAt: string | null } | null>(
