@@ -23,6 +23,7 @@ import {
 } from '../lib/graphModel';
 import { EMPTY_GRAPH_VIEW } from '../lib/modelJobs';
 import { useGraphView } from '../lib/useModelWorker';
+import ScreenState from './ScreenState';
 
 type GraphNode = ForceGraphNode & NodeObject;
 type GraphLink = ForceGraphLink & LinkObject;
@@ -550,24 +551,24 @@ const DependencyGraph: React.FC<Props> = ({
 
   const expandedList = useMemo(() => [...expanded].sort(), [expanded]);
   const neighbourCount = focusNeighbourhood ? Math.max(0, focusNeighbourhood.size - 1) : 0;
+  const showComputingHint = modelStatus === 'computing' || modelStatus === 'loading';
 
   if (modelStatus === 'error') {
     return (
-      <div className="graph-wrap" role="alert">
-        <p className="field__hint">{modelError ?? 'Could not compute the graph.'}</p>
+      <div className="graph-wrap">
+        <ScreenState status="error" errorMessage={modelError ?? 'Could not compute the graph.'} emptyHint="">
+          {null}
+        </ScreenState>
       </div>
     );
   }
 
-  if (modelStatus !== 'ready') {
+  if (modelStatus === 'empty') {
     return (
       <div className="graph-wrap">
-        <div className="skeleton-block" aria-busy="true">
-          <p className="panel__hint">Computing layout…</p>
-          <div className="skeleton-line" />
-          <div className="skeleton-line" style={{ width: '70%' }} />
-          <div className="skeleton-line" style={{ width: '55%' }} />
-        </div>
+        <ScreenState status="empty" errorMessage={null} emptyHint="No graph nodes to display.">
+          {null}
+        </ScreenState>
       </div>
     );
   }
@@ -702,7 +703,7 @@ const DependencyGraph: React.FC<Props> = ({
         </div>
       )}
 
-      <div className="graph-canvas-wrap">
+      <div className="graph-canvas-wrap" aria-busy={showComputingHint}>
         <ForceGraph2D
           ref={graphRef}
           width={width}
@@ -762,6 +763,12 @@ const DependencyGraph: React.FC<Props> = ({
             /* links are visual only — avoid stealing clicks from node labels */
           }}
         />
+
+        {showComputingHint ? (
+          <ScreenState status="computing" errorMessage={null} emptyHint="">
+            {null}
+          </ScreenState>
+        ) : null}
 
         <div className="graph-zoom-controls" aria-label="Graph zoom controls">
           <button type="button" className="graph-zoom-controls__btn" onClick={() => zoomBy(1.35)} title="Zoom in">

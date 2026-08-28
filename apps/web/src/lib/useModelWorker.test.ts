@@ -75,7 +75,7 @@ describe('useGraphView', () => {
     expect(posts).toHaveLength(postsAfterFirst);
   });
 
-  it('starts in loading then becomes ready (main thread is not blocked by a sync build)', async () => {
+  it('starts in computing then becomes ready (main thread is not blocked by a sync build)', async () => {
     const { worker } = countingWorker();
     setModelWorkerFactoryForTests(() => worker);
 
@@ -91,9 +91,77 @@ describe('useGraphView', () => {
       }),
     );
 
-    expect(result.current.status).toBe('loading');
+    expect(result.current.status).toBe('computing');
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.data?.folderCount).toBeGreaterThan(0);
+  });
+
+  it('keeps the last frame and reports computing while a new job is in flight', async () => {
+    const listeners = new Set<EventListener>();
+    const pending: ModelJob[] = [];
+    const worker: ModelWorkerLike = {
+      postMessage(job: ModelJob) {
+        pending.push(job);
+      },
+      addEventListener(type, listener) {
+        if (type === 'message') listeners.add(listener);
+      },
+      removeEventListener(type, listener) {
+        if (type === 'message') listeners.delete(listener);
+      },
+      terminate() {
+        listeners.clear();
+      },
+    };
+    setModelWorkerFactoryForTests(() => worker);
+
+    const { result, rerender } = renderHook(
+      (props: { showExternal: boolean }) =>
+        useGraphView({
+          snapshotId: 'p1:t1',
+          edges,
+          files,
+          errorFiles: new Map(),
+          expanded: new Set<string>(),
+          showExternal: props.showExternal,
+          profile,
+        }),
+      { initialProps: { showExternal: false } },
+    );
+
+    expect(pending).toHaveLength(1);
+    act(() => {
+      const event = { data: handleModelJob(pending[0]) } as MessageEvent<ModelResult>;
+      for (const listener of listeners) listener(event);
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const firstView = result.current.data;
+    expect(firstView).not.toBeNull();
+
+    rerender({ showExternal: true });
+    expect(result.current.status).toBe('computing');
+    expect(result.current.data).toBe(firstView);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('reports empty when the worker returns no graph nodes', async () => {
+    const { worker } = countingWorker();
+    setModelWorkerFactoryForTests(() => worker);
+
+    const { result } = renderHook(() =>
+      useGraphView({
+        snapshotId: 'p1:empty',
+        edges: [],
+        files: [],
+        errorFiles: new Map(),
+        expanded: new Set<string>(),
+        showExternal: false,
+        profile,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('empty'));
+    expect(result.current.data?.nodes).toEqual([]);
   });
 
   it('ignores stale jobs when view params change quickly', async () => {

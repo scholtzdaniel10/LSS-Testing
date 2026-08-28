@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildGraphView, buildStackProfile } from './graphModel';
 import { buildFolderLayout, buildRadialLayout } from './radialModel';
-import { cacheKeyForRequest, handleModelJob } from './modelJobs';
+import { cacheKeyForRequest, handleModelJob, isEmptyModelValue, EMPTY_GRAPH_VIEW, EMPTY_RADIAL_LAYOUT } from './modelJobs';
 import type { GraphEdge } from '../api/client';
 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, kind: 'import' });
@@ -99,5 +99,17 @@ describe('cacheKeyForRequest', () => {
     };
     expect(cacheKeyForRequest(base)).not.toBe(cacheKeyForRequest({ ...base, snapshotId: 'p1:t2' }));
     expect(cacheKeyForRequest(base)).not.toBe(cacheKeyForRequest({ ...base, grouping: 'component' }));
+  });
+});
+
+describe('isEmptyModelValue', () => {
+  it('treats empty graph views and radial layouts as empty', () => {
+    expect(isEmptyModelValue(EMPTY_GRAPH_VIEW)).toBe(true);
+    expect(isEmptyModelValue(EMPTY_RADIAL_LAYOUT)).toBe(true);
+  });
+
+  it('treats layouts with nodes or components as non-empty', () => {
+    expect(isEmptyModelValue({ ...EMPTY_GRAPH_VIEW, nodes: [{ id: 'a' } as never] })).toBe(false);
+    expect(isEmptyModelValue({ ...EMPTY_RADIAL_LAYOUT, components: [{ index: 0 } as never] })).toBe(false);
   });
 });

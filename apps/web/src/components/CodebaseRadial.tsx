@@ -35,6 +35,7 @@ import {
 import { EMPTY_RADIAL_LAYOUT } from '../lib/modelJobs';
 import { useRadialLayout } from '../lib/useModelWorker';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
+import ScreenState from './ScreenState';
 
 // -- SERIES palette (matches ExplorePage.tsx tree view) -----------------------
 const SERIES: Record<string, string> = {
@@ -1008,6 +1009,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
       {/* SVG radial canvas with zoom/pan */}
       <div
         style={{
+          position: 'relative',
           overflow: 'hidden',
           maxHeight: '65vh',
           background: 'var(--surface-panel)',
@@ -1020,22 +1022,16 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
         }}
         role="img"
         aria-label="Codebase radial map"
+        aria-busy={layoutStatus === 'computing' || layoutStatus === 'loading'}
       >
         {layoutStatus === 'error' ? (
-          <div style={{ padding: 'var(--sp-5)', color: 'var(--status-critical)', fontSize: 'var(--text-sm)' }} role="alert">
-            {layoutError ?? 'Could not compute the map.'}
-          </div>
-        ) : layoutStatus !== 'ready' ? (
-          <div className="skeleton-block" aria-busy="true" style={{ padding: 'var(--sp-5)' }}>
-            <p className="panel__hint">Computing layout…</p>
-            <div className="skeleton-line" />
-            <div className="skeleton-line" style={{ width: '70%' }} />
-            <div className="skeleton-line" style={{ width: '55%' }} />
-          </div>
-        ) : layout.components.length === 0 ? (
-          <div style={{ padding: 'var(--sp-5)', color: 'var(--ink-3)', fontSize: 'var(--text-sm)' }}>
-            No linked files to display.
-          </div>
+          <ScreenState status="error" errorMessage={layoutError ?? 'Could not compute the map.'} emptyHint="">
+            {null}
+          </ScreenState>
+        ) : layout.components.length === 0 && layoutStatus !== 'computing' && layoutStatus !== 'loading' ? (
+          <ScreenState status="empty" errorMessage={null} emptyHint="No linked files to display.">
+            {null}
+          </ScreenState>
         ) : (
           <svg
             ref={svgRef}
@@ -1078,6 +1074,11 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
             </g>
           </svg>
         )}
+        {layoutStatus === 'computing' || layoutStatus === 'loading' ? (
+          <ScreenState status="computing" errorMessage={null} emptyHint="">
+            {null}
+          </ScreenState>
+        ) : null}
       </div>
 
       {/* Selected file detail strip */}

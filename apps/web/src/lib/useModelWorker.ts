@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEdge } from '../api/client';
+import type { ScreenStatus } from '../components/ScreenState';
 import type { GraphView, StackProfile } from './graphModel';
 import {
   cacheKeyForRequest,
   EMPTY_GRAPH_VIEW,
   EMPTY_RADIAL_LAYOUT,
   handleModelJob,
+  isEmptyModelValue,
   type GraphViewRequest,
   type ModelJob,
   type ModelRequest,
@@ -14,7 +16,11 @@ import {
 } from './modelJobs';
 import type { RadialLayout } from './radialModel';
 
-export type ModelStatus = 'idle' | 'loading' | 'ready' | 'error';
+export type ModelStatus = ScreenStatus;
+
+function settledStatus(value: GraphView | RadialLayout): ModelStatus {
+  return isEmptyModelValue(value) ? 'empty' : 'ready';
+}
 
 type ModelWorkerLike = {
   postMessage: (job: ModelJob) => void;
@@ -97,7 +103,7 @@ function useModelJob<T extends GraphView | RadialLayout>(
   const cached = key ? (resultCache.get(key) as T | undefined) : undefined;
   const [status, setStatus] = useState<ModelStatus>(() => {
     if (!request) return 'idle';
-    return cached ? 'ready' : 'loading';
+    return cached ? settledStatus(cached) : 'computing';
   });
   const [data, setData] = useState<T | null>(() => cached ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +118,7 @@ function useModelJob<T extends GraphView | RadialLayout>(
     }
     const hit = resultCache.get(key) as T | undefined;
     if (hit) {
-      setStatus('ready');
+      setStatus(settledStatus(hit));
       setData(hit);
       setError(null);
       return;
@@ -120,7 +126,7 @@ function useModelJob<T extends GraphView | RadialLayout>(
 
     const requestId = nextRequestId++;
     latestId.current = requestId;
-    setStatus('loading');
+    setStatus('computing');
     setError(null);
 
     const worker = getWorker();
@@ -131,13 +137,12 @@ function useModelJob<T extends GraphView | RadialLayout>(
       if (result.kind === 'error') {
         setStatus('error');
         setError(result.message);
-        setData(null);
         return;
       }
       const value = (result.kind === 'graphView' ? result.view : result.layout) as T;
       resultCache.set(key, value);
       setData(value);
-      setStatus('ready');
+      setStatus(settledStatus(value));
       setError(null);
     };
     worker.addEventListener('message', onMessage);
@@ -149,7 +154,7 @@ function useModelJob<T extends GraphView | RadialLayout>(
 
   return {
     status,
-    data: data ?? (status === 'ready' ? empty : data),
+    data: data ?? (status === 'ready' || status === 'empty' ? empty : data),
     error,
   };
 }

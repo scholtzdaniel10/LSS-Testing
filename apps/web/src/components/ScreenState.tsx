@@ -1,15 +1,19 @@
 import type { ReactNode } from 'react';
 
+export type ScreenStatus = 'idle' | 'loading' | 'computing' | 'ready' | 'empty' | 'error';
+
+export const COMPUTING_HINT = 'Laying out…';
+
 export function ScreenState({
   status,
   errorMessage,
   emptyHint,
   children,
 }: {
-  status: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+  status: ScreenStatus;
   errorMessage: string | null;
   emptyHint: string;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   if (status === 'loading' || status === 'idle') {
     return (
@@ -39,7 +43,16 @@ export function ScreenState({
       </div>
     );
   }
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {status === 'computing' ? (
+        <p className="panel__hint screen-state__computing-hint" role="status">
+          {COMPUTING_HINT}
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 export default ScreenState;

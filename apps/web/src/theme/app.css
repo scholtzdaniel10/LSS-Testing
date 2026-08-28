@@ -197,6 +197,20 @@ body {
   color: var(--ink-4);
 }
 
+.screen-state__computing-hint {
+  position: absolute;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  z-index: 3;
+  margin: 0;
+  padding: var(--sp-1) var(--sp-2);
+  pointer-events: none;
+  background: var(--surface-raised);
+  color: var(--ink-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-sm);
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex;

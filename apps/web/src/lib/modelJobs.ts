@@ -68,6 +68,10 @@ export const EMPTY_RADIAL_LAYOUT: RadialLayout = {
   unlinked: { files: [] },
 };
 
+export function isEmptyModelValue(value: GraphView | RadialLayout): boolean {
+  return 'folderCount' in value ? value.nodes.length === 0 : value.components.length === 0;
+}
+
 /** Cache key = snapshot id + view params (not the full edge/file blobs). */
 export function cacheKeyForRequest(request: ModelRequest): string {
   if (request.kind === 'graphView') {
