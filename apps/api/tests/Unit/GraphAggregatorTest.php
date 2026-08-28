@@ -235,3 +235,102 @@ it('rollup truncates extra folders by fileCount then errors then id, never filli
         ->and($view['nodes'][0]['id'])->toBe('dir:app')
         ->and($view['nodes'][0]['kind'])->toBe('folder');
 });
+
+it('neighbourhood of a file at radius 1 matches neighbourhoodWithin', function () {
+    $files = ['a.php', 'b.php', 'c.php', 'd.php'];
+    $edges = [
+        ['from' => 'a.php', 'to' => 'b.php', 'kind' => 'import'],
+        ['from' => 'b.php', 'to' => 'c.php', 'kind' => 'import'],
+        ['from' => 'c.php', 'to' => 'd.php', 'kind' => 'import'],
+    ];
+    $view = (new GraphAggregator)->neighbourhood($edges, $files, [], 'b.php', 1);
+
+    expect(array_column($view['nodes'], 'id'))->toEqualCanonicalizing(['a.php', 'b.php', 'c.php'])
+        ->and($view['nodes'])->toHaveCount(3)
+        ->and($view['total'])->toBe(3)
+        ->and($view['returned'])->toBe(3)
+        ->and($view['truncated'])->toBeFalse()
+        ->and($view['cap'])->toBe(200);
+
+    foreach ($view['nodes'] as $node) {
+        expect($node['kind'])->toBe('file')
+            ->and($node)->not->toHaveKey('color')
+            ->and($node)->not->toHaveKey('x');
+    }
+    $ids = array_map(fn (array $l): string => $l['source'].'>'.$l['target'], $view['links']);
+    expect($ids)->toEqualCanonicalizing(['a.php>b.php', 'b.php>c.php']);
+});
+
+it('neighbourhood radius 2 includes the two-hop neighbour', function () {
+    $files = ['a.php', 'b.php', 'c.php', 'd.php'];
+    $edges = [
+        ['from' => 'a.php', 'to' => 'b.php', 'kind' => 'import'],
+        ['from' => 'b.php', 'to' => 'c.php', 'kind' => 'import'],
+        ['from' => 'c.php', 'to' => 'd.php', 'kind' => 'import'],
+    ];
+    $view = (new GraphAggregator)->neighbourhood($edges, $files, [], 'b.php', 2);
+
+    expect(array_column($view['nodes'], 'id'))->toEqualCanonicalizing(['a.php', 'b.php', 'c.php', 'd.php']);
+});
+
+it('neighbourhood of a folder hub seeds files under that folder then walks hops', function () {
+    $files = ['app/A.php', 'app/B.php', 'lib/C.php', 'lib/D.php', 'src/E.php'];
+    $edges = [
+        ['from' => 'app/A.php', 'to' => 'lib/C.php', 'kind' => 'import'],
+        ['from' => 'app/B.php', 'to' => 'lib/D.php', 'kind' => 'import'],
+        ['from' => 'lib/C.php', 'to' => 'src/E.php', 'kind' => 'import'],
+    ];
+    $view = (new GraphAggregator)->neighbourhood($edges, $files, [], 'dir:app', 1);
+
+    expect(array_column($view['nodes'], 'id'))->toEqualCanonicalizing(['app/A.php', 'app/B.php', 'lib/C.php', 'lib/D.php'])
+        ->and($view['truncated'])->toBeFalse();
+    expect(array_column($view['nodes'], 'kind'))->each->toBe('file');
+});
+
+it('neighbourhood accepts a bare folder path as focus', function () {
+    $files = ['app/A.php', 'lib/C.php'];
+    $edges = [
+        ['from' => 'app/A.php', 'to' => 'lib/C.php', 'kind' => 'import'],
+    ];
+    $view = (new GraphAggregator)->neighbourhood($edges, $files, [], 'app', 1);
+
+    expect(array_column($view['nodes'], 'id'))->toEqualCanonicalizing(['app/A.php', 'lib/C.php']);
+});
+
+it('neighbourhood clamps size, keeping focus roots then errors then degree', function () {
+    config(['graph.aggregate_max_nodes' => 2]);
+    $files = ['app/hub.php', 'app/quiet.php', 'lib/a.php', 'lib/b.php'];
+    $edges = [
+        ['from' => 'app/hub.php', 'to' => 'lib/a.php', 'kind' => 'import'],
+        ['from' => 'app/hub.php', 'to' => 'lib/b.php', 'kind' => 'import'],
+        ['from' => 'app/hub.php', 'to' => 'app/quiet.php', 'kind' => 'import'],
+    ];
+    $view = (new GraphAggregator)->neighbourhood($edges, $files, ['app/quiet.php' => 2], 'app/hub.php', 1);
+
+    $ids = array_column($view['nodes'], 'id');
+    expect($view['truncated'])->toBeTrue()
+        ->and($view['total'])->toBe(4)
+        ->and($view['returned'])->toBe(2)
+        ->and($view['cap'])->toBe(2)
+        ->and($ids)->toContain('app/hub.php')
+        ->and($ids)->toContain('app/quiet.php')
+        ->and($ids)->not->toContain('lib/a.php')
+        ->and($ids)->not->toContain('lib/b.php');
+});
+
+it('neighbourhood hides external refs and returns empty for unknown focus', function () {
+    $files = ['app/A.php'];
+    $edges = [
+        ['from' => 'app/A.php', 'to' => 'pkg:guzzlehttp/guzzle', 'kind' => 'import'],
+        ['from' => 'app/A.php', 'to' => 'php:App\\Foo', 'kind' => 'import'],
+    ];
+    $view = (new GraphAggregator)->neighbourhood($edges, $files, [], 'app/A.php', 1);
+
+    expect(array_column($view['nodes'], 'id'))->toBe(['app/A.php'])
+        ->and($view['links'])->toBe([]);
+
+    $missing = (new GraphAggregator)->neighbourhood($edges, $files, [], 'nope', 1);
+    expect($missing['nodes'])->toBe([])
+        ->and($missing['total'])->toBe(0)
+        ->and($missing['truncated'])->toBeFalse();
+});

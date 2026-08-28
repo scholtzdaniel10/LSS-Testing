@@ -30,6 +30,7 @@ final class ProjectReadCache
         Cache::forget("bootstrap:{$projectId}");
         self::forgetIndexed("graph:{$projectId}:overview");
         self::forgetIndexed("graph:{$projectId}:rollup");
+        self::forgetIndexed("graph:{$projectId}:neighbourhood");
     }
 
     /**
@@ -49,6 +50,19 @@ final class ProjectReadCache
     public static function rememberRollup(string $projectId, int $depth, callable $resolver): mixed
     {
         return self::rememberIndexed("graph:{$projectId}:rollup", $depth, $resolver);
+    }
+
+    /**
+     * Neighbourhood slices are keyed by radius + focus hash. File/array cache
+     * has no wildcard delete, so the index must track every bucket.
+     *
+     * @param  callable(): mixed  $resolver
+     */
+    public static function rememberNeighbourhood(string $projectId, int $radius, string $focus, callable $resolver): mixed
+    {
+        $bucket = $radius.':'.hash('sha256', $focus);
+
+        return self::rememberIndexed("graph:{$projectId}:neighbourhood", $bucket, $resolver);
     }
 
     public static function forgetHealth(string $projectId): void
@@ -83,7 +97,7 @@ final class ProjectReadCache
         Cache::put($key, $value, self::ttl());
     }
 
-    private static function rememberIndexed(string $prefix, int $bucket, callable $resolver): mixed
+    private static function rememberIndexed(string $prefix, int|string $bucket, callable $resolver): mixed
     {
         $indexKey = "{$prefix}:index";
         $index = Cache::get($indexKey, []);

@@ -178,6 +178,71 @@ final class GraphAggregator
         ];
     }
 
+    /**
+     * IG-33: N-hop file neighbourhood of a folder hub or file node.
+     * Mirrors neighbourhoodWithin + cappedNeighbourhood (hops 1–3, rank
+     * errors then degree then id). showExternal=false. Folder focus seeds
+     * every file under that path; hops are then walked on the file graph.
+     *
+     * @param  list<array{from?: mixed, to?: mixed, kind?: mixed, line?: mixed}>  $edges
+     * @param  list<string>  $allFiles
+     * @param  array<string, int>  $errorCounts
+     * @return array{
+     *     nodes: list<array<string, mixed>>,
+     *     links: list<array{source: string, target: string, weight: int, externalTarget: bool}>,
+     *     total: int,
+     *     returned: int,
+     *     truncated: bool,
+     *     cap: int
+     * }
+     */
+    public function neighbourhood(array $edges, array $allFiles, array $errorCounts, string $focus, int $radius): array
+    {
+        $radius = max(1, min(3, $radius));
+        $max = max(1, (int) config('graph.aggregate_max_nodes', 200));
+
+        $files = $this->buildFileLevel($edges, $allFiles, $errorCounts);
+        $adj = $this->undirectedAdjacency($edges);
+        $roots = $this->resolveFocus($focus, $allFiles, $files);
+
+        if ($roots === []) {
+            return [
+                'nodes' => [],
+                'links' => [],
+                'total' => 0,
+                'returned' => 0,
+                'truncated' => false,
+                'cap' => $max,
+            ];
+        }
+
+        $visible = $this->walkNeighbourhood($roots, $adj, $radius);
+        $total = count($visible);
+        $truncated = $total > $max;
+        $keep = $truncated
+            ? $this->capNeighbourhood($visible, $roots, $files, $max)
+            : $visible;
+
+        $nodes = [];
+        foreach ($keep as $id => $_) {
+            if (! isset($files[$id])) {
+                $this->ensureFile($files, $id, $errorCounts);
+            }
+            $nodes[] = $this->serializeNode($files[$id]);
+        }
+
+        $links = $this->neighbourhoodLinks($edges, $keep);
+
+        return [
+            'nodes' => $nodes,
+            'links' => $links,
+            'total' => $total,
+            'returned' => count($nodes),
+            'truncated' => $truncated,
+            'cap' => $max,
+        ];
+    }
+
     public static function folderOf(string $path): string
     {
         $top = explode('/', $path)[0] ?? 'other';
@@ -340,6 +405,195 @@ final class GraphAggregator
                     'target' => $tgt,
                     'weight' => 0,
                     'externalTarget' => ($tgtNode['kind'] ?? null) === 'external',
+                ];
+            }
+            $linkWeights[$key]['weight']++;
+        }
+
+        return array_values($linkWeights);
+    }
+
+    /**
+     * @param  list<string>  $allFiles
+     * @param  array<string, array<string, mixed>>  $files
+     * @return list<string>
+     */
+    private function resolveFocus(string $focus, array $allFiles, array $files): array
+    {
+        $focus = trim($focus);
+        $focus = rtrim($focus, '/');
+        if ($focus === '') {
+            return [];
+        }
+
+        if (str_starts_with($focus, self::FOLDER_PREFIX)) {
+            $folder = substr($focus, strlen(self::FOLDER_PREFIX));
+
+            return $this->filesInFolder($folder, $allFiles);
+        }
+
+        if (isset($files[$focus]) || in_array($focus, $allFiles, true)) {
+            return [$focus];
+        }
+
+        $under = $this->filesInFolder($focus, $allFiles);
+        if ($under !== []) {
+            return $under;
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  list<string>  $allFiles
+     * @return list<string>
+     */
+    private function filesInFolder(string $folder, array $allFiles): array
+    {
+        if ($folder === '') {
+            return [];
+        }
+        $prefix = $folder.'/';
+        $out = [];
+        foreach ($allFiles as $path) {
+            $path = (string) $path;
+            if ($path === $folder || str_starts_with($path, $prefix)) {
+                $out[] = $path;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Undirected adjacency of internal file edges. Mirrors buildNeighbourMap.
+     *
+     * @param  list<array{from?: mixed, to?: mixed, kind?: mixed, line?: mixed}>  $edges
+     * @return array<string, list<string>>
+     */
+    private function undirectedAdjacency(array $edges): array
+    {
+        $adj = [];
+        foreach ($this->internalEdges($edges) as [$from, $to]) {
+            if ($from === $to) {
+                continue;
+            }
+            $adj[$from][] = $to;
+            $adj[$to][] = $from;
+        }
+
+        return $adj;
+    }
+
+    /**
+     * Multi-source BFS. Hops clamped 1–3. Roots included. Mirrors neighbourhoodWithin.
+     *
+     * @param  list<string>  $roots
+     * @param  array<string, list<string>>  $adj
+     * @return array<string, true>
+     */
+    private function walkNeighbourhood(array $roots, array $adj, int $radius): array
+    {
+        $visible = [];
+        $frontier = [];
+        foreach ($roots as $root) {
+            $visible[$root] = true;
+            $frontier[] = $root;
+        }
+        $hops = max(1, min(3, $radius));
+        for ($d = 0; $d < $hops; $d++) {
+            $next = [];
+            foreach ($frontier as $id) {
+                foreach ($adj[$id] ?? [] as $neighbour) {
+                    if (isset($visible[$neighbour])) {
+                        continue;
+                    }
+                    $visible[$neighbour] = true;
+                    $next[] = $neighbour;
+                }
+            }
+            $frontier = $next;
+            if ($frontier === []) {
+                break;
+            }
+        }
+
+        return $visible;
+    }
+
+    /**
+     * Keep every focus root that fits, then highest-error / highest-degree
+     * neighbours. Mirrors cappedNeighbourhood.
+     *
+     * @param  array<string, true>  $visible
+     * @param  list<string>  $roots
+     * @param  array<string, array<string, mixed>>  $files
+     * @return array<string, true>
+     */
+    private function capNeighbourhood(array $visible, array $roots, array $files, int $max): array
+    {
+        $rootSet = [];
+        foreach ($roots as $root) {
+            if (isset($visible[$root])) {
+                $rootSet[$root] = true;
+            }
+        }
+        $others = [];
+        foreach ($visible as $id => $_) {
+            if (! isset($rootSet[$id])) {
+                $others[] = $id;
+            }
+        }
+
+        $rank = function (string $a, string $b) use ($files): int {
+            $na = $files[$a] ?? ['errors' => 0, 'degree' => 0];
+            $nb = $files[$b] ?? ['errors' => 0, 'degree' => 0];
+            $byErrors = ($nb['errors'] ?? 0) <=> ($na['errors'] ?? 0);
+            if ($byErrors !== 0) {
+                return $byErrors;
+            }
+            $byDegree = ($nb['degree'] ?? 0) <=> ($na['degree'] ?? 0);
+            if ($byDegree !== 0) {
+                return $byDegree;
+            }
+
+            return strcmp($a, $b);
+        };
+
+        $rootIds = array_keys($rootSet);
+        usort($rootIds, $rank);
+        usort($others, $rank);
+
+        $keep = [];
+        foreach (array_merge($rootIds, $others) as $id) {
+            if (count($keep) >= $max) {
+                break;
+            }
+            $keep[$id] = true;
+        }
+
+        return $keep;
+    }
+
+    /**
+     * @param  list<array{from?: mixed, to?: mixed, kind?: mixed, line?: mixed}>  $edges
+     * @param  array<string, true>  $keep
+     * @return list<array{source: string, target: string, weight: int, externalTarget: bool}>
+     */
+    private function neighbourhoodLinks(array $edges, array $keep): array
+    {
+        $linkWeights = [];
+        foreach ($this->internalEdges($edges) as [$from, $to]) {
+            if ($from === $to || ! isset($keep[$from]) || ! isset($keep[$to])) {
+                continue;
+            }
+            $key = $from.' '.$to;
+            if (! isset($linkWeights[$key])) {
+                $linkWeights[$key] = [
+                    'source' => $from,
+                    'target' => $to,
+                    'weight' => 0,
+                    'externalTarget' => false,
                 ];
             }
             $linkWeights[$key]['weight']++;

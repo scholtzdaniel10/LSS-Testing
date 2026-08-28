@@ -47,6 +47,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         // IG-29: ranked overview slice — does not replace GET /graph.
         Route::get('/projects/{project}/graph/overview', [GraphAggregateController::class, 'overview']);
         Route::get('/projects/{project}/graph/rollup', [GraphAggregateController::class, 'rollup']);
+        Route::get('/projects/{project}/graph/neighbourhood', [GraphAggregateController::class, 'neighbourhood']);
         Route::get('/projects/{project}/usage-report', [UsageReportController::class, 'show']);
         Route::get('/projects/{project}/errors', [ErrorController::class, 'index']);
         Route::get('/projects/{project}/bootstrap', [BootstrapController::class, 'show']);
