@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Requests\GraphNeighbourhoodRequest;
 use App\Http\Requests\GraphOverviewRequest;
 use App\Http\Requests\GraphRollupRequest;
 use App\Models\Project;
@@ -97,6 +98,59 @@ class GraphAggregateController extends Controller
                         'returned' => $view['returned'],
                         'truncated' => $view['truncated'],
                         'cap' => $view['cap'],
+                    ],
+                ];
+            },
+        );
+
+        if ($cached === null) {
+            return $this->respond(null, ['reason' => 'no-graph-yet']);
+        }
+
+        return $this->respond($cached['data'], $cached['meta']);
+    }
+
+    /**
+     * IG-33: GET /projects/{project}/graph/neighbourhood — N-hop file slice
+     * around a folder hub or file node. Existing GET /graph is unchanged.
+     */
+    public function neighbourhood(
+        GraphNeighbourhoodRequest $request,
+        Project $project,
+        GraphAggregator $aggregator,
+    ): JsonResponse {
+        $focus = $request->focus();
+        $radius = $request->radius();
+
+        $cached = ProjectReadCache::rememberNeighbourhood(
+            $project->id,
+            $radius,
+            $focus,
+            function () use ($project, $focus, $radius, $aggregator): ?array {
+                $snapshot = $project->graphSnapshots()->orderByDesc('scanned_at')->first();
+                if ($snapshot === null) {
+                    return null;
+                }
+
+                $files = $project->files()->orderBy('path')->pluck('path')->all();
+                $errorCounts = $this->errorCounts($project);
+                $edges = is_array($snapshot->edges) ? $snapshot->edges : [];
+                $view = $aggregator->neighbourhood($edges, $files, $errorCounts, $focus, $radius);
+
+                return [
+                    'data' => [
+                        'projectId' => $project->id,
+                        'scannedAt' => $snapshot->scanned_at?->toIso8601String(),
+                        'nodes' => $view['nodes'],
+                        'links' => $view['links'],
+                    ],
+                    'meta' => [
+                        'total' => $view['total'],
+                        'returned' => $view['returned'],
+                        'truncated' => $view['truncated'],
+                        'cap' => $view['cap'],
+                        'focus' => $focus,
+                        'radius' => $radius,
                     ],
                 ];
             },

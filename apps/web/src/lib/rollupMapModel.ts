@@ -1,12 +1,14 @@
 /**
  * IG-32: Map first-paint from GET /graph/rollup.
+ * IG-33: drill layout from GET /graph/neighbourhood (file dots around the hub).
  *
- * Folder hubs only. File-kind nodes are dropped (overview still has file
- * dots; rollup does not — never paint those here). Ranking stays in server
- * order (fileCount desc, errors desc, id). No C3 /graph or /tree changes.
+ * Folder hubs only on first paint. File-kind nodes are dropped from rollup
+ * (overview still has file dots; rollup does not — never paint those here).
+ * Ranking stays in server order (fileCount desc, errors desc, id).
+ * No C3 /graph or /tree changes.
  */
 
-import type { GraphOverviewLink, GraphOverviewNode, GraphRollup } from '../api/client';
+import type { GraphOverview, GraphOverviewLink, GraphOverviewNode, GraphRollup } from '../api/client';
 import { componentRadius, folderKeyOf, LABEL_THRESHOLD, radialPerformanceProfile } from './radialModel';
 
 export type RollupHub = {
@@ -33,6 +35,27 @@ export type HubPlacement = {
   hub: RollupHub;
 };
 
+export type DrillFile = {
+  id: string;
+  name: string;
+  groupKey: string;
+  errors: number;
+  degree: number;
+};
+
+export type DrillFilePlacement = {
+  cx: number;
+  cy: number;
+  radius: number;
+  file: DrillFile;
+};
+
+export type DrillMapLayout = {
+  hub: RollupHub | null;
+  files: DrillFile[];
+  chords: RollupChord[];
+};
+
 export type RollupMapLayout = {
   hubs: RollupHub[];
   chords: RollupChord[];
@@ -50,9 +73,16 @@ export type RollupPaintMeta = {
 };
 
 const FOLDER_PREFIX = 'dir:';
+export const FILE_DOT_RADIUS = 5;
+const ORBIT_MIN_ARC = 16;
+const ORBIT_GAP = 16;
 
 export function isRollupFolderNode(node: GraphOverviewNode): boolean {
   return node.kind === 'folder' && !node.external && node.id.startsWith(FOLDER_PREFIX);
+}
+
+export function isDrillFileNode(node: GraphOverviewNode): boolean {
+  return node.kind === 'file' && !node.external;
 }
 
 function asHub(node: GraphOverviewNode): RollupHub {
@@ -172,6 +202,81 @@ export function shouldShowHubLabel(
 ): boolean {
   if (hubCount <= LABEL_THRESHOLD) return true;
   return hubId === focusId || hubId === hoveredId;
+}
+
+function asDrillFile(node: GraphOverviewNode): DrillFile {
+  const folderPath = node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : '';
+  return {
+    id: node.id,
+    name: node.name,
+    groupKey: folderKeyOf(folderPath || node.folder),
+    errors: node.errors,
+    degree: node.degree,
+  };
+}
+
+/**
+ * Drill paint from GET /graph/neighbourhood. File nodes only; the clicked
+ * rollup hub is kept as the centre. First-paint rollup layout is unchanged.
+ */
+export function buildDrillMapLayout(
+  rollup: GraphRollup,
+  neighbourhood: GraphOverview,
+  focusId: string,
+): DrillMapLayout {
+  const hubNode = rollup.nodes.find((node) => node.id === focusId && isRollupFolderNode(node));
+  const hub = hubNode ? asHub(hubNode) : null;
+  const files: DrillFile[] = [];
+  for (const node of neighbourhood.nodes) {
+    if (!isDrillFileNode(node)) continue;
+    files.push(asDrillFile(node));
+  }
+  const keep = new Set(files.map((file) => file.id));
+  const errorById = new Map(files.map((file) => [file.id, file.errors > 0]));
+  const chords: RollupChord[] = [];
+  for (const link of neighbourhood.links) {
+    const chord = chordFromLink(link, keep, errorById);
+    if (chord) chords.push(chord);
+  }
+  return { hub, files, chords };
+}
+
+/** Place `count` dots on a ring around (cx, cy). Grows the radius to keep min arc. */
+export function placeOrbit(
+  cx: number,
+  cy: number,
+  innerRadius: number,
+  count: number,
+  dotRadius = FILE_DOT_RADIUS,
+): Array<{ cx: number; cy: number }> {
+  if (count <= 0) return [];
+  const minR = innerRadius + dotRadius + ORBIT_GAP;
+  const fromArc = Math.ceil((count * ORBIT_MIN_ARC) / (2 * Math.PI));
+  const r = Math.max(minR, fromArc);
+  const out: Array<{ cx: number; cy: number }> = [];
+  for (let i = 0; i < count; i++) {
+    const angle = (2 * Math.PI * i) / count;
+    out.push({
+      cx: cx + r * Math.sin(angle),
+      cy: cy - r * Math.cos(angle),
+    });
+  }
+  return out;
+}
+
+export function placeDrillFiles(
+  hubCx: number,
+  hubCy: number,
+  hubRadius: number,
+  files: DrillFile[],
+): DrillFilePlacement[] {
+  const pts = placeOrbit(hubCx, hubCy, hubRadius, files.length);
+  return files.map((file, i) => ({
+    cx: pts[i].cx,
+    cy: pts[i].cy,
+    radius: FILE_DOT_RADIUS,
+    file,
+  }));
 }
 
 export { LABEL_THRESHOLD };

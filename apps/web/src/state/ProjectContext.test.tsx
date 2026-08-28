@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { render, waitFor, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { GraphRollup, Project } from '../api/client';
 
@@ -70,6 +70,7 @@ vi.mock('../api/client', async (importOriginal) => {
       graph: vi.fn(async () => envelope({ projectId: 'p-1', scannedAt: '2026-01-01', edges: [] })),
       graphOverview: vi.fn(async () => envelope(null)),
       graphRollup: vi.fn(async () => envelope(twoFolderRollup)),
+      graphNeighbourhood: vi.fn(async () => envelope(null)),
       tree: vi.fn(async () => envelope([])),
     },
   };
@@ -101,6 +102,7 @@ describe('ensureMapRollup first-paint path', () => {
     vi.mocked(api.graph).mockClear();
     vi.mocked(api.graphOverview).mockClear();
     vi.mocked(api.graphRollup).mockClear();
+    vi.mocked(api.graphNeighbourhood).mockClear();
     vi.mocked(api.tree).mockClear();
   });
 
@@ -117,6 +119,71 @@ describe('ensureMapRollup first-paint path', () => {
     expect(api.graphRollup).toHaveBeenCalledWith('p-1', 1);
     expect(api.graph).not.toHaveBeenCalled();
     expect(api.graphOverview).not.toHaveBeenCalled();
+    expect(api.graphNeighbourhood).not.toHaveBeenCalled();
     expect(getByTestId('hub-ids').textContent).toBe('dir:app,dir:lib');
+  });
+});
+
+function MapDrillProbe() {
+  const { ensureMapRollup, ensureMapNeighbourhood, neighbourhoodStatus, graphNeighbourhood, status } = useProject();
+  useEffect(() => {
+    if (status === 'ready') void ensureMapRollup();
+  }, [ensureMapRollup, status]);
+  return (
+    <div>
+      <span data-testid="nb-status">{neighbourhoodStatus}</span>
+      <span data-testid="nb-ids">{graphNeighbourhood?.nodes.map((n) => n.id).join(',')}</span>
+      <button type="button" onClick={() => void ensureMapNeighbourhood('dir:app')}>drill</button>
+    </div>
+  );
+}
+
+describe('ensureMapNeighbourhood drill path', () => {
+  beforeEach(() => {
+    vi.mocked(api.graph).mockClear();
+    vi.mocked(api.graphOverview).mockClear();
+    vi.mocked(api.graphRollup).mockClear();
+    vi.mocked(api.graphNeighbourhood).mockClear();
+    vi.mocked(api.graphNeighbourhood).mockResolvedValue(
+      envelope({
+        projectId: 'p-1',
+        scannedAt: null,
+        nodes: [
+          {
+            id: 'app/A.php',
+            name: 'A.php',
+            kind: 'file',
+            folder: 'app',
+            fileCount: 1,
+            errors: 0,
+            degree: 1,
+            inDegree: 0,
+            external: false,
+          },
+        ],
+        links: [],
+      }),
+    );
+  });
+
+  it('calls graphNeighbourhood(id, focus, 1) and never api.graph', async () => {
+    const { getByTestId, getByRole } = render(
+      <ProjectProvider>
+        <MapDrillProbe />
+      </ProjectProvider>,
+    );
+
+    await waitFor(() => {
+      expect(api.graphRollup).toHaveBeenCalled();
+    });
+    fireEvent.click(getByRole('button', { name: 'drill' }));
+
+    await waitFor(() => {
+      expect(getByTestId('nb-status').textContent).toBe('ready');
+    });
+    expect(api.graphNeighbourhood).toHaveBeenCalledWith('p-1', 'dir:app', 1);
+    expect(api.graph).not.toHaveBeenCalled();
+    expect(api.graphOverview).not.toHaveBeenCalled();
+    expect(getByTestId('nb-ids').textContent).toBe('app/A.php');
   });
 });
