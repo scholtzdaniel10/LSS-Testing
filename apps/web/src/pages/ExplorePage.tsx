@@ -10,7 +10,7 @@ import {
 } from '../lib/graphModel';
 import { useProject, type RollupMeta } from '../state/ProjectContext';
 import { loadEditorSettings, openInIde } from '../types';
-import type { GraphRollup } from '../api/client';
+import type { GraphOverview, GraphRollup } from '../api/client';
 
 type ExploreView = 'map' | 'graph';
 
@@ -23,7 +23,23 @@ type RadialPanelProps = {
   rollup: GraphRollup | null;
   rollupMeta: RollupMeta;
   focusPath: string | null;
+  neighbourhood: GraphOverview | null;
+  neighbourhoodStatus: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+  neighbourhoodError: string | null;
+  neighbourhoodMeta: RollupMeta;
+  neighbourhoodFocus: string | null;
+  onHubClick: (id: string) => void;
+  onCollapse: () => void;
 };
+
+function drillScreenStatus(
+  neighbourhoodStatus: RadialPanelProps['neighbourhoodStatus'],
+): ScreenStatus {
+  if (neighbourhoodStatus === 'error') return 'error';
+  if (neighbourhoodStatus === 'empty') return 'empty';
+  if (neighbourhoodStatus === 'loading') return 'loading';
+  return 'loaded';
+}
 
 function RadialPanel({
   status,
@@ -31,6 +47,13 @@ function RadialPanel({
   rollup,
   rollupMeta,
   focusPath,
+  neighbourhood,
+  neighbourhoodStatus,
+  neighbourhoodError,
+  neighbourhoodMeta,
+  neighbourhoodFocus,
+  onHubClick,
+  onCollapse,
 }: RadialPanelProps) {
   let screenStatus: ScreenStatus;
   if (status === 'error') {
@@ -50,14 +73,43 @@ function RadialPanel({
       ? 'No snapshot yet — run Analyze or Re-scan from the Projects page.'
       : 'No folders in the rollup — Map waits for graph/rollup, not file dots.';
 
+  const drillActive = neighbourhoodStatus !== 'idle';
+  const innerStatus = drillScreenStatus(neighbourhoodStatus);
+  const drillEmptyHint =
+    neighbourhoodMeta.reason === 'no-graph-yet'
+      ? 'No snapshot yet — run Analyze or Re-scan from the Projects page.'
+      : 'No neighbourhood for this folder.';
+  const drillReady = neighbourhoodStatus === 'ready' ? neighbourhood : null;
+
   return (
     <ScreenState status={screenStatus} errorMessage={errorMessage} emptyHint={emptyHint}>
       {screenStatus === 'loaded' && rollup != null ? (
-        <RollupMap
-          rollup={rollup}
-          meta={rollupMeta}
-          focusParam={focusPath}
-        />
+        <>
+          {drillActive ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={onCollapse}
+              style={{ fontSize: 'var(--text-sm)', padding: '2px 10px', marginBottom: 'var(--sp-2)' }}
+            >
+              Back to folders
+            </button>
+          ) : null}
+          <ScreenState
+            status={innerStatus}
+            errorMessage={neighbourhoodError}
+            emptyHint={drillEmptyHint}
+          >
+            <RollupMap
+              rollup={rollup}
+              meta={rollupMeta}
+              focusParam={focusPath}
+              neighbourhood={drillReady}
+              drillFocus={drillReady ? neighbourhoodFocus : null}
+              onHubClick={onHubClick}
+            />
+          </ScreenState>
+        </>
       ) : null}
     </ScreenState>
   );
@@ -73,6 +125,11 @@ const ExplorePage: React.FC = () => {
     rollupStatus,
     rollupError,
     rollupMeta,
+    graphNeighbourhood,
+    neighbourhoodStatus,
+    neighbourhoodError,
+    neighbourhoodMeta,
+    neighbourhoodFocus,
     errors,
     localManifest,
     status,
@@ -83,6 +140,8 @@ const ExplorePage: React.FC = () => {
     ensureExploreData,
     ensureTree,
     ensureMapRollup,
+    ensureMapNeighbourhood,
+    clearMapNeighbourhood,
   } = useProject();
 
   const [selected, setSelected] = useState<string | null>(null);
@@ -208,6 +267,14 @@ const ExplorePage: React.FC = () => {
     });
   }, []);
 
+  const handleHubClick = useCallback((id: string) => {
+    if (neighbourhoodFocus === id && neighbourhoodStatus !== 'idle') {
+      clearMapNeighbourhood();
+      return;
+    }
+    void ensureMapNeighbourhood(id);
+  }, [clearMapNeighbourhood, ensureMapNeighbourhood, neighbourhoodFocus, neighbourhoodStatus]);
+
   const mapHasState =
     rollupStatus === 'loading' || rollupStatus === 'ready' || rollupStatus === 'empty' || rollupStatus === 'error';
   const outerScreenStatus: ScreenStatus = (
@@ -273,7 +340,11 @@ const ExplorePage: React.FC = () => {
                 </h2>
                 <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
                   <span className="panel__hint">
-                    {activeView === 'map' ? 'folder hubs · from rollup' : 'module clusters · drill down on click'}
+                    {activeView === 'map'
+                      ? neighbourhoodStatus !== 'idle'
+                        ? 'folder drill · from neighbourhood'
+                        : 'folder hubs · from rollup'
+                      : 'module clusters · drill down on click'}
                   </span>
                   <div
                     role="group"
@@ -324,6 +395,13 @@ const ExplorePage: React.FC = () => {
                     rollup={graphRollup}
                     rollupMeta={rollupMeta}
                     focusPath={focusPath}
+                    neighbourhood={graphNeighbourhood}
+                    neighbourhoodStatus={neighbourhoodStatus}
+                    neighbourhoodError={neighbourhoodError}
+                    neighbourhoodMeta={neighbourhoodMeta}
+                    neighbourhoodFocus={neighbourhoodFocus}
+                    onHubClick={handleHubClick}
+                    onCollapse={clearMapNeighbourhood}
                   />
                 </Suspense>
               ) : (

@@ -299,6 +299,13 @@ export const api = {
     request<GraphRollup | null>(
       `/projects/${id}/graph/rollup${depth != null ? `?depth=${depth}` : ''}`,
     ),
+  /** IG-33: N-hop file neighbourhood — does not replace `graph()`. */
+  graphNeighbourhood: (id: string, focus: string, radius?: number) =>
+    request<GraphOverview | null>(
+      `/projects/${id}/graph/neighbourhood?focus=${encodeURIComponent(focus)}${
+        radius != null ? `&radius=${radius}` : ''
+      }`,
+    ),
   usageReport: (id: string) =>
     request<{ projectId: string; report: UsageReport; createdAt: string | null } | null>(
       `/projects/${id}/usage-report`,

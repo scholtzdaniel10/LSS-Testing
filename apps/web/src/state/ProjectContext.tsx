@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphRollup, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
+import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphOverview, type GraphRollup, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 import { deleteLocalProjectsForServerId, listLocalProjects } from '../lib/localProjectStore';
 import { isRollupFolderNode } from '../lib/rollupMapModel';
@@ -21,6 +21,8 @@ export type RollupMeta = {
   truncated?: boolean;
   cap?: number;
   reason?: string;
+  focus?: string;
+  radius?: number;
 };
 
 type ProjectContextValue = {
@@ -37,6 +39,11 @@ type ProjectContextValue = {
   rollupStatus: LoadState;
   rollupError: string | null;
   rollupMeta: RollupMeta;
+  graphNeighbourhood: GraphOverview | null;
+  neighbourhoodStatus: LoadState;
+  neighbourhoodError: string | null;
+  neighbourhoodMeta: RollupMeta;
+  neighbourhoodFocus: string | null;
   usage: UsageReport | null;
   errors: DiagnosticFinding[];
   analysers: AnalyserStatuses;
@@ -57,6 +64,9 @@ type ProjectContextValue = {
   ensureTree: () => Promise<void>;
   /** IG-32: folder-only rollup for Map first-paint. Does not call /graph or /graph/overview. */
   ensureMapRollup: () => Promise<void>;
+  /** IG-33: hub drill — GET /graph/neighbourhood. Never part of Map first-paint. */
+  ensureMapNeighbourhood: (focus: string) => Promise<void>;
+  clearMapNeighbourhood: () => void;
   rescan: () => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
 };
@@ -76,6 +86,8 @@ function asRollupMeta(meta: Record<string, unknown> | undefined): RollupMeta {
     truncated: typeof meta.truncated === 'boolean' ? meta.truncated : undefined,
     cap: typeof meta.cap === 'number' ? meta.cap : undefined,
     reason: typeof meta.reason === 'string' ? meta.reason : undefined,
+    focus: typeof meta.focus === 'string' ? meta.focus : undefined,
+    radius: typeof meta.radius === 'number' ? meta.radius : undefined,
   };
 }
 
@@ -90,6 +102,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [rollupStatus, setRollupStatus] = useState<LoadState>('idle');
   const [rollupError, setRollupError] = useState<string | null>(null);
   const [rollupMeta, setRollupMeta] = useState<RollupMeta>({});
+  const [graphNeighbourhood, setGraphNeighbourhood] = useState<GraphOverview | null>(null);
+  const [neighbourhoodStatus, setNeighbourhoodStatus] = useState<LoadState>('idle');
+  const [neighbourhoodError, setNeighbourhoodError] = useState<string | null>(null);
+  const [neighbourhoodMeta, setNeighbourhoodMeta] = useState<RollupMeta>({});
+  const [neighbourhoodFocus, setNeighbourhoodFocus] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageReport | null>(null);
   const [errors, setErrors] = useState<DiagnosticFinding[]>([]);
   const [analysers, setAnalysers] = useState<AnalyserStatuses>({});
@@ -104,6 +121,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const exploreLoadedFor = useRef<string | null>(null);
   const treeLoadedFor = useRef<string | null>(null);
   const rollupLoadedFor = useRef<string | null>(null);
+  const neighbourhoodSeq = useRef(0);
 
   const setToken = (t: string) => {
     setApiToken(t);
@@ -141,6 +159,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setRollupStatus('idle');
     setRollupError(null);
     setRollupMeta({});
+    setGraphNeighbourhood(null);
+    setNeighbourhoodStatus('idle');
+    setNeighbourhoodError(null);
+    setNeighbourhoodMeta({});
+    setNeighbourhoodFocus(null);
+    neighbourhoodSeq.current += 1;
     setGraphSnapshotId(null);
     try {
       await refreshProjects();
@@ -242,6 +266,41 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const clearMapNeighbourhood = useCallback(() => {
+    neighbourhoodSeq.current += 1;
+    setGraphNeighbourhood(null);
+    setNeighbourhoodStatus('idle');
+    setNeighbourhoodError(null);
+    setNeighbourhoodMeta({});
+    setNeighbourhoodFocus(null);
+  }, []);
+
+  const ensureMapNeighbourhood = useCallback(async (focus: string) => {
+    const id = getActiveProjectId();
+    if (!id || !getApiToken() || focus === '') return;
+    const seq = ++neighbourhoodSeq.current;
+    setNeighbourhoodFocus(focus);
+    setNeighbourhoodStatus('loading');
+    setNeighbourhoodError(null);
+    try {
+      const env = await api.graphNeighbourhood(id, focus, 1);
+      if (seq !== neighbourhoodSeq.current) return;
+      setNeighbourhoodMeta(asRollupMeta(env.meta));
+      if (env.data == null) {
+        setGraphNeighbourhood(null);
+        setNeighbourhoodStatus('empty');
+        return;
+      }
+      setGraphNeighbourhood(env.data);
+      const fileCount = env.data.nodes.filter((node) => node.kind === 'file' && !node.external).length;
+      setNeighbourhoodStatus(fileCount === 0 ? 'empty' : 'ready');
+    } catch (e) {
+      if (seq !== neighbourhoodSeq.current) return;
+      setNeighbourhoodStatus('error');
+      setNeighbourhoodError(e instanceof ApiError ? e.message : 'Failed to load neighbourhood');
+    }
+  }, []);
+
   const selectProject = useCallback(
     (id: string) => {
       setActiveProjectId(id);
@@ -302,6 +361,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       rollupStatus,
       rollupError,
       rollupMeta,
+      graphNeighbourhood,
+      neighbourhoodStatus,
+      neighbourhoodError,
+      neighbourhoodMeta,
+      neighbourhoodFocus,
       usage,
       errors,
       analysers,
@@ -318,6 +382,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       ensureExploreData,
       ensureTree,
       ensureMapRollup,
+      ensureMapNeighbourhood,
+      clearMapNeighbourhood,
       rescan,
       deleteProject,
     }),
@@ -334,6 +400,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       rollupStatus,
       rollupError,
       rollupMeta,
+      graphNeighbourhood,
+      neighbourhoodStatus,
+      neighbourhoodError,
+      neighbourhoodMeta,
+      neighbourhoodFocus,
       usage,
       errors,
       analysers,
@@ -349,6 +420,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       ensureExploreData,
       ensureTree,
       ensureMapRollup,
+      ensureMapNeighbourhood,
+      clearMapNeighbourhood,
       rescan,
       deleteProject,
     ],

@@ -1,20 +1,25 @@
 /**
  * IG-32 first-paint: folder rings from graph/rollup.
- * No file dots, no unlinked starfield, no overview payload.
+ * IG-33 drill: hub click expands neighbourhood files on this canvas.
+ * No file dots on first paint, no unlinked starfield, no overview payload.
  * Design tokens only. contain:content (do not restore contain:strict).
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GraphRollup } from '../api/client';
+import type { GraphOverview, GraphRollup } from '../api/client';
 import {
+  buildDrillMapLayout,
   buildRollupMapLayout,
   chordStrokeWidth,
   packHubs,
+  placeDrillFiles,
   shouldShowHubLabel,
+  type DrillFilePlacement,
   type HubPlacement,
   type RollupChord,
   type RollupPaintMeta,
 } from '../lib/rollupMapModel';
+import { componentRadius } from '../lib/radialModel';
 
 const SERIES: Record<string, string> = {
   app: 'var(--series-1)',
@@ -42,10 +47,25 @@ export type RollupMapProps = {
   rollup: GraphRollup;
   meta?: RollupPaintMeta;
   focusParam: string | null;
+  neighbourhood?: GraphOverview | null;
+  drillFocus?: string | null;
+  onHubClick?: (id: string) => void;
 };
 
-const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
+const RollupMap: React.FC<RollupMapProps> = ({
+  rollup,
+  meta,
+  focusParam,
+  neighbourhood = null,
+  drillFocus = null,
+  onHubClick,
+}) => {
   const layout = useMemo(() => buildRollupMapLayout(rollup, meta), [rollup, meta]);
+  const drillLayout = useMemo(() => {
+    if (!neighbourhood || !drillFocus) return null;
+    return buildDrillMapLayout(rollup, neighbourhood, drillFocus);
+  }, [neighbourhood, drillFocus, rollup]);
+  const isDrill = drillLayout != null && drillLayout.files.length > 0;
   const [focusId, setFocusId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -94,7 +114,43 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
     return m;
   }, [placements]);
 
-  const svgHeight = Math.max(totalHeight, 80);
+  const drillHubPlacement = useMemo((): HubPlacement | null => {
+    if (!isDrill || !drillLayout?.hub) return null;
+    const r = componentRadius(drillLayout.hub.fileCount);
+    return {
+      cx: SVG_WIDTH / 2,
+      cy: Math.max(r + 80, 160),
+      radius: r,
+      hub: drillLayout.hub,
+    };
+  }, [isDrill, drillLayout]);
+
+  const drillFilePlacements = useMemo((): DrillFilePlacement[] => {
+    if (!isDrill || !drillLayout || !drillHubPlacement) return [];
+    return placeDrillFiles(
+      drillHubPlacement.cx,
+      drillHubPlacement.cy,
+      drillHubPlacement.radius,
+      drillLayout.files,
+    );
+  }, [isDrill, drillLayout, drillHubPlacement]);
+
+  const drillFileById = useMemo(() => {
+    const m = new Map<string, DrillFilePlacement>();
+    for (const pl of drillFilePlacements) m.set(pl.file.id, pl);
+    return m;
+  }, [drillFilePlacements]);
+
+  const drillHeight = useMemo(() => {
+    if (!drillHubPlacement) return 0;
+    let maxY = drillHubPlacement.cy + drillHubPlacement.radius;
+    for (const pl of drillFilePlacements) {
+      maxY = Math.max(maxY, pl.cy + pl.radius);
+    }
+    return maxY + 48;
+  }, [drillHubPlacement, drillFilePlacements]);
+
+  const svgHeight = Math.max(isDrill ? drillHeight : totalHeight, 80);
   const svgDisplayHeight = typeof window !== 'undefined'
     ? Math.min(svgHeight, window.innerHeight * 0.65)
     : svgHeight;
@@ -107,6 +163,10 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
       setFocusId(match?.id ?? null);
     }
   }, [focusParam, layout.hubs]);
+
+  useEffect(() => {
+    if (drillFocus) setFocusId(drillFocus);
+  }, [drillFocus]);
 
   const handleMouseDown = useCallback((ev: React.MouseEvent<SVGSVGElement>) => {
     if ((ev.target as Element).closest('[role="button"]')) return;
@@ -142,13 +202,25 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
 
   const handleHubClick = useCallback((id: string) => {
     setFocusId((prev) => (prev === id ? null : id));
-  }, []);
+    onHubClick?.(id);
+  }, [onHubClick]);
 
-  const layoutFitKey = layout.hubs.map((h) => `${h.id}:${h.fileCount}`).join(',');
+  const layoutFitKey = isDrill
+    ? `drill:${drillFocus}:${drillLayout?.files.map((f) => f.id).join(',') ?? ''}`
+    : layout.hubs.map((h) => `${h.id}:${h.fileCount}`).join(',');
   const lastFitKey = useRef('');
+  const fitTargets = useMemo(() => {
+    if (isDrill && drillHubPlacement) {
+      return [
+        { cx: drillHubPlacement.cx, cy: drillHubPlacement.cy, radius: drillHubPlacement.radius + 24 },
+        ...drillFilePlacements.map((pl) => ({ cx: pl.cx, cy: pl.cy, radius: pl.radius + 24 })),
+      ];
+    }
+    return placements.map((pl) => ({ cx: pl.cx, cy: pl.cy, radius: pl.radius + 72 }));
+  }, [isDrill, drillHubPlacement, drillFilePlacements, placements]);
 
   useEffect(() => {
-    if (placements.length === 0) {
+    if (fitTargets.length === 0) {
       resetView();
       return;
     }
@@ -160,8 +232,8 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
     let minY = Infinity;
     let maxX = 0;
     let maxY = 0;
-    for (const pl of placements) {
-      const margin = pl.radius + 72;
+    for (const pl of fitTargets) {
+      const margin = pl.radius;
       minX = Math.min(minX, pl.cx - margin);
       minY = Math.min(minY, pl.cy - margin);
       maxX = Math.max(maxX, pl.cx + margin);
@@ -177,19 +249,30 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
     setZoom(z);
     setPanX(viewW / (2 * z) - cx);
     setPanY(svgDisplayHeight / (2 * z) - cy);
-  }, [layoutFitKey, placements, svgDisplayHeight, resetView]);
+  }, [layoutFitKey, fitTargets, svgDisplayHeight, resetView]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
         <span className="panel__hint">
-          {hubCount} folder{hubCount !== 1 ? 's' : ''} &middot; {layout.chords.length} link
-          {layout.chords.length !== 1 ? 's' : ''}
-          {layout.truncated && (
-            <span style={{ color: 'var(--ink-3)', marginLeft: 6 }}>
-              &middot; truncated
-              {layout.hiddenHubs > 0 ? ` · ${layout.hiddenHubs} more folders` : ''}
-            </span>
+          {isDrill && drillLayout ? (
+            <>
+              {drillLayout.files.length} file{drillLayout.files.length !== 1 ? 's' : ''} around{' '}
+              {drillLayout.hub?.name ?? drillFocus}
+              {' '}&middot; {drillLayout.chords.length} link
+              {drillLayout.chords.length !== 1 ? 's' : ''}
+            </>
+          ) : (
+            <>
+              {hubCount} folder{hubCount !== 1 ? 's' : ''} &middot; {layout.chords.length} link
+              {layout.chords.length !== 1 ? 's' : ''}
+              {layout.truncated && (
+                <span style={{ color: 'var(--ink-3)', marginLeft: 6 }}>
+                  &middot; truncated
+                  {layout.hiddenHubs > 0 ? ` · ${layout.hiddenHubs} more folders` : ''}
+                </span>
+              )}
+            </>
           )}
         </span>
         <button
@@ -205,6 +288,7 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
           <LegendItem color="var(--ink-4)" label="folder link" isDash />
           <LegendItem color="var(--status-critical)" label="errors in folder" isDash />
           <LegendItem color="var(--series-1)" label="folder hub" />
+          {isDrill ? <LegendItem color="var(--ink-2)" label="file" /> : null}
         </div>
       </div>
 
@@ -247,40 +331,88 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
             }}
           >
             <g transform={`scale(${zoom}) translate(${panX},${panY})`}>
-              {layout.chords.map((chord, i) => {
-                const src = placeById.get(chord.source);
-                const tgt = placeById.get(chord.target);
-                if (!src || !tgt) return null;
-                const active = chordTouches(chord, activeId);
-                const faded = activeId != null && !active;
-                return (
-                  <line
-                    key={`${chord.source}->${chord.target}-${i}`}
-                    x1={src.cx}
-                    y1={src.cy}
-                    x2={tgt.cx}
-                    y2={tgt.cy}
-                    stroke={active ? COLOR_EDGE_HOVER : chord.broken ? COLOR_EDGE_BROKEN : COLOR_EDGE_HEALTHY}
-                    strokeWidth={chordStrokeWidth(chord.weight)}
-                    opacity={faded ? 0.08 : active ? 0.9 : chord.broken ? 0.55 : 0.28}
-                    pointerEvents="none"
+              {isDrill && drillLayout && drillHubPlacement ? (
+                <>
+                  {drillLayout.chords.map((chord, i) => {
+                    const src = drillFileById.get(chord.source);
+                    const tgt = drillFileById.get(chord.target);
+                    if (!src || !tgt) return null;
+                    const active = chordTouches(chord, activeId);
+                    const faded = activeId != null && !active;
+                    return (
+                      <line
+                        key={`${chord.source}->${chord.target}-${i}`}
+                        x1={src.cx}
+                        y1={src.cy}
+                        x2={tgt.cx}
+                        y2={tgt.cy}
+                        stroke={active ? COLOR_EDGE_HOVER : chord.broken ? COLOR_EDGE_BROKEN : COLOR_EDGE_HEALTHY}
+                        strokeWidth={chordStrokeWidth(chord.weight)}
+                        opacity={faded ? 0.08 : active ? 0.9 : chord.broken ? 0.55 : 0.28}
+                        pointerEvents="none"
+                      />
+                    );
+                  })}
+                  <HubRing
+                    placement={drillHubPlacement}
+                    focused={drillHubPlacement.hub.id === focusId}
+                    hovered={drillHubPlacement.hub.id === hoveredId}
+                    showLabel
+                    faded={false}
+                    onClick={() => handleHubClick(drillHubPlacement.hub.id)}
+                    onHover={setHoveredId}
                   />
-                );
-              })}
-              {placements.map((pl) => (
-                <HubRing
-                  key={pl.hub.id}
-                  placement={pl}
-                  focused={pl.hub.id === focusId}
-                  hovered={pl.hub.id === hoveredId}
-                  showLabel={shouldShowHubLabel(hubCount, pl.hub.id, focusId, hoveredId)}
-                  faded={activeId != null && pl.hub.id !== activeId && !layout.chords.some((c) =>
-                    chordTouches(c, activeId) && (c.source === pl.hub.id || c.target === pl.hub.id),
-                  )}
-                  onClick={() => handleHubClick(pl.hub.id)}
-                  onHover={setHoveredId}
-                />
-              ))}
+                  {drillFilePlacements.map((pl) => (
+                    <FileDot
+                      key={pl.file.id}
+                      placement={pl}
+                      focused={pl.file.id === focusId}
+                      hovered={pl.file.id === hoveredId}
+                      faded={activeId != null && pl.file.id !== activeId && !drillLayout.chords.some((c) =>
+                        chordTouches(c, activeId) && (c.source === pl.file.id || c.target === pl.file.id),
+                      )}
+                      onHover={setHoveredId}
+                    />
+                  ))}
+                </>
+              ) : (
+                <>
+                  {layout.chords.map((chord, i) => {
+                    const src = placeById.get(chord.source);
+                    const tgt = placeById.get(chord.target);
+                    if (!src || !tgt) return null;
+                    const active = chordTouches(chord, activeId);
+                    const faded = activeId != null && !active;
+                    return (
+                      <line
+                        key={`${chord.source}->${chord.target}-${i}`}
+                        x1={src.cx}
+                        y1={src.cy}
+                        x2={tgt.cx}
+                        y2={tgt.cy}
+                        stroke={active ? COLOR_EDGE_HOVER : chord.broken ? COLOR_EDGE_BROKEN : COLOR_EDGE_HEALTHY}
+                        strokeWidth={chordStrokeWidth(chord.weight)}
+                        opacity={faded ? 0.08 : active ? 0.9 : chord.broken ? 0.55 : 0.28}
+                        pointerEvents="none"
+                      />
+                    );
+                  })}
+                  {placements.map((pl) => (
+                    <HubRing
+                      key={pl.hub.id}
+                      placement={pl}
+                      focused={pl.hub.id === focusId}
+                      hovered={pl.hub.id === hoveredId}
+                      showLabel={shouldShowHubLabel(hubCount, pl.hub.id, focusId, hoveredId)}
+                      faded={activeId != null && pl.hub.id !== activeId && !layout.chords.some((c) =>
+                        chordTouches(c, activeId) && (c.source === pl.hub.id || c.target === pl.hub.id),
+                      )}
+                      onClick={() => handleHubClick(pl.hub.id)}
+                      onHover={setHoveredId}
+                    />
+                  ))}
+                </>
+              )}
             </g>
           </svg>
         )}
@@ -354,6 +486,47 @@ const HubRing = memo(function HubRing({
           {hub.name}
         </text>
       )}
+    </g>
+  );
+});
+
+const FileDot = memo(function FileDot({
+  placement,
+  focused,
+  hovered,
+  faded,
+  onHover,
+}: {
+  placement: DrillFilePlacement;
+  focused: boolean;
+  hovered: boolean;
+  faded: boolean;
+  onHover: (id: string | null) => void;
+}) {
+  const { cx, cy, radius, file } = placement;
+  const fill = file.errors > 0
+    ? 'var(--status-critical)'
+    : focused || hovered
+      ? COLOR_FOCUS
+      : folderColor(file.groupKey);
+
+  return (
+    <g
+      opacity={faded ? 0.28 : 1}
+      onMouseEnter={() => onHover(file.id)}
+      onMouseLeave={() => onHover(null)}
+      role="img"
+      aria-label={`File: ${file.id}${file.errors > 0 ? ` (${file.errors} errors)` : ''}`}
+    >
+      <title>{file.id}</title>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={hovered || focused ? radius + 1.5 : radius}
+        fill={fill}
+        stroke={focused || hovered ? COLOR_FOCUS : 'var(--line-1)'}
+        strokeWidth={focused ? 1.5 : 0.75}
+      />
     </g>
   );
 });
