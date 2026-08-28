@@ -42,10 +42,9 @@ export type RollupMapProps = {
   rollup: GraphRollup;
   meta?: RollupPaintMeta;
   focusParam: string | null;
-  onSelectFolder: (folderPath: string) => void;
 };
 
-const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam, onSelectFolder }) => {
+const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam }) => {
   const layout = useMemo(() => buildRollupMapLayout(rollup, meta), [rollup, meta]);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -141,10 +140,9 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam, onSelec
   const chordTouches = (chord: RollupChord, id: string | null) =>
     id != null && (chord.source === id || chord.target === id);
 
-  const handleHubClick = useCallback((folderPath: string, id: string) => {
+  const handleHubClick = useCallback((id: string) => {
     setFocusId((prev) => (prev === id ? null : id));
-    onSelectFolder(folderPath);
-  }, [onSelectFolder]);
+  }, []);
 
   const layoutFitKey = layout.hubs.map((h) => `${h.id}:${h.fileCount}`).join(',');
   const lastFitKey = useRef('');
@@ -279,7 +277,7 @@ const RollupMap: React.FC<RollupMapProps> = ({ rollup, meta, focusParam, onSelec
                   faded={activeId != null && pl.hub.id !== activeId && !layout.chords.some((c) =>
                     chordTouches(c, activeId) && (c.source === pl.hub.id || c.target === pl.hub.id),
                   )}
-                  onClick={() => handleHubClick(pl.hub.folderPath, pl.hub.id)}
+                  onClick={() => handleHubClick(pl.hub.id)}
                   onHover={setHoveredId}
                 />
               ))}

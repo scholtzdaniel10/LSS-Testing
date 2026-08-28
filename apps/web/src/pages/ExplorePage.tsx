@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useHistory, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
 import ScreenState from '../components/ScreenState';
 import {
@@ -22,7 +22,6 @@ type RadialPanelProps = {
   rollup: GraphRollup | null;
   rollupMeta: RollupMeta;
   focusPath: string | null;
-  onFocusTree: (path: string) => void;
 };
 
 function RadialPanel({
@@ -31,7 +30,6 @@ function RadialPanel({
   rollup,
   rollupMeta,
   focusPath,
-  onFocusTree,
 }: RadialPanelProps) {
   let screenStatus: 'idle' | 'loading' | 'ready' | 'empty' | 'error';
   if (status === 'error') {
@@ -58,7 +56,6 @@ function RadialPanel({
           rollup={rollup}
           meta={rollupMeta}
           focusParam={focusPath}
-          onSelectFolder={onFocusTree}
         />
       )}
     </ScreenState>
@@ -79,7 +76,6 @@ const SERIES: Record<string, string> = {
 const ExplorePage: React.FC = () => {
   const ref = useEntrance();
   const location = useLocation();
-  const history = useHistory();
   const {
     tree,
     graphEdges,
@@ -226,14 +222,6 @@ const ExplorePage: React.FC = () => {
     });
     return () => cancelAnimationFrame(frame);
   }, [focusPath]);
-
-  // Sync radial map focus -> URL ?focus= param (keeps tree in step).
-  const handleFocusTree = useCallback(
-    (path: string) => {
-      history.push(`/explore?focus=${encodeURIComponent(path)}`);
-    },
-    [history],
-  );
 
   const mapHasState =
     rollupStatus === 'loading' || rollupStatus === 'ready' || rollupStatus === 'empty' || rollupStatus === 'error';
@@ -403,7 +391,6 @@ const ExplorePage: React.FC = () => {
                     rollup={graphRollup}
                     rollupMeta={rollupMeta}
                     focusPath={focusPath}
-                    onFocusTree={handleFocusTree}
                   />
                 </Suspense>
               ) : (
