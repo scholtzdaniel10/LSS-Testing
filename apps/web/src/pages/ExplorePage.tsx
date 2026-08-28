@@ -10,7 +10,6 @@ import {
 import { useProject, type RollupMeta } from '../state/ProjectContext';
 import { loadEditorSettings, openInIde } from '../types';
 import type { GraphRollup } from '../api/client';
-import type { LocalProjectManifest } from '../lib/localProjectStore';
 
 type ExploreView = 'map' | 'graph';
 
