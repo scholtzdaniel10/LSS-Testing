@@ -42,6 +42,8 @@ type ProjectContextValue = {
   analysers: AnalyserStatuses;
   chains: ErrorChain[];
   tree: TreeFile[];
+  /** Cache key for Explore model jobs (`projectId:scannedAt`). */
+  graphSnapshotId: string | null;
   targets: TargetEnvironment[];
   localManifest: LocalProjectManifest | null;
   setLocalManifest: (m: LocalProjectManifest | null) => void;
@@ -93,6 +95,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [analysers, setAnalysers] = useState<AnalyserStatuses>({});
   const [chains, setChains] = useState<ErrorChain[]>([]);
   const [tree, setTree] = useState<TreeFile[]>([]);
+  const [graphSnapshotId, setGraphSnapshotId] = useState<string | null>(null);
   const [targets, setTargets] = useState<TargetEnvironment[]>([]);
   const [localManifest, setLocalManifest] = useState<LocalProjectManifest | null>(null);
   const [status, setStatus] = useState<LoadState>('idle');
@@ -138,6 +141,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setRollupStatus('idle');
     setRollupError(null);
     setRollupMeta({});
+    setGraphSnapshotId(null);
     try {
       await refreshProjects();
       const id = getActiveProjectId();
@@ -194,11 +198,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       const graphPromise = api.graph(id);
       const treePromise = treeLoadedFor.current === id ? Promise.resolve(null) : api.tree(id);
       const [graph, treeEnv] = await Promise.all([graphPromise, treePromise]);
-      setGraphEdges(graph.data?.edges ?? []);
-      if (treeEnv) {
-        setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+      const edges = graph.data?.edges ?? [];
+      const files = treeEnv
+        ? (Array.isArray(treeEnv.data) ? treeEnv.data : [])
+        : null;
+      setGraphEdges(edges);
+      if (files) {
+        setTree(files);
         treeLoadedFor.current = id;
       }
+      setGraphSnapshotId(
+        graph.data?.scannedAt
+          ? `${id}:${graph.data.scannedAt}`
+          : `${id}:none:${edges.length}:${files?.length ?? 0}`,
+      );
       exploreLoadedFor.current = id;
     } catch (e) {
       setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load explore data');
@@ -294,6 +307,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       analysers,
       chains,
       tree,
+      graphSnapshotId,
       targets,
       localManifest,
       setLocalManifest,
@@ -325,6 +339,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       analysers,
       chains,
       tree,
+      graphSnapshotId,
       targets,
       localManifest,
       status,

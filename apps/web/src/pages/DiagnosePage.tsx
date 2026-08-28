@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
 import { SeverityPill } from '../components/StatusPill';
-import ScreenState from '../components/ScreenState';
+import ScreenState, { toScreenStatus } from '../components/ScreenState';
 import { api } from '../api/client';
 import { useProject } from '../state/ProjectContext';
 import { loadEditorSettings, openInIde } from '../types';
@@ -220,7 +220,7 @@ const DiagnosePage: React.FC = () => {
         )}
 
         <ScreenState
-          status={status === 'ready' && errors.length === 0 ? 'empty' : status}
+          status={toScreenStatus(status === 'ready' && errors.length === 0 ? 'empty' : status)}
           errorMessage={errorMessage}
           emptyHint={diagnoseEmptyHint}
         >

@@ -197,6 +197,20 @@ body {
   color: var(--ink-4);
 }
 
+.screen-state__loading-hint {
+  position: absolute;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  z-index: 3;
+  margin: 0;
+  padding: var(--sp-1) var(--sp-2);
+  pointer-events: none;
+  background: var(--surface-raised);
+  color: var(--ink-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-sm);
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex;
@@ -473,16 +487,29 @@ body {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--ink-2);
+  max-height: 65vh;
+  overflow: auto;
+  position: relative;
+}
+
+.tree__spacer {
+  position: relative;
+  width: 100%;
 }
 
 .tree__row {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 4px 6px;
+  padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--tree-row-h);
+  box-sizing: border-box;
 }
 
 .tree__row:hover {

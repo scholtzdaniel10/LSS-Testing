@@ -23,8 +23,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RadialComponent, RadialEdge, RadialNode } from '../lib/radialModel';
 import {
   applyRadialRenderCap,
-  buildRadialLayout,
-  buildFolderLayout,
   buildDrillComponent,
   classifyEdges,
   computeFocusNeighbourhood,
@@ -34,7 +32,10 @@ import {
   radialPerformanceProfile,
   shouldShowLabel,
 } from '../lib/radialModel';
+import { EMPTY_RADIAL_LAYOUT } from '../lib/modelJobs';
+import { useRadialLayout } from '../lib/useModelWorker';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
+import ScreenState from './ScreenState';
 
 // -- SERIES palette (matches ExplorePage.tsx tree view) -----------------------
 const SERIES: Record<string, string> = {
@@ -410,6 +411,7 @@ function packComponents(
 // -- Main component -----------------------------------------------------------
 
 export type CodebaseRadialProps = {
+  snapshotId: string;
   edges: GraphEdge[];
   findings: DiagnosticFinding[];
   files: TreeFile[];
@@ -443,6 +445,7 @@ const LS_DRILL    = 'lss.radial.drill';
 // -- Main exported component --------------------------------------------------
 
 const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
+  snapshotId,
   edges,
   findings,
   files,
@@ -580,13 +583,14 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     return classifyEdges(internal, errorFiles);
   }, [edges, allFilePaths, errorFiles]);
 
-  const baseLayout = useMemo(
-    () =>
-      groupingMode === 'folder'
-        ? buildFolderLayout(allFilePaths, edges, errorFiles)
-        : buildRadialLayout(allFilePaths, edges, errorFiles),
-    [allFilePaths, edges, errorFiles, groupingMode],
-  );
+  const { status: layoutStatus, data: layoutData, error: layoutError } = useRadialLayout({
+    snapshotId,
+    grouping: groupingMode,
+    files: allFilePaths,
+    edges,
+    errorFiles,
+  });
+  const baseLayout = layoutData ?? EMPTY_RADIAL_LAYOUT;
 
   // When drill mode is active and a drill chain exists, render only the drill circle.
   const drillFile = drillMode && drillChain.length > 0 ? drillChain[drillChain.length - 1] : null;
@@ -595,9 +599,13 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     [drillFile, allClassifiedEdges],
   );
 
-  const layout = drillComponent
-    ? { components: [drillComponent], unlinked: { files: [] } }
-    : baseLayout;
+  const layout = useMemo(
+    () =>
+      drillComponent
+        ? { components: [drillComponent], unlinked: { files: [] } }
+        : baseLayout,
+    [drillComponent, baseLayout],
+  );
 
   const totalLinkedFiles = useMemo(
     () => layout.components.reduce((sum, c) => sum + c.files.length, 0),
@@ -1001,6 +1009,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
       {/* SVG radial canvas with zoom/pan */}
       <div
         style={{
+          position: 'relative',
           overflow: 'hidden',
           maxHeight: '65vh',
           background: 'var(--surface-panel)',
@@ -1013,12 +1022,18 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
         }}
         role="img"
         aria-label="Codebase radial map"
+        aria-busy={layoutStatus === 'loading'}
       >
-        {layout.components.length === 0 ? (
-          <div style={{ padding: 'var(--sp-5)', color: 'var(--ink-3)', fontSize: 'var(--text-sm)' }}>
-            No linked files to display.
-          </div>
+        {layoutStatus === 'error' ? (
+          <ScreenState status="error" errorMessage={layoutError ?? 'Could not compute the map.'} emptyHint="">
+            {null}
+          </ScreenState>
+        ) : layout.components.length === 0 && layoutStatus !== 'loading' ? (
+          <ScreenState status="empty" errorMessage={null} emptyHint="No linked files to display.">
+            {null}
+          </ScreenState>
         ) : (
+          <ScreenState status={layoutStatus === 'loading' ? 'loading' : 'loaded'} errorMessage={null} emptyHint="">
           <svg
             ref={svgRef}
             width="100%"
@@ -1059,6 +1074,7 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
               })}
             </g>
           </svg>
+          </ScreenState>
         )}
       </div>
 

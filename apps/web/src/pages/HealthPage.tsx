@@ -4,7 +4,7 @@ import ScoreRing from '../components/ScoreRing';
 import StatTile from '../components/StatTile';
 import TrendChart from '../components/TrendChart';
 import { SeverityPill } from '../components/StatusPill';
-import ScreenState from '../components/ScreenState';
+import ScreenState, { toScreenStatus } from '../components/ScreenState';
 import { useProject } from '../state/ProjectContext';
 import type { DimensionScore } from '../types';
 
@@ -108,7 +108,7 @@ const HealthPage: React.FC = () => {
         {jobMessage && <p className="panel__hint" data-animate>{jobMessage}</p>}
 
         <ScreenState
-          status={status === 'ready' && !health ? 'empty' : status}
+          status={toScreenStatus(status === 'ready' && !health ? 'empty' : status)}
           errorMessage={errorMessage}
           emptyHint="No health snapshot yet. Import a program, then hit Re-scan."
         >
