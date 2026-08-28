@@ -94,21 +94,31 @@ const ExplorePage: React.FC = () => {
     usage,
     project,
     ensureExploreData,
+    ensureTree,
     ensureMapRollup,
   } = useProject();
 
-  useEffect(() => {
-    if (status === 'ready' && project?.id) void ensureMapRollup();
-  }, [ensureMapRollup, project?.id, status]);
-
-  useEffect(() => {
-    void ensureExploreData();
-  }, [ensureExploreData, project?.id]);
   const [selected, setSelected] = useState<string | null>(null);
   const [ideHint, setIdeHint] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<ExploreView>('map');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const didInitExpand = useRef(false);
+
+  // IG-32: Map first-paint is GET /graph/rollup?depth=1 only — never GET /graph.
+  useEffect(() => {
+    if (status === 'ready' && project?.id) void ensureMapRollup();
+  }, [ensureMapRollup, project?.id, status]);
+
+  // Node tree may fetch /tree without /graph. Not a Map canvas request.
+  useEffect(() => {
+    if (status === 'ready' && project?.id) void ensureTree();
+  }, [ensureTree, project?.id, status]);
+
+  // Graph tab lazy-loads GET /graph (+ /tree if still missing) AFTER the user opens Graph.
+  useEffect(() => {
+    if (activeView !== 'graph') return;
+    if (status === 'ready' && project?.id) void ensureExploreData();
+  }, [activeView, ensureExploreData, project?.id, status]);
 
   // Deep-link params: /explore?focus=<path>&errorId=<id>
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -225,10 +235,12 @@ const ExplorePage: React.FC = () => {
     [history],
   );
 
+  const mapHasState =
+    rollupStatus === 'loading' || rollupStatus === 'ready' || rollupStatus === 'empty' || rollupStatus === 'error';
   const outerScreenStatus = (
-    status === 'ready' && treeNodes.length === 0 && !localManifest && rollupStatus !== 'ready' && rollupStatus !== 'loading' ? 'empty'
-    : status === 'error' ? 'error'
-    : treeNodes.length > 0 || localManifest || rollupStatus === 'ready' || rollupStatus === 'loading' ? 'ready'
+    status === 'error' ? 'error'
+    : status === 'ready' && !project && !localManifest && !mapHasState ? 'empty'
+    : treeNodes.length > 0 || localManifest || mapHasState || project ? 'ready'
     : status
   ) as 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 

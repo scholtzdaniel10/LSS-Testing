@@ -55,6 +55,11 @@ describe('isRollupFolderNode', () => {
   it('rejects file-kind nodes even with a slash path', () => {
     expect(isRollupFolderNode(file('app/A.php'))).toBe(false);
   });
+
+  it('rejects external nodes even when id is dir-prefixed', () => {
+    expect(isRollupFolderNode(folder('vendor', { kind: 'external', external: true }))).toBe(false);
+    expect(isRollupFolderNode(folder('pkg', { external: true }))).toBe(false);
+  });
 });
 
 describe('buildRollupMapLayout', () => {
@@ -86,6 +91,20 @@ describe('buildRollupMapLayout', () => {
     expect(layout.chords).toEqual([]);
   });
 
+  it('drops external nodes and chords that touch them', () => {
+    const layout = buildRollupMapLayout(
+      rollup(
+        [
+          folder('app', { fileCount: 2 }),
+          folder('vendor', { kind: 'external', external: true, fileCount: 9 }),
+        ],
+        [{ source: 'dir:app', target: 'dir:vendor', weight: 4, externalTarget: true }],
+      ),
+    );
+    expect(layout.hubs.map((h) => h.id)).toEqual(['dir:app']);
+    expect(layout.chords).toEqual([]);
+  });
+
   it('preserves server ranking order (does not re-sort by id)', () => {
     const layout = buildRollupMapLayout(
       rollup([
@@ -95,6 +114,17 @@ describe('buildRollupMapLayout', () => {
       ]),
     );
     expect(layout.hubs.map((h) => h.folderPath)).toEqual(['src', 'app', 'lib']);
+  });
+
+  it('slices by radialPerformanceProfile maxCircles without re-sorting', () => {
+    // 8 folders × 30 files = 240 → huge profile, maxCircles = 5.
+    const nodes = Array.from({ length: 8 }, (_, i) =>
+      folder(`f${i}`, { fileCount: 30 }),
+    );
+    const layout = buildRollupMapLayout(rollup(nodes));
+    expect(layout.hubs.map((h) => h.folderPath)).toEqual(['f0', 'f1', 'f2', 'f3', 'f4']);
+    expect(layout.hiddenHubs).toBe(3);
+    expect(layout.truncated).toBe(true);
   });
 
   it('marks a chord broken when either hub has errors', () => {

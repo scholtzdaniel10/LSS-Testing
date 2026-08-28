@@ -52,7 +52,7 @@ export type RollupPaintMeta = {
 const FOLDER_PREFIX = 'dir:';
 
 export function isRollupFolderNode(node: GraphOverviewNode): boolean {
-  return node.kind === 'folder' && node.id.startsWith(FOLDER_PREFIX);
+  return node.kind === 'folder' && !node.external && node.id.startsWith(FOLDER_PREFIX);
 }
 
 function asHub(node: GraphOverviewNode): RollupHub {

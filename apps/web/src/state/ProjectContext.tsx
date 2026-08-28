@@ -11,6 +11,7 @@ import {
 import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphRollup, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 import { deleteLocalProjectsForServerId, listLocalProjects } from '../lib/localProjectStore';
+import { isRollupFolderNode } from '../lib/rollupMapModel';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 
@@ -48,8 +49,10 @@ type ProjectContextValue = {
   errorMessage: string | null;
   jobMessage: string | null;
   reloadAll: () => Promise<void>;
-  /** Lazy-load graph + tree for Explore (cache hit = ms). */
+  /** Lazy-load GET /graph (+ /tree if needed) after the user opens Graph. */
   ensureExploreData: () => Promise<void>;
+  /** Node tree: GET /tree without /graph. Safe beside Map first-paint. */
+  ensureTree: () => Promise<void>;
   /** IG-32: folder-only rollup for Map first-paint. Does not call /graph or /graph/overview. */
   ensureMapRollup: () => Promise<void>;
   rescan: () => Promise<void>;
@@ -96,6 +99,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [jobMessage, setJobMessage] = useState<string | null>(null);
   const exploreLoadedFor = useRef<string | null>(null);
+  const treeLoadedFor = useRef<string | null>(null);
   const rollupLoadedFor = useRef<string | null>(null);
 
   const setToken = (t: string) => {
@@ -126,6 +130,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setStatus('loading');
     setErrorMessage(null);
     exploreLoadedFor.current = null;
+    treeLoadedFor.current = null;
     rollupLoadedFor.current = null;
     setGraphEdges([]);
     setTree([]);
@@ -167,14 +172,33 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshProjects]);
 
+  const ensureTree = useCallback(async () => {
+    const id = getActiveProjectId();
+    if (!id || !getApiToken()) return;
+    if (treeLoadedFor.current === id) return;
+    try {
+      const treeEnv = await api.tree(id);
+      setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+      treeLoadedFor.current = id;
+    } catch (e) {
+      setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load tree');
+    }
+  }, []);
+
+  /** Graph tab only — GET /graph. Never part of Map first-paint. */
   const ensureExploreData = useCallback(async () => {
     const id = getActiveProjectId();
     if (!id || !getApiToken()) return;
     if (exploreLoadedFor.current === id) return;
     try {
-      const [graph, treeEnv] = await Promise.all([api.graph(id), api.tree(id)]);
+      const graphPromise = api.graph(id);
+      const treePromise = treeLoadedFor.current === id ? Promise.resolve(null) : api.tree(id);
+      const [graph, treeEnv] = await Promise.all([graphPromise, treePromise]);
       setGraphEdges(graph.data?.edges ?? []);
-      setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+      if (treeEnv) {
+        setTree(Array.isArray(treeEnv.data) ? treeEnv.data : []);
+        treeLoadedFor.current = id;
+      }
       exploreLoadedFor.current = id;
     } catch (e) {
       setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load explore data');
@@ -197,7 +221,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         return;
       }
       setGraphRollup(env.data);
-      const folderCount = env.data.nodes.filter((n) => n.kind === 'folder').length;
+      const folderCount = env.data.nodes.filter(isRollupFolderNode).length;
       setRollupStatus(folderCount === 0 ? 'empty' : 'ready');
     } catch (e) {
       setRollupStatus('error');
@@ -278,6 +302,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       jobMessage,
       reloadAll,
       ensureExploreData,
+      ensureTree,
       ensureMapRollup,
       rescan,
       deleteProject,
@@ -307,6 +332,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       jobMessage,
       reloadAll,
       ensureExploreData,
+      ensureTree,
       ensureMapRollup,
       rescan,
       deleteProject,
