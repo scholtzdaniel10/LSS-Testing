@@ -23,8 +23,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RadialComponent, RadialEdge, RadialNode } from '../lib/radialModel';
 import {
   applyRadialRenderCap,
-  buildRadialLayout,
-  buildFolderLayout,
   buildDrillComponent,
   classifyEdges,
   computeFocusNeighbourhood,
@@ -34,6 +32,8 @@ import {
   radialPerformanceProfile,
   shouldShowLabel,
 } from '../lib/radialModel';
+import { EMPTY_RADIAL_LAYOUT } from '../lib/modelJobs';
+import { useRadialLayout } from '../lib/useModelWorker';
 import type { GraphEdge, DiagnosticFinding, TreeFile } from '../api/client';
 
 // -- SERIES palette (matches ExplorePage.tsx tree view) -----------------------
@@ -410,6 +410,7 @@ function packComponents(
 // -- Main component -----------------------------------------------------------
 
 export type CodebaseRadialProps = {
+  snapshotId: string;
   edges: GraphEdge[];
   findings: DiagnosticFinding[];
   files: TreeFile[];
@@ -443,6 +444,7 @@ const LS_DRILL    = 'lss.radial.drill';
 // -- Main exported component --------------------------------------------------
 
 const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
+  snapshotId,
   edges,
   findings,
   files,
@@ -580,13 +582,14 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     return classifyEdges(internal, errorFiles);
   }, [edges, allFilePaths, errorFiles]);
 
-  const baseLayout = useMemo(
-    () =>
-      groupingMode === 'folder'
-        ? buildFolderLayout(allFilePaths, edges, errorFiles)
-        : buildRadialLayout(allFilePaths, edges, errorFiles),
-    [allFilePaths, edges, errorFiles, groupingMode],
-  );
+  const { status: layoutStatus, data: layoutData, error: layoutError } = useRadialLayout({
+    snapshotId,
+    grouping: groupingMode,
+    files: allFilePaths,
+    edges,
+    errorFiles,
+  });
+  const baseLayout = layoutData ?? EMPTY_RADIAL_LAYOUT;
 
   // When drill mode is active and a drill chain exists, render only the drill circle.
   const drillFile = drillMode && drillChain.length > 0 ? drillChain[drillChain.length - 1] : null;
@@ -595,9 +598,13 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
     [drillFile, allClassifiedEdges],
   );
 
-  const layout = drillComponent
-    ? { components: [drillComponent], unlinked: { files: [] } }
-    : baseLayout;
+  const layout = useMemo(
+    () =>
+      drillComponent
+        ? { components: [drillComponent], unlinked: { files: [] } }
+        : baseLayout,
+    [drillComponent, baseLayout],
+  );
 
   const totalLinkedFiles = useMemo(
     () => layout.components.reduce((sum, c) => sum + c.files.length, 0),
@@ -1014,7 +1021,18 @@ const CodebaseRadial: React.FC<CodebaseRadialProps> = ({
         role="img"
         aria-label="Codebase radial map"
       >
-        {layout.components.length === 0 ? (
+        {layoutStatus === 'error' ? (
+          <div style={{ padding: 'var(--sp-5)', color: 'var(--status-critical)', fontSize: 'var(--text-sm)' }} role="alert">
+            {layoutError ?? 'Could not compute the map.'}
+          </div>
+        ) : layoutStatus !== 'ready' ? (
+          <div className="skeleton-block" aria-busy="true" style={{ padding: 'var(--sp-5)' }}>
+            <p className="panel__hint">Computing layout…</p>
+            <div className="skeleton-line" />
+            <div className="skeleton-line" style={{ width: '70%' }} />
+            <div className="skeleton-line" style={{ width: '55%' }} />
+          </div>
+        ) : layout.components.length === 0 ? (
           <div style={{ padding: 'var(--sp-5)', color: 'var(--ink-3)', fontSize: 'var(--text-sm)' }}>
             No linked files to display.
           </div>

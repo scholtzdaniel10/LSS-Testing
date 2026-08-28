@@ -82,4 +82,7 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --ring-focus: 0 0 0 2px var(--surface-page), 0 0 0 4px var(--line-3);
+
+  /* Explore node-tree windowing (IG-31) */
+  --tree-row-h: 24px;
 }

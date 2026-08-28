@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEdge } from '../api/client';
 import {
   applyClusterLayout,
-  buildGraphView,
   buildNeighbourMap,
   buildStackProfile,
   cappedNeighbourhood,
@@ -22,6 +21,8 @@ import {
   type ForceGraphLink,
   type ForceGraphNode,
 } from '../lib/graphModel';
+import { EMPTY_GRAPH_VIEW } from '../lib/modelJobs';
+import { useGraphView } from '../lib/useModelWorker';
 
 type GraphNode = ForceGraphNode & NodeObject;
 type GraphLink = ForceGraphLink & LinkObject;
@@ -31,6 +32,7 @@ function linkEndpointId(endpoint: string | GraphNode): string {
 }
 
 type Props = {
+  snapshotId: string;
   edges: GraphEdge[];
   errorFiles: Map<string, number>;
   files?: string[];
@@ -68,6 +70,7 @@ function readCssVar(name: string, fallback: string): string {
 }
 
 const DependencyGraph: React.FC<Props> = ({
+  snapshotId,
   edges,
   errorFiles,
   files = [],
@@ -129,10 +132,16 @@ const DependencyGraph: React.FC<Props> = ({
     [],
   );
 
-  const view = useMemo(
-    () => buildGraphView(edges, files, errorFiles, expanded, showExternal, stackProfile),
-    [edges, files, errorFiles, expanded, showExternal, stackProfile],
-  );
+  const { status: modelStatus, data: viewData, error: modelError } = useGraphView({
+    snapshotId,
+    edges,
+    files,
+    errorFiles,
+    expanded,
+    showExternal,
+    profile: stackProfile,
+  });
+  const view = viewData ?? EMPTY_GRAPH_VIEW;
 
   const nodeCount = view.nodes.length;
   const perf = useMemo(() => graphPerformanceProfile(nodeCount), [nodeCount]);
@@ -541,6 +550,27 @@ const DependencyGraph: React.FC<Props> = ({
 
   const expandedList = useMemo(() => [...expanded].sort(), [expanded]);
   const neighbourCount = focusNeighbourhood ? Math.max(0, focusNeighbourhood.size - 1) : 0;
+
+  if (modelStatus === 'error') {
+    return (
+      <div className="graph-wrap" role="alert">
+        <p className="field__hint">{modelError ?? 'Could not compute the graph.'}</p>
+      </div>
+    );
+  }
+
+  if (modelStatus !== 'ready') {
+    return (
+      <div className="graph-wrap">
+        <div className="skeleton-block" aria-busy="true">
+          <p className="panel__hint">Computing layout…</p>
+          <div className="skeleton-line" />
+          <div className="skeleton-line" style={{ width: '70%' }} />
+          <div className="skeleton-line" style={{ width: '55%' }} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={wrapRef} className="graph-wrap graph-wrap--force" onKeyDown={handleKeyDown} tabIndex={0}>

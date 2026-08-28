@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
 import ScreenState from '../components/ScreenState';
+import ExploreFileTree from '../components/ExploreFileTree';
 import {
   buildFileTree,
   defaultExpandedFolders,
@@ -62,17 +63,6 @@ function RadialPanel({
   );
 }
 
-const SERIES: Record<string, string> = {
-  app: 'var(--series-1)',
-  application: 'var(--series-1)',
-  routes: 'var(--series-2)',
-  resources: 'var(--series-3)',
-  database: 'var(--series-4)',
-  src: 'var(--series-1)',
-  system: 'var(--series-2)',
-  other: 'var(--series-other)',
-};
-
 const ExplorePage: React.FC = () => {
   const ref = useEntrance();
   const location = useLocation();
@@ -89,6 +79,7 @@ const ExplorePage: React.FC = () => {
     errorMessage,
     usage,
     project,
+    graphSnapshotId,
     ensureExploreData,
     ensureTree,
     ensureMapRollup,
@@ -186,6 +177,10 @@ const ExplorePage: React.FC = () => {
 
   const errorFiles = useMemo(() => errorCount, [errorCount]);
 
+  const snapshotId =
+    graphSnapshotId
+    ?? (project ? `${project.id}:pending:${allFilePaths.length}` : `local:${allFilePaths.length}`);
+
   const openFile = (path: string, line = 1) => {
     setSelected(path);
     const ok = openInIde(loadEditorSettings(), path, line, project?.name);
@@ -212,16 +207,6 @@ const ExplorePage: React.FC = () => {
       return next;
     });
   }, []);
-
-  // Scroll the focused file row into view when focusPath changes (not on every tree expand).
-  const focusRowRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!focusPath) return;
-    const frame = requestAnimationFrame(() => {
-      focusRowRef.current?.scrollIntoView({ block: 'nearest' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [focusPath]);
 
   const mapHasState =
     rollupStatus === 'loading' || rollupStatus === 'ready' || rollupStatus === 'empty' || rollupStatus === 'error';
@@ -270,67 +255,14 @@ const ExplorePage: React.FC = () => {
                   {localManifest && !(tree.length > 0 && project?.lastImportedAt) ? ' · local preview' : ' · from API'}
                 </span>
               </div>
-              <div className="tree" role="tree">
-                {treeNodes.map((node) => {
-                  const isFocused = node.kind === 'file' && node.path === focusPath;
-                  const isSelected = node.kind === 'file' && node.path === selected;
-                  const isExpanded = node.kind === 'folder' && expandedFolders.has(node.path);
-
-                  return (
-                    <div
-                      key={node.path}
-                      ref={isFocused ? focusRowRef : undefined}
-                      className={`tree__row${isSelected ? ' tree__row--selected' : ''}${node.kind === 'folder' ? ' tree__row--folder' : ''}`}
-                      style={{ paddingLeft: 6 + node.depth * 14 }}
-                      role="treeitem"
-                      aria-expanded={node.kind === 'folder' ? isExpanded : undefined}
-                      tabIndex={0}
-                      onClick={() => {
-                        if (node.kind === 'folder') {
-                          toggleFolder(node.path);
-                        } else {
-                          openFile(node.path);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          if (node.kind === 'folder') {
-                            toggleFolder(node.path);
-                          } else {
-                            openFile(node.path);
-                          }
-                        }
-                      }}
-                    >
-                      {node.kind === 'folder' ? (
-                        <span className="tree__chevron" aria-hidden="true">
-                          {isExpanded ? '▾' : '▸'}
-                        </span>
-                      ) : (
-                        <span
-                          className="tree__dot"
-                          style={{ background: SERIES[node.folder] ?? SERIES.other }}
-                          aria-hidden="true"
-                        />
-                      )}
-                      <span title={node.path} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {node.name}{node.kind === 'folder' ? '/' : ''}
-                      </span>
-                      {node.errors > 0 && (
-                        <span className="tree__badge tree__badge--err" aria-label={`${node.errors} error${node.errors !== 1 ? 's' : ''}`}>
-                          {node.errors} err
-                        </span>
-                      )}
-                      {node.kind === 'file' && node.links > 0 && (
-                        <span className="tree__badge">
-                          {node.links} links
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <ExploreFileTree
+                nodes={treeNodes}
+                expandedFolders={expandedFolders}
+                selected={selected}
+                focusPath={focusPath}
+                onToggleFolder={toggleFolder}
+                onOpenFile={(path) => openFile(path)}
+              />
             </div>
 
             <div className="panel">
@@ -409,6 +341,7 @@ const ExplorePage: React.FC = () => {
                 >
                   <Suspense fallback={<p className="panel__hint">Loading graph…</p>}>
                     <DependencyGraph
+                      snapshotId={snapshotId}
                       edges={graphEdges}
                       errorFiles={errorFiles}
                       files={allFilePaths}
