@@ -9,10 +9,13 @@ import {
   isRollupFolderNode,
   packHubs,
   placeOrbit,
+  rankAndCapDrillFiles,
+  shouldShowFileLabel,
   shouldShowHubLabel,
   LABEL_THRESHOLD,
+  type DrillFile,
 } from './rollupMapModel';
-import { componentRadius } from './radialModel';
+import { componentRadius, radialPerformanceProfile } from './radialModel';
 
 function folder(
   folderPath: string,
@@ -33,7 +36,7 @@ function folder(
   };
 }
 
-function file(path: string): GraphOverviewNode {
+function file(path: string, extra: Partial<GraphOverviewNode> = {}): GraphOverviewNode {
   return {
     id: path,
     name: path.split('/').pop() ?? path,
@@ -44,6 +47,18 @@ function file(path: string): GraphOverviewNode {
     degree: 1,
     inDegree: 0,
     external: false,
+    ...extra,
+  };
+}
+
+function drillFile(id: string, extra: Partial<DrillFile> = {}): DrillFile {
+  return {
+    id,
+    name: id.split('/').pop() ?? id,
+    groupKey: id.split('/')[0] ?? 'other',
+    errors: 0,
+    degree: 1,
+    ...extra,
   };
 }
 
@@ -231,6 +246,8 @@ describe('buildDrillMapLayout', () => {
     expect(layout.chords).toEqual([
       { source: 'app/A.php', target: 'lib/C.php', weight: 1, broken: false },
     ]);
+    expect(layout.hiddenFiles).toBe(0);
+    expect(layout.truncated).toBe(false);
   });
 
   it('does not change first-paint rollup layout (still drops files)', () => {
@@ -238,6 +255,85 @@ describe('buildDrillMapLayout', () => {
       rollup([folder('app'), file('app/A.php')]),
     );
     expect(layout.hubs.map((h) => h.id)).toEqual(['dir:app']);
+  });
+
+  it('ranks then caps neighbourhood files (errors → degree → id) before paint', () => {
+    const maxLeaves = radialPerformanceProfile(80).maxLeavesPerCircle;
+    expect(Number.isFinite(maxLeaves)).toBe(true);
+
+    const nodes = Array.from({ length: 80 }, (_, i) =>
+      file(`app/f${String(i).padStart(2, '0')}.php`, {
+        errors: i === 7 ? 4 : 0,
+        degree: i === 3 ? 20 : 1,
+      }),
+    );
+    const layout = buildDrillMapLayout(
+      rollup([folder('app', { fileCount: 80 })]),
+      rollup(nodes),
+      'dir:app',
+    );
+
+    expect(layout.files).toHaveLength(maxLeaves);
+    expect(layout.hiddenFiles).toBe(80 - maxLeaves);
+    expect(layout.truncated).toBe(true);
+    expect(layout.files[0].id).toBe('app/f07.php');
+    expect(layout.files[1].id).toBe('app/f03.php');
+  });
+
+  it('drops chords that touch files excluded by the cap', () => {
+    const maxLeaves = radialPerformanceProfile(80).maxLeavesPerCircle;
+    const nodes = Array.from({ length: 80 }, (_, i) =>
+      file(`app/f${String(i).padStart(2, '0')}.php`, { degree: 80 - i }),
+    );
+    const keptLast = `app/f${String(maxLeaves - 1).padStart(2, '0')}.php`;
+    const dropped = 'app/f79.php';
+    const layout = buildDrillMapLayout(
+      rollup([folder('app', { fileCount: 80 })]),
+      rollup(nodes, [
+        { source: 'app/f00.php', target: keptLast, weight: 1, externalTarget: false },
+        { source: 'app/f00.php', target: dropped, weight: 1, externalTarget: false },
+      ]),
+      'dir:app',
+    );
+    expect(layout.files.some((f) => f.id === dropped)).toBe(false);
+    expect(layout.chords).toEqual([
+      { source: 'app/f00.php', target: keptLast, weight: 1, broken: false },
+    ]);
+  });
+});
+
+describe('rankAndCapDrillFiles', () => {
+  it('orders by errors, then degree, then id, and slices to max', () => {
+    const { files, hiddenFiles } = rankAndCapDrillFiles(
+      [
+        drillFile('app/c.php', { errors: 0, degree: 9 }),
+        drillFile('app/a.php', { errors: 2, degree: 1 }),
+        drillFile('app/b.php', { errors: 2, degree: 5 }),
+      ],
+      2,
+    );
+    expect(files.map((f) => f.id)).toEqual(['app/b.php', 'app/a.php']);
+    expect(hiddenFiles).toBe(1);
+  });
+
+  it('keeps all files when at or below the cap', () => {
+    const input = [drillFile('app/z.php'), drillFile('app/a.php')];
+    const { files, hiddenFiles } = rankAndCapDrillFiles(input, 10);
+    expect(files.map((f) => f.id)).toEqual(['app/a.php', 'app/z.php']);
+    expect(hiddenFiles).toBe(0);
+  });
+});
+
+describe('shouldShowFileLabel', () => {
+  it('shows every basename at or below LABEL_THRESHOLD files', () => {
+    expect(shouldShowFileLabel(LABEL_THRESHOLD, 'app/a.php', null, null, 0)).toBe(true);
+  });
+
+  it('hides labels above LABEL_THRESHOLD except focus, hover, or errors', () => {
+    expect(shouldShowFileLabel(LABEL_THRESHOLD + 1, 'app/a.php', null, null, 0)).toBe(false);
+    expect(shouldShowFileLabel(LABEL_THRESHOLD + 1, 'app/a.php', 'app/a.php', null, 0)).toBe(true);
+    expect(shouldShowFileLabel(LABEL_THRESHOLD + 1, 'app/a.php', null, 'app/a.php', 0)).toBe(true);
+    expect(shouldShowFileLabel(LABEL_THRESHOLD + 1, 'app/a.php', null, null, 2)).toBe(true);
   });
 });
 

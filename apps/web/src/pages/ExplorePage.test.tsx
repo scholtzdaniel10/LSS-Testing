@@ -1,10 +1,21 @@
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { createMemoryHistory } from 'history';
+import { MemoryRouter, Router } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { GraphOverview, GraphRollup } from '../api/client';
+import type { GraphOverview, GraphRollup, TreeFile } from '../api/client';
 
-const { ensureMapRollup, ensureExploreData, ensureTree, ensureMapNeighbourhood, clearMapNeighbourhood, graph, graphOverview, graphNeighbourhood } = vi.hoisted(() => ({
+const {
+  ensureMapRollup,
+  ensureExploreData,
+  ensureTree,
+  ensureMapNeighbourhood,
+  clearMapNeighbourhood,
+  graph,
+  graphOverview,
+  graphNeighbourhood,
+  openInIde,
+} = vi.hoisted(() => ({
   ensureMapRollup: vi.fn(async () => undefined),
   ensureExploreData: vi.fn(async () => undefined),
   ensureTree: vi.fn(async () => undefined),
@@ -13,6 +24,7 @@ const { ensureMapRollup, ensureExploreData, ensureTree, ensureMapNeighbourhood, 
   graph: vi.fn(),
   graphOverview: vi.fn(),
   graphNeighbourhood: vi.fn(),
+  openInIde: vi.fn(() => true),
 }));
 
 const twoFolderRollup: GraphRollup = {
@@ -56,6 +68,7 @@ let neighbourhoodError: string | null = null;
 let graphNeighbourhoodData: GraphOverview | null = null;
 let neighbourhoodMeta: { reason?: string } = {};
 let neighbourhoodFocus: string | null = null;
+let treeFiles: TreeFile[] = [];
 
 const appNeighbourhood: GraphOverview = {
   projectId: 'p-1',
@@ -89,7 +102,7 @@ const appNeighbourhood: GraphOverview = {
 
 vi.mock('../state/ProjectContext', () => ({
   useProject: () => ({
-    tree: [],
+    tree: treeFiles,
     graphEdges: [],
     graphRollup,
     rollupStatus,
@@ -138,6 +151,11 @@ vi.mock('../components/DependencyGraph', () => ({
   default: () => <div data-testid="dependency-graph">graph canvas</div>,
 }));
 
+vi.mock('../types', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../types')>();
+  return { ...original, openInIde };
+});
+
 import ExplorePage from './ExplorePage';
 
 function renderExplore() {
@@ -158,6 +176,8 @@ describe('Explore Map first-paint (IG-32)', () => {
     graph.mockClear();
     graphOverview.mockClear();
     graphNeighbourhood.mockClear();
+    openInIde.mockClear();
+    treeFiles = [];
     rollupStatus = 'ready';
     rollupError = null;
     graphRollup = twoFolderRollup;
@@ -224,6 +244,8 @@ describe('Explore Map screen states (note 09)', () => {
     ensureTree.mockClear();
     ensureMapNeighbourhood.mockClear();
     clearMapNeighbourhood.mockClear();
+    openInIde.mockClear();
+    treeFiles = [];
     rollupStatus = 'ready';
     rollupError = null;
     graphRollup = twoFolderRollup;
@@ -281,6 +303,8 @@ describe('Explore Map drill screen states (note 09)', () => {
     graph.mockClear();
     graphOverview.mockClear();
     graphNeighbourhood.mockClear();
+    openInIde.mockClear();
+    treeFiles = [];
     rollupStatus = 'ready';
     rollupError = null;
     graphRollup = twoFolderRollup;
@@ -330,11 +354,37 @@ describe('Explore Map drill screen states (note 09)', () => {
     expect(await screen.findByRole('img', { name: 'Codebase folder map' })).toBeInTheDocument();
     expect(screen.getByLabelText(/File: app\/A\.php/)).toBeInTheDocument();
     expect(screen.getByLabelText(/File: lib\/C\.php/)).toBeInTheDocument();
+    expect(screen.getByText('A.php')).toBeInTheDocument();
+    expect(screen.getByText('C.php')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back to folders' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Folder: lib\// })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back to folders' }));
     expect(clearMapNeighbourhood).toHaveBeenCalled();
     expect(ensureExploreData).not.toHaveBeenCalled();
     expect(graph).not.toHaveBeenCalled();
+  });
+
+  it('file click sets ?focus=, selects the tree row, opens the IDE, and skips GET /graph', async () => {
+    neighbourhoodStatus = 'ready';
+    graphNeighbourhoodData = appNeighbourhood;
+    treeFiles = [
+      { path: 'app/A.php', size: 1, lang: 'php' },
+      { path: 'lib/C.php', size: 1, lang: 'php' },
+    ];
+    const history = createMemoryHistory({ initialEntries: ['/explore'] });
+    render(
+      <Router history={history}>
+        <ExplorePage />
+      </Router>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /File: app\/A\.php/ }));
+
+    expect(history.location.search).toBe('?focus=app%2FA.php');
+    expect(openInIde).toHaveBeenCalledWith(expect.anything(), 'app/A.php', 1, 'Demo');
+    expect(screen.getByRole('treeitem', { name: /A\.php/ })).toHaveAttribute('aria-selected', 'true');
+    expect(ensureExploreData).not.toHaveBeenCalled();
+    expect(graph).not.toHaveBeenCalled();
+    expect(graphOverview).not.toHaveBeenCalled();
   });
 });
