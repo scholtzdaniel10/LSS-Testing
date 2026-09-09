@@ -1,0 +1,12 @@
+{
+  "name": "@lss/archify",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Architecture-only subset of tt-a1i/archify (MIT) for LSS Explore Map.",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./template.html": "./vendor/assets/template.html"
+  }
+}
