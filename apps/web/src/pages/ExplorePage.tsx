@@ -30,6 +30,8 @@ type RadialPanelProps = {
   neighbourhoodFocus: string | null;
   onHubClick: (id: string) => void;
   onCollapse: () => void;
+  projectName?: string | null;
+  present?: boolean;
 };
 
 function drillScreenStatus(
@@ -54,6 +56,8 @@ function RadialPanel({
   neighbourhoodFocus,
   onHubClick,
   onCollapse,
+  projectName,
+  present,
 }: RadialPanelProps) {
   let screenStatus: ScreenStatus;
   if (status === 'error') {
@@ -107,6 +111,8 @@ function RadialPanel({
               neighbourhood={drillReady}
               drillFocus={drillReady ? neighbourhoodFocus : null}
               onHubClick={onHubClick}
+              projectName={projectName}
+              present={present}
             />
           </ScreenState>
         </>
@@ -149,6 +155,7 @@ const ExplorePage: React.FC = () => {
   const [activeView, setActiveView] = useState<ExploreView>('map');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const didInitExpand = useRef(false);
+  const [present, setPresent] = useState(false);
 
   // IG-32: Map first-paint is GET /graph/rollup?depth=1 only — never GET /graph.
   useEffect(() => {
@@ -170,6 +177,41 @@ const ExplorePage: React.FC = () => {
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const focusPath = params.get('focus');
   const linkedErrorId = params.get('errorId');
+  const presentParam = params.get('present') === '1';
+
+  useEffect(() => {
+    setPresent(presentParam);
+  }, [presentParam]);
+
+  useEffect(() => {
+    if (present) document.documentElement.setAttribute('data-lss-present', 'true');
+    else document.documentElement.removeAttribute('data-lss-present');
+    return () => document.documentElement.removeAttribute('data-lss-present');
+  }, [present]);
+
+  const togglePresent = useCallback(() => {
+    const next = !present;
+    setPresent(next);
+    const nextParams = new URLSearchParams(location.search);
+    if (next) nextParams.set('present', '1');
+    else nextParams.delete('present');
+    const search = nextParams.toString();
+    const url = `${location.pathname}${search ? `?${search}` : ''}${location.hash}`;
+    window.history.replaceState(null, '', url);
+  }, [location.hash, location.pathname, location.search, present]);
+
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (ev.key !== 'f' && ev.key !== 'F') return;
+      const target = ev.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      ev.preventDefault();
+      togglePresent();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [togglePresent]);
 
   // When arriving via deep-link, pre-select the focused file.
   useEffect(() => {
@@ -314,8 +356,8 @@ const ExplorePage: React.FC = () => {
           emptyHint="No project open yet."
         >
           {outerScreenStatus === 'loaded' ? (
-          <div className="split" data-animate>
-            <div className="panel">
+          <div className="split explore-split" data-animate>
+            <div className="panel explore-tree-col">
               <div className="panel__head">
                 <h2 className="panel__title">Node tree</h2>
                 <span className="panel__hint">
@@ -333,7 +375,7 @@ const ExplorePage: React.FC = () => {
               />
             </div>
 
-            <div className="panel">
+            <div className="panel explore-map-col">
               <div className="panel__head">
                 <h2 className="panel__title">
                   {activeView === 'map' ? 'Codebase map' : 'Dependency graph'}
@@ -343,9 +385,21 @@ const ExplorePage: React.FC = () => {
                     {activeView === 'map'
                       ? neighbourhoodStatus !== 'idle'
                         ? 'folder drill · from neighbourhood'
-                        : 'folder hubs · from rollup'
+                        : 'folder cards · from rollup'
                       : 'module clusters · drill down on click'}
                   </span>
+                  {activeView === 'map' ? (
+                    <button
+                      type="button"
+                      className="btn"
+                      aria-pressed={present}
+                      onClick={togglePresent}
+                      style={{ fontSize: 'var(--text-xs)', padding: '2px 8px' }}
+                      title="Present stage (F). Also /explore?present=1"
+                    >
+                      Present
+                    </button>
+                  ) : null}
                   <div
                     role="group"
                     aria-label="View toggle"
@@ -402,6 +456,8 @@ const ExplorePage: React.FC = () => {
                     neighbourhoodFocus={neighbourhoodFocus}
                     onHubClick={handleHubClick}
                     onCollapse={clearMapNeighbourhood}
+                    projectName={project?.name}
+                    present={present}
                   />
                 </Suspense>
               ) : (
