@@ -6,6 +6,11 @@ import { useEffect, useRef } from 'react';
  * double-run entrances, and cheap to reuse across pages.
  */
 
+export function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 /** Fade-and-rise entrance for a container's direct [data-animate] children. */
 export function useEntrance() {
   const ref = useRef<HTMLDivElement>(null);
