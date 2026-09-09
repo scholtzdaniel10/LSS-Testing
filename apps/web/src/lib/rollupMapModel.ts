@@ -54,6 +54,9 @@ export type DrillMapLayout = {
   hub: RollupHub | null;
   files: DrillFile[];
   chords: RollupChord[];
+  /** Neighbourhood files hidden by the client rank+cap (errors → degree → id). */
+  hiddenFiles: number;
+  truncated: boolean;
 };
 
 export type RollupMapLayout = {
@@ -204,6 +207,42 @@ export function shouldShowHubLabel(
   return hubId === focusId || hubId === hoveredId;
 }
 
+/** Basename labels: all files at/under LABEL_THRESHOLD, else focus/hover/errors. */
+export function shouldShowFileLabel(
+  fileCount: number,
+  fileId: string,
+  focusId: string | null,
+  hoveredId: string | null,
+  errors: number,
+): boolean {
+  if (fileCount <= LABEL_THRESHOLD) return true;
+  return fileId === focusId || fileId === hoveredId || errors > 0;
+}
+
+/**
+ * cappedNeighbourhood ranking for drill dots: errors desc, degree desc, id.
+ * Hub is not in this list — it stays on the centre ring.
+ */
+export function rankAndCapDrillFiles(
+  files: DrillFile[],
+  maxNodes: number,
+): { files: DrillFile[]; hiddenFiles: number } {
+  const ranked = [...files].sort((a, b) => {
+    const errDiff = b.errors - a.errors;
+    if (errDiff !== 0) return errDiff;
+    const degDiff = b.degree - a.degree;
+    if (degDiff !== 0) return degDiff;
+    return a.id.localeCompare(b.id);
+  });
+  if (!Number.isFinite(maxNodes) || ranked.length <= maxNodes) {
+    return { files: ranked, hiddenFiles: 0 };
+  }
+  return {
+    files: ranked.slice(0, maxNodes),
+    hiddenFiles: ranked.length - maxNodes,
+  };
+}
+
 function asDrillFile(node: GraphOverviewNode): DrillFile {
   const folderPath = node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : '';
   return {
@@ -223,14 +262,17 @@ export function buildDrillMapLayout(
   rollup: GraphRollup,
   neighbourhood: GraphOverview,
   focusId: string,
+  meta?: RollupPaintMeta,
 ): DrillMapLayout {
   const hubNode = rollup.nodes.find((node) => node.id === focusId && isRollupFolderNode(node));
   const hub = hubNode ? asHub(hubNode) : null;
-  const files: DrillFile[] = [];
+  const uncapped: DrillFile[] = [];
   for (const node of neighbourhood.nodes) {
     if (!isDrillFileNode(node)) continue;
-    files.push(asDrillFile(node));
+    uncapped.push(asDrillFile(node));
   }
+  const maxNodes = radialPerformanceProfile(uncapped.length).maxLeavesPerCircle;
+  const { files, hiddenFiles } = rankAndCapDrillFiles(uncapped, maxNodes);
   const keep = new Set(files.map((file) => file.id));
   const errorById = new Map(files.map((file) => [file.id, file.errors > 0]));
   const chords: RollupChord[] = [];
@@ -238,7 +280,13 @@ export function buildDrillMapLayout(
     const chord = chordFromLink(link, keep, errorById);
     if (chord) chords.push(chord);
   }
-  return { hub, files, chords };
+  return {
+    hub,
+    files,
+    chords,
+    hiddenFiles,
+    truncated: meta?.truncated === true || hiddenFiles > 0,
+  };
 }
 
 /** Place `count` dots on a ring around (cx, cy). Grows the radius to keep min arc. */

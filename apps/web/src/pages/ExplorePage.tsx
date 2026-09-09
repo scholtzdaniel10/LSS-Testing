@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useHistory, useLocation } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
 import ScreenState, { toScreenStatus, type ScreenStatus } from '../components/ScreenState';
 import ExploreFileTree from '../components/ExploreFileTree';
@@ -29,6 +29,7 @@ type RadialPanelProps = {
   neighbourhoodMeta: RollupMeta;
   neighbourhoodFocus: string | null;
   onHubClick: (id: string) => void;
+  onFileClick: (path: string) => void;
   onCollapse: () => void;
 };
 
@@ -53,6 +54,7 @@ function RadialPanel({
   neighbourhoodMeta,
   neighbourhoodFocus,
   onHubClick,
+  onFileClick,
   onCollapse,
 }: RadialPanelProps) {
   let screenStatus: ScreenStatus;
@@ -106,7 +108,9 @@ function RadialPanel({
               focusParam={focusPath}
               neighbourhood={drillReady}
               drillFocus={drillReady ? neighbourhoodFocus : null}
+              drillMeta={neighbourhoodMeta}
               onHubClick={onHubClick}
+              onFileClick={onFileClick}
             />
           </ScreenState>
         </>
@@ -118,6 +122,7 @@ function RadialPanel({
 const ExplorePage: React.FC = () => {
   const ref = useEntrance();
   const location = useLocation();
+  const history = useHistory();
   const {
     tree,
     graphEdges,
@@ -240,7 +245,7 @@ const ExplorePage: React.FC = () => {
     graphSnapshotId
     ?? (project ? `${project.id}:pending:${allFilePaths.length}` : `local:${allFilePaths.length}`);
 
-  const openFile = (path: string, line = 1) => {
+  const openFile = useCallback((path: string, line = 1) => {
     setSelected(path);
     const ok = openInIde(loadEditorSettings(), path, line, project?.name);
     setIdeHint(
@@ -248,7 +253,7 @@ const ExplorePage: React.FC = () => {
         ? null
         : 'Set Local project root in Settings to the folder you imported (e.g. C:\\Users\\Jean\\Documents\\LSS-Testing\\LSS-Testing).',
     );
-  };
+  }, [project?.name]);
 
   const toggleFolder = useCallback((folderPath: string) => {
     setExpandedFolders((prev) => {
@@ -274,6 +279,13 @@ const ExplorePage: React.FC = () => {
     }
     void ensureMapNeighbourhood(id);
   }, [clearMapNeighbourhood, ensureMapNeighbourhood, neighbourhoodFocus, neighbourhoodStatus]);
+
+  const handleMapFileClick = useCallback((path: string) => {
+    const next = new URLSearchParams(location.search);
+    next.set('focus', path);
+    history.push({ pathname: '/explore', search: `?${next.toString()}` });
+    openFile(path);
+  }, [history, location.search, openFile]);
 
   const mapHasState =
     rollupStatus === 'loading' || rollupStatus === 'ready' || rollupStatus === 'empty' || rollupStatus === 'error';
@@ -401,6 +413,7 @@ const ExplorePage: React.FC = () => {
                     neighbourhoodMeta={neighbourhoodMeta}
                     neighbourhoodFocus={neighbourhoodFocus}
                     onHubClick={handleHubClick}
+                    onFileClick={handleMapFileClick}
                     onCollapse={clearMapNeighbourhood}
                   />
                 </Suspense>
@@ -431,11 +444,6 @@ const ExplorePage: React.FC = () => {
                       focusPath={focusPath}
                     />
                   </Suspense>
-                  {ideHint && (
-                    <p role="status" className="field__hint" style={{ marginTop: 8 }}>
-                      {ideHint}
-                    </p>
-                  )}
                   {linkedError && (
                     <div
                       className="panel"
@@ -455,6 +463,11 @@ const ExplorePage: React.FC = () => {
                     </div>
                   )}
                 </ScreenState>
+              )}
+              {ideHint && (
+                <p role="status" className="field__hint" style={{ marginTop: 8 }}>
+                  {ideHint}
+                </p>
               )}
             </div>
           </div>

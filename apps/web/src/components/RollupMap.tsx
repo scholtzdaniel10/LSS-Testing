@@ -13,6 +13,7 @@ import {
   chordStrokeWidth,
   packHubs,
   placeDrillFiles,
+  shouldShowFileLabel,
   shouldShowHubLabel,
   type DrillFilePlacement,
   type HubPlacement,
@@ -49,7 +50,9 @@ export type RollupMapProps = {
   focusParam: string | null;
   neighbourhood?: GraphOverview | null;
   drillFocus?: string | null;
+  drillMeta?: RollupPaintMeta;
   onHubClick?: (id: string) => void;
+  onFileClick?: (path: string) => void;
 };
 
 const RollupMap: React.FC<RollupMapProps> = ({
@@ -58,13 +61,15 @@ const RollupMap: React.FC<RollupMapProps> = ({
   focusParam,
   neighbourhood = null,
   drillFocus = null,
+  drillMeta,
   onHubClick,
+  onFileClick,
 }) => {
   const layout = useMemo(() => buildRollupMapLayout(rollup, meta), [rollup, meta]);
   const drillLayout = useMemo(() => {
     if (!neighbourhood || !drillFocus) return null;
-    return buildDrillMapLayout(rollup, neighbourhood, drillFocus);
-  }, [neighbourhood, drillFocus, rollup]);
+    return buildDrillMapLayout(rollup, neighbourhood, drillFocus, drillMeta);
+  }, [neighbourhood, drillFocus, rollup, drillMeta]);
   const isDrill = drillLayout != null && drillLayout.files.length > 0;
   const [focusId, setFocusId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -145,7 +150,7 @@ const RollupMap: React.FC<RollupMapProps> = ({
     if (!drillHubPlacement) return 0;
     let maxY = drillHubPlacement.cy + drillHubPlacement.radius;
     for (const pl of drillFilePlacements) {
-      maxY = Math.max(maxY, pl.cy + pl.radius);
+      maxY = Math.max(maxY, pl.cy + pl.radius + 18);
     }
     return maxY + 48;
   }, [drillHubPlacement, drillFilePlacements]);
@@ -205,6 +210,11 @@ const RollupMap: React.FC<RollupMapProps> = ({
     onHubClick?.(id);
   }, [onHubClick]);
 
+  const handleFileClick = useCallback((id: string) => {
+    setFocusId(id);
+    onFileClick?.(id);
+  }, [onFileClick]);
+
   const layoutFitKey = isDrill
     ? `drill:${drillFocus}:${drillLayout?.files.map((f) => f.id).join(',') ?? ''}`
     : layout.hubs.map((h) => `${h.id}:${h.fileCount}`).join(',');
@@ -261,6 +271,12 @@ const RollupMap: React.FC<RollupMapProps> = ({
               {drillLayout.hub?.name ?? drillFocus}
               {' '}&middot; {drillLayout.chords.length} link
               {drillLayout.chords.length !== 1 ? 's' : ''}
+              {drillLayout.truncated && (
+                <span style={{ color: 'var(--ink-3)', marginLeft: 6 }}>
+                  &middot; truncated
+                  {drillLayout.hiddenFiles > 0 ? ` · ${drillLayout.hiddenFiles} more files` : ''}
+                </span>
+              )}
             </>
           ) : (
             <>
@@ -366,12 +382,22 @@ const RollupMap: React.FC<RollupMapProps> = ({
                     <FileDot
                       key={pl.file.id}
                       placement={pl}
+                      hubCx={drillHubPlacement.cx}
+                      hubCy={drillHubPlacement.cy}
                       focused={pl.file.id === focusId}
                       hovered={pl.file.id === hoveredId}
+                      showLabel={shouldShowFileLabel(
+                        drillFilePlacements.length,
+                        pl.file.id,
+                        focusId,
+                        hoveredId,
+                        pl.file.errors,
+                      )}
                       faded={activeId != null && pl.file.id !== activeId && !drillLayout.chords.some((c) =>
                         chordTouches(c, activeId) && (c.source === pl.file.id || c.target === pl.file.id),
                       )}
                       onHover={setHoveredId}
+                      onClick={() => handleFileClick(pl.file.id)}
                     />
                   ))}
                 </>
@@ -492,16 +518,24 @@ const HubRing = memo(function HubRing({
 
 const FileDot = memo(function FileDot({
   placement,
+  hubCx,
+  hubCy,
   focused,
   hovered,
+  showLabel,
   faded,
   onHover,
+  onClick,
 }: {
   placement: DrillFilePlacement;
+  hubCx: number;
+  hubCy: number;
   focused: boolean;
   hovered: boolean;
+  showLabel: boolean;
   faded: boolean;
   onHover: (id: string | null) => void;
+  onClick: () => void;
 }) {
   const { cx, cy, radius, file } = placement;
   const fill = file.errors > 0
@@ -509,14 +543,29 @@ const FileDot = memo(function FileDot({
     : focused || hovered
       ? COLOR_FOCUS
       : folderColor(file.groupKey);
+  const dx = cx - hubCx;
+  const dy = cy - hubCy;
+  const len = Math.hypot(dx, dy) || 1;
+  const labelX = cx + (dx / len) * (radius + 12);
+  const labelY = cy + (dy / len) * (radius + 12);
 
   return (
     <g
       opacity={faded ? 0.28 : 1}
+      style={{ cursor: 'pointer' }}
+      onClick={onClick}
       onMouseEnter={() => onHover(file.id)}
       onMouseLeave={() => onHover(null)}
-      role="img"
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          onClick();
+        }
+      }}
+      tabIndex={0}
+      role="button"
       aria-label={`File: ${file.id}${file.errors > 0 ? ` (${file.errors} errors)` : ''}`}
+      aria-pressed={focused}
     >
       <title>{file.id}</title>
       <circle
@@ -526,7 +575,24 @@ const FileDot = memo(function FileDot({
         fill={fill}
         stroke={focused || hovered ? COLOR_FOCUS : 'var(--line-1)'}
         strokeWidth={focused ? 1.5 : 0.75}
+        pointerEvents="none"
       />
+      <circle cx={cx} cy={cy} r={10} fill="transparent" pointerEvents="all" />
+      {showLabel && (
+        <text
+          x={labelX}
+          y={labelY}
+          textAnchor={dx >= 0 ? 'start' : 'end'}
+          dominantBaseline="middle"
+          fontSize="var(--text-xs)"
+          fontFamily="var(--font-mono)"
+          fontWeight={500}
+          fill={fill}
+          style={{ userSelect: 'none', pointerEvents: 'none' }}
+        >
+          {file.name}
+        </text>
+      )}
     </g>
   );
 });
