@@ -33,6 +33,11 @@ From repo root:
 node packages/archify/scripts/smoke-render.mjs
 ```
 
-That delivers a two-folder architecture artifact through the same renderer
-the Map uses (`layoutOk`, rounded `rx="6"` cards, Present, share-card) and
-writes `demo-out/archify-exact-map.html` (open in a browser; F for Present).
+Folder cards sit on **left-to-right signal-flow layers** from payload
+edges (sources left, sinks right). Isolates park on the right. No invented
+routes.
+
+The smoke script delivers an eight-folder signal-flow artifact through the
+same renderer the Map uses (`layoutOk`, rounded `rx="6"` cards, Present,
+share-card) and writes `demo-out/archify-exact-map.html` (open in a browser;
+F for Present).

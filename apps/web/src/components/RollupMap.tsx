@@ -2,13 +2,21 @@
  * IG-32: Explore Map host for Archify architecture HTML.
  * Live rollup → architecture IR → vendored Archify renderer → iframe.
  * First paint never paints hub-dot circles.
+ * The viewer is sandboxed: imported names never execute same-origin with LSS.
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { GraphOverview, GraphRollup } from '../api/client';
 import type { RollupPaintMeta } from '../lib/rollupMapModel';
-import { rollupToArchifyIR } from '../lib/rollupToArchify';
+import { rollupToArchifyIR, type ArchifyMapModel } from '../lib/rollupToArchify';
 import { deliverArchitectureHtml } from '../lib/archifyDeliver';
+import {
+  ARCHIFY_HOST_SOURCE,
+  ARCHIFY_IFRAME_SANDBOX,
+  injectArchifyHost,
+  isArchifyFrameMessage,
+  postToArchifyFrame,
+} from '../lib/archifyHost';
 
 export type RollupMapProps = {
   rollup: GraphRollup;
@@ -21,25 +29,6 @@ export type RollupMapProps = {
   present?: boolean;
 };
 
-type ArchifyWindow = Window & {
-  Archify?: {
-    presentation?: {
-      enter: () => void;
-      exit: () => void;
-      toggle: () => void;
-      active: () => boolean;
-    };
-  };
-};
-
-function injectViewerFlags(html: string, present: boolean): string {
-  const flags = present ? ' data-present="true"' : '';
-  return html.replace(
-    /<html lang="([^"]*)" data-theme="dark" data-preset="([^"]*)">/,
-    `<html lang="$1" data-theme="dark" data-preset="$2"${flags}>`,
-  );
-}
-
 const RollupMap: React.FC<RollupMapProps> = ({
   rollup,
   meta,
@@ -50,7 +39,7 @@ const RollupMap: React.FC<RollupMapProps> = ({
   present = false,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const presentOnCreate = useRef(present);
+  const modelRef = useRef<ArchifyMapModel | null>(null);
   const reducedMotion = useMemo(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -67,44 +56,53 @@ const RollupMap: React.FC<RollupMapProps> = ({
       }),
     [rollup, meta, neighbourhood, drillFocus, projectName, reducedMotion],
   );
+  modelRef.current = model;
 
   const html = useMemo(() => {
     if (!model) return null;
     const delivered = deliverArchitectureHtml(model.diagram);
-    return injectViewerFlags(delivered.html, presentOnCreate.current);
-  }, [model]);
+    return injectArchifyHost(delivered.html, present);
+  }, [model, present]);
 
   const syncPresent = useCallback(() => {
-    const win = iframeRef.current?.contentWindow as ArchifyWindow | null;
-    const stage = win?.Archify?.presentation;
-    if (!stage) return;
-    if (present && !stage.active()) stage.enter();
-    if (!present && stage.active()) stage.exit();
+    postToArchifyFrame(iframeRef.current?.contentWindow, {
+      source: ARCHIFY_HOST_SOURCE,
+      type: 'present',
+      on: present,
+    });
   }, [present]);
 
   useEffect(() => {
     syncPresent();
   }, [syncPresent, html]);
 
-  const handleIframeLoad = useCallback(() => {
-    syncPresent();
-    const doc = iframeRef.current?.contentDocument;
-    if (!doc || !model) return;
-    const onClick = (ev: MouseEvent) => {
-      const node = (ev.target as Element | null)?.closest?.('[data-node-id]');
-      if (!node) return;
-      const irId = node.getAttribute('data-node-id');
-      if (!irId || model.kindByIrId[irId] !== 'folder') return;
-      const sourceId = model.sourceByIrId[irId];
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (!isArchifyFrameMessage(event, iframeRef.current?.contentWindow)) return;
+      if (event.data.type === 'ready') {
+        syncPresent();
+        return;
+      }
+      if (event.data.type !== 'node-click') return;
+      const current = modelRef.current;
+      const irId = event.data.id;
+      if (!current || current.kindByIrId[irId] !== 'folder') return;
+      const sourceId = current.sourceByIrId[irId];
       if (sourceId) onHubClick?.(sourceId);
     };
-    doc.addEventListener('click', onClick);
-  }, [model, onHubClick, syncPresent]);
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [onHubClick, syncPresent]);
+
+  const handleIframeLoad = useCallback(() => {
+    syncPresent();
+  }, [syncPresent]);
 
   const exportShareCard = useCallback(() => {
-    const doc = iframeRef.current?.contentDocument;
-    const btn = doc?.querySelector<HTMLButtonElement>('button[data-format="share-card"]');
-    btn?.click();
+    postToArchifyFrame(iframeRef.current?.contentWindow, {
+      source: ARCHIFY_HOST_SOURCE,
+      type: 'export-share-card',
+    });
   }, []);
 
   const hubCount = model?.diagram.components.filter((c) => model.kindByIrId[c.id] === 'folder').length ?? 0;
@@ -158,7 +156,6 @@ const RollupMap: React.FC<RollupMapProps> = ({
           background: 'var(--surface-panel)',
           borderRadius: present ? 0 : 'var(--radius-md)',
           border: present ? 'none' : '1px solid var(--line-1)',
-          contain: 'content',
         }}
       >
         {html ? (
@@ -166,6 +163,7 @@ const RollupMap: React.FC<RollupMapProps> = ({
             ref={iframeRef}
             title="Codebase folder map"
             srcDoc={html}
+            sandbox={ARCHIFY_IFRAME_SANDBOX}
             onLoad={handleIframeLoad}
             style={{
               display: 'block',

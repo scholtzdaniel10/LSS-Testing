@@ -192,6 +192,10 @@ describe('Explore Map first-paint (IG-32)', () => {
     await waitFor(() => {
       expect(screen.getByRole('img', { name: 'Codebase folder map' })).toBeInTheDocument();
     });
+    const frame = document.querySelector('iframe[title="Codebase folder map"]');
+    expect(frame?.getAttribute('sandbox')).toBe('allow-scripts allow-downloads');
+    expect(frame?.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    expect(frame?.getAttribute('srcdoc') ?? '').toContain('data-lss-archify-host="1"');
     expect(screen.getByRole('button', { name: /Folder: app\//, hidden: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Folder: lib\//, hidden: true })).toBeInTheDocument();
     expect(screen.queryByText('.php')).not.toBeInTheDocument();

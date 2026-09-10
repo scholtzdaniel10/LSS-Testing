@@ -1,6 +1,9 @@
 /**
  * IG-32: live GET /graph/rollup (and neighbourhood on drill) → Archify
  * architecture JSON IR. Connections are payload edges only — never invented.
+ *
+ * Layout is authored judgment from payload topology (sources left, sinks
+ * right), not a uniform 4-col wrap. Archify rejects auto-layout grids.
  */
 
 import type { GraphOverview, GraphRollup } from '../api/client';
@@ -30,6 +33,7 @@ export type ArchifyArchitectureIR = {
     title: string;
     subtitle: string;
     visual_preset: 'signal-flow';
+    quality_profile: 'showcase';
     animation: 'trace' | 'none';
     views?: Array<{ id: string; label: string; focus: string[]; note?: string }>;
   };
@@ -59,6 +63,9 @@ export type ArchifyArchitectureIR = {
     to: string;
     variant: 'default' | 'emphasis' | 'security' | 'dashed';
     width: number;
+    fromSide?: 'left' | 'right' | 'top' | 'bottom';
+    toSide?: 'left' | 'right' | 'top' | 'bottom';
+    route?: 'auto' | 'straight' | 'orthogonal-h' | 'orthogonal-v';
   }>;
   cards: Array<{
     dot: 'cyan' | 'emerald' | 'rose';
@@ -76,7 +83,7 @@ export type ArchifyMapModel = {
 
 export const DRILL_FILE_CAP = 12;
 const LABEL_MAX = 16;
-const CARD_SIZE: [number, number] = [120, 60];
+const CARD_SIZE: [number, number] = [140, 64];
 const FOCUS_CARD_SIZE: [number, number] = [140, 64];
 
 const TYPE_BY_GROUP: Record<string, ArchifyComponentType> = {
@@ -86,7 +93,12 @@ const TYPE_BY_GROUP: Record<string, ArchifyComponentType> = {
   resources: 'frontend',
   database: 'database',
   system: 'cloud',
+  config: 'cloud',
+  configs: 'cloud',
   src: 'backend',
+  lib: 'backend',
+  tests: 'security',
+  test: 'security',
   other: 'backend',
 };
 
@@ -116,8 +128,9 @@ function fitLabel(raw: string): string {
   return `${text.slice(0, LABEL_MAX - 1)}…`;
 }
 
-function typeForGroup(groupKey: string): ArchifyComponentType {
-  return TYPE_BY_GROUP[groupKey] ?? 'backend';
+function typeForFolder(pathOrKey: string): ArchifyComponentType {
+  const top = (pathOrKey.split('/')[0] ?? pathOrKey).toLowerCase();
+  return TYPE_BY_GROUP[top] ?? 'backend';
 }
 
 function connectionVariant(chord: RollupChord): 'default' | 'emphasis' | 'security' {
@@ -126,18 +139,164 @@ function connectionVariant(chord: RollupChord): 'default' | 'emphasis' | 'securi
   return 'default';
 }
 
-function placeOnGrid(count: number, colsCap = 4): { cols: number; cells: Array<{ row: number; col: number }> } {
-  const cols = Math.min(colsCap, Math.max(1, count));
-  const cells = Array.from({ length: count }, (_, i) => ({
-    row: Math.floor(i / cols),
-    col: i % cols,
-  }));
-  return { cols, cells };
+type GridCell = { row: number; col: number };
+
+function archifyGrid(cols: number): ArchifyArchitectureIR['layout'] {
+  return {
+    mode: 'grid',
+    origin: [56, 96],
+    cols,
+    gapX: 64,
+    gapY: 56,
+    cellW: 140,
+    cellH: 64,
+  };
+}
+
+function parentAmong(id: string, ids: Set<string>): string | null {
+  const folderPath = id.startsWith('dir:')
+    ? id.slice(4)
+    : id.includes('/')
+      ? id.slice(0, id.lastIndexOf('/'))
+      : '';
+  if (!folderPath) return null;
+  const parts = folderPath.split('/').filter(Boolean);
+  while (parts.length > 0) {
+    const parentDir = `dir:${parts.join('/')}`;
+    if (parentDir !== id && ids.has(parentDir)) return parentDir;
+    if (ids.has(parts.join('/'))) return parts.join('/');
+    parts.pop();
+  }
+  return null;
+}
+
+function placeOnGrid(sourceIds: string[], colsCap = 4): Map<string, GridCell> {
+  const cols = Math.min(colsCap, Math.max(1, sourceIds.length));
+  const cells = new Map<string, GridCell>();
+  sourceIds.forEach((id, i) => {
+    cells.set(id, { row: Math.floor(i / cols), col: i % cols });
+  });
+  return cells;
+}
+
+/** Longest-path columns from payload edges only — sources left, sinks right. */
+function placeByFlow(sourceIds: string[], chords: RollupChord[]): Map<string, GridCell> {
+  const idSet = new Set(sourceIds);
+  const index = new Map(sourceIds.map((id, i) => [id, i]));
+  const outgoing = new Map<string, string[]>(sourceIds.map((id) => [id, []]));
+  const indegree = new Map<string, number>(sourceIds.map((id) => [id, 0]));
+  const seenDir = new Set<string>();
+  for (const chord of chords) {
+    if (!idSet.has(chord.source) || !idSet.has(chord.target) || chord.source === chord.target) continue;
+    const dir = `${chord.source}>${chord.target}`;
+    if (seenDir.has(dir)) continue;
+    seenDir.add(dir);
+    outgoing.get(chord.source)!.push(chord.target);
+    indegree.set(chord.target, (indegree.get(chord.target) ?? 0) + 1);
+  }
+
+  const connected = sourceIds.filter(
+    (id) => (outgoing.get(id)?.length ?? 0) > 0 || (indegree.get(id) ?? 0) > 0,
+  );
+  if (connected.length === 0) return placeOnGrid(sourceIds, 4);
+
+  const isolates = sourceIds.filter((id) => !connected.includes(id));
+  const rank = new Map<string, number>(connected.map((id) => [id, 0]));
+  const remaining = new Map(connected.map((id) => [id, indegree.get(id) ?? 0]));
+  const queue = connected.filter((id) => remaining.get(id) === 0);
+  const processed = new Set<string>();
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    processed.add(node);
+    for (const next of outgoing.get(node) ?? []) {
+      if (!rank.has(next)) continue;
+      rank.set(next, Math.max(rank.get(next) ?? 0, (rank.get(node) ?? 0) + 1));
+      remaining.set(next, (remaining.get(next) ?? 1) - 1);
+      if (remaining.get(next) === 0) queue.push(next);
+    }
+  }
+  let maxRank = 0;
+  for (const value of rank.values()) maxRank = Math.max(maxRank, value);
+  for (const id of connected) {
+    if (!processed.has(id)) rank.set(id, maxRank + 1);
+  }
+  maxRank = 0;
+  for (const value of rank.values()) maxRank = Math.max(maxRank, value);
+
+  const colOfMap = new Map<string, number>();
+  for (const id of connected) colOfMap.set(id, Math.min(11, rank.get(id) ?? 0));
+  const dump: string[] = [];
+  const nested = [...isolates].sort((a, b) => a.split('/').length - b.split('/').length);
+  for (const id of nested) {
+    const parent = parentAmong(id, idSet);
+    if (parent && colOfMap.has(parent)) {
+      colOfMap.set(id, colOfMap.get(parent)!);
+    } else {
+      dump.push(id);
+    }
+  }
+  if (dump.length > 0) {
+    const isolateCol = Math.min(11, maxRank + 1);
+    for (const id of dump) colOfMap.set(id, isolateCol);
+  }
+
+  const colOf = (id: string): number => colOfMap.get(id) ?? 0;
+  const colCount = Math.max(1, ...sourceIds.map(colOf)) + 1;
+  const byCol: string[][] = Array.from({ length: colCount }, () => []);
+  for (const id of sourceIds) byCol[colOf(id)]?.push(id);
+
+  for (let col = 1; col < colCount; col++) {
+    byCol[col].sort((a, b) => {
+      const avgPredRow = (id: string): number => {
+        const preds = chords.filter((chord) => chord.target === id && colOf(chord.source) === col - 1);
+        if (preds.length === 0) return index.get(id) ?? 0;
+        const sum = preds.reduce((acc, chord) => acc + byCol[col - 1].indexOf(chord.source), 0);
+        return sum / preds.length;
+      };
+      const delta = avgPredRow(a) - avgPredRow(b);
+      return delta !== 0 ? delta : (index.get(a) ?? 0) - (index.get(b) ?? 0);
+    });
+  }
+
+  const cells = new Map<string, GridCell>();
+  byCol.forEach((ids, col) => {
+    ids.forEach((id, row) => cells.set(id, { row, col }));
+  });
+  return cells;
+}
+
+function placeDrillFlow(hubId: string, fileIds: string[], chords: RollupChord[]): Map<string, GridCell> {
+  const fileCells = placeByFlow(fileIds, chords);
+  const cells = new Map<string, GridCell>();
+  let maxRow = 0;
+  for (const [id, cell] of fileCells) {
+    cells.set(id, { row: cell.row, col: cell.col + 1 });
+    maxRow = Math.max(maxRow, cell.row);
+  }
+  cells.set(hubId, { row: Math.floor(maxRow / 2), col: 0 });
+  return cells;
+}
+
+function layoutCols(cells: Map<string, GridCell>): number {
+  let maxCol = 0;
+  for (const cell of cells.values()) maxCol = Math.max(maxCol, cell.col);
+  return Math.min(12, Math.max(1, maxCol + 1));
+}
+
+function portForCells(from: GridCell, to: GridCell): Pick<
+  ArchifyArchitectureIR['connections'][number],
+  'fromSide' | 'toSide' | 'route'
+> {
+  if (from.col < to.col) return { fromSide: 'right', toSide: 'left', route: 'orthogonal-h' };
+  if (from.col > to.col) return { fromSide: 'left', toSide: 'right', route: 'orthogonal-h' };
+  if (from.row < to.row) return { fromSide: 'bottom', toSide: 'top', route: 'orthogonal-v' };
+  return { fromSide: 'top', toSide: 'bottom', route: 'orthogonal-v' };
 }
 
 function connectionsFromChords(
   chords: RollupChord[],
   irIdBySource: Record<string, string>,
+  cellsBySource: Map<string, GridCell>,
 ): ArchifyArchitectureIR['connections'] {
   const out: ArchifyArchitectureIR['connections'] = [];
   const seen = new Set<string>();
@@ -149,15 +308,45 @@ function connectionsFromChords(
     const key = from < to ? `${from}>${to}` : `${to}>${from}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    const fromCell = cellsBySource.get(chord.source);
+    const toCell = cellsBySource.get(chord.target);
+    const ports =
+      fromCell && toCell
+        ? portForCells(fromCell, toCell)
+        : { fromSide: 'right' as const, toSide: 'left' as const, route: 'orthogonal-h' as const };
     out.push({
       id: `link_${n++}`,
       from,
       to,
       variant: connectionVariant(chord),
       width: chordStrokeWidth(chord.weight),
+      ...ports,
     });
   }
   return out;
+}
+
+function folderRegions(
+  hubs: RollupHub[],
+  irIdBySource: Record<string, string>,
+): ArchifyArchitectureIR['boundaries'] {
+  if (hubs.length < 2) return [];
+  const byGroup = new Map<string, string[]>();
+  for (const hub of hubs) {
+    if (hub.groupKey === 'other') continue;
+    const irId = irIdBySource[hub.id];
+    if (!irId) continue;
+    const list = byGroup.get(hub.groupKey) ?? [];
+    list.push(irId);
+    byGroup.set(hub.groupKey, list);
+  }
+  const regions: ArchifyArchitectureIR['boundaries'] = [];
+  for (const [groupKey, wraps] of byGroup) {
+    if (wraps.length < 2) continue;
+    if (wraps.length === hubs.length) continue;
+    regions.push({ kind: 'region', label: fitLabel(groupKey), wraps });
+  }
+  return regions;
 }
 
 function hubComponent(
@@ -169,7 +358,7 @@ function hubComponent(
 ): ArchifyArchitectureIR['components'][number] {
   return {
     id: irId,
-    type: typeForGroup(hub.groupKey),
+    type: typeForFolder(hub.folderPath || hub.groupKey),
     label: fitLabel(hub.name.replace(/\/$/, '') || hub.name),
     sublabel: `${hub.fileCount} file${hub.fileCount === 1 ? '' : 's'}`,
     ...(hub.errors > 0 ? { tag: `${hub.errors} err` } : {}),
@@ -187,7 +376,7 @@ function fileComponent(
 ): ArchifyArchitectureIR['components'][number] {
   return {
     id: irId,
-    type: typeForGroup(file.groupKey),
+    type: typeForFolder(file.groupKey),
     label: fitLabel(file.name),
     sublabel: file.id.includes('/') ? fitLabel(file.id.slice(0, file.id.lastIndexOf('/'))) : undefined,
     ...(file.errors > 0 ? { tag: `${file.errors} err` } : {}),
@@ -195,6 +384,10 @@ function fileComponent(
     col,
     size: CARD_SIZE,
   };
+}
+
+function cellOf(cells: Map<string, GridCell>, sourceId: string): GridCell {
+  return cells.get(sourceId) ?? { row: 0, col: 0 };
 }
 
 export function rollupToArchifyIR(
@@ -232,10 +425,18 @@ export function rollupToArchifyIR(
     const files = drill.files.slice(0, DRILL_FILE_CAP);
     const hubIr = bind(drill.hub.id, 'folder');
     for (const file of files) bind(file.id, 'file');
-    const { cols, cells } = placeOnGrid(files.length, 4);
+    const cells = placeDrillFlow(
+      drill.hub.id,
+      files.map((file) => file.id),
+      drill.chords,
+    );
+    const hubCell = cellOf(cells, drill.hub.id);
     const components: ArchifyArchitectureIR['components'] = [
-      hubComponent(drill.hub, hubIr, 0, Math.min(1, Math.max(0, cols - 1)), FOCUS_CARD_SIZE),
-      ...files.map((file, i) => fileComponent(file, irIdBySource[file.id], cells[i].row + 1, cells[i].col)),
+      hubComponent(drill.hub, hubIr, hubCell.row, hubCell.col, FOCUS_CARD_SIZE),
+      ...files.map((file) => {
+        const cell = cellOf(cells, file.id);
+        return fileComponent(file, irIdBySource[file.id], cell.row, cell.col);
+      }),
     ];
     const wraps = files.map((file) => irIdBySource[file.id]);
     const diagram: ArchifyArchitectureIR = {
@@ -245,6 +446,7 @@ export function rollupToArchifyIR(
         title,
         subtitle: `${files.length} file${files.length === 1 ? '' : 's'} around ${drill.hub.name} · neighbourhood`,
         visual_preset: 'signal-flow',
+        quality_profile: 'showcase',
         animation,
         views: [
           {
@@ -263,20 +465,12 @@ export function rollupToArchifyIR(
             : []),
         ],
       },
-      layout: {
-        mode: 'grid',
-        origin: [48, 88],
-        cols: Math.max(cols, 2),
-        gapX: 48,
-        gapY: 56,
-        cellW: 140,
-        cellH: 64,
-      },
+      layout: archifyGrid(layoutCols(cells)),
       components,
       boundaries: wraps.length > 0
         ? [{ kind: 'region', label: fitLabel(drill.hub.folderPath || drill.hub.name), wraps }]
         : [],
-      connections: connectionsFromChords(drill.chords, irIdBySource),
+      connections: connectionsFromChords(drill.chords, irIdBySource, cells),
       cards: [
         {
           dot: 'cyan',
@@ -313,12 +507,16 @@ export function rollupToArchifyIR(
   if (layout.hubs.length === 0) return null;
 
   for (const hub of layout.hubs) bind(hub.id, 'folder');
-  const { cols, cells } = placeOnGrid(layout.hubs.length, 4);
-  const components = layout.hubs.map((hub, i) =>
-    hubComponent(hub, irIdBySource[hub.id], cells[i].row, cells[i].col, CARD_SIZE),
+  const cells = placeByFlow(
+    layout.hubs.map((hub) => hub.id),
+    layout.chords,
   );
+  const components = layout.hubs.map((hub) => {
+    const cell = cellOf(cells, hub.id);
+    return hubComponent(hub, irIdBySource[hub.id], cell.row, cell.col, CARD_SIZE);
+  });
   const wraps = components.map((c) => c.id);
-  const connections = connectionsFromChords(layout.chords, irIdBySource);
+  const connections = connectionsFromChords(layout.chords, irIdBySource, cells);
   const errorHubs = layout.hubs.filter((h) => h.errors > 0).length;
   const diagram: ArchifyArchitectureIR = {
     schema_version: 1,
@@ -327,6 +525,7 @@ export function rollupToArchifyIR(
       title,
       subtitle: `${layout.hubs.length} folder${layout.hubs.length === 1 ? '' : 's'} from graph/rollup`,
       visual_preset: 'signal-flow',
+      quality_profile: 'showcase',
       animation,
       views: [
         {
@@ -337,17 +536,9 @@ export function rollupToArchifyIR(
         },
       ],
     },
-    layout: {
-      mode: 'grid',
-      origin: [48, 88],
-      cols,
-      gapX: 48,
-      gapY: 56,
-      cellW: 140,
-      cellH: 64,
-    },
+    layout: archifyGrid(layoutCols(cells)),
     components,
-    boundaries: [{ kind: 'region', label: 'Folders', wraps }],
+    boundaries: folderRegions(layout.hubs, irIdBySource),
     connections,
     cards: [
       {

@@ -60,8 +60,19 @@ describe('rollupToArchifyIR', () => {
     expect(model!.diagram.meta.visual_preset).toBe('signal-flow');
     expect(model!.diagram.components.map((c) => c.id)).toEqual(['folder_app', 'folder_lib']);
     expect(model!.diagram.connections).toEqual([
-      { id: 'link_0', from: 'folder_app', to: 'folder_lib', variant: 'default', width: 2 },
+      {
+        id: 'link_0',
+        from: 'folder_app',
+        to: 'folder_lib',
+        variant: 'default',
+        width: 2,
+        fromSide: 'right',
+        toSide: 'left',
+        route: 'orthogonal-h',
+      },
     ]);
+    expect(model!.diagram.components.find((c) => c.id === 'folder_app')?.col).toBe(0);
+    expect(model!.diagram.components.find((c) => c.id === 'folder_lib')?.col).toBe(1);
     expect(model!.sourceByIrId.folder_app).toBe('dir:app');
     expect(model!.diagram.components.every((c) => c.size[0] > 0 && c.size[1] > 0)).toBe(true);
   });
@@ -91,6 +102,37 @@ describe('rollupToArchifyIR', () => {
     expect(model!.diagram.connections).toHaveLength(1);
     expect(model!.diagram.connections[0]).toMatchObject({ from: 'folder_app', to: 'folder_lib' });
     expect(model!.diagram.connections.some((c) => c.from === 'folder_tests' || c.to === 'folder_tests')).toBe(false);
+    const col = Object.fromEntries(model!.diagram.components.map((c) => [c.id, c.col]));
+    expect(col.folder_app).toBe(0);
+    expect(col.folder_lib).toBe(1);
+    expect(col.folder_tests).toBe(2);
+  });
+
+  it('does not wrap every folder in one region', () => {
+    const two = rollupToArchifyIR(
+      rollup(
+        [folder('app'), folder('lib')],
+        [{ source: 'dir:app', target: 'dir:lib', weight: 1, externalTarget: false }],
+      ),
+    );
+    expect(two!.diagram.boundaries).toEqual([]);
+    expect(two!.diagram.meta.quality_profile).toBe('showcase');
+
+    const mixed = rollupToArchifyIR(
+      rollup(
+        [folder('app'), folder('app/Http'), folder('lib')],
+        [
+          { source: 'dir:app', target: 'dir:lib', weight: 1, externalTarget: false },
+          { source: 'dir:app/Http', target: 'dir:lib', weight: 1, externalTarget: false },
+        ],
+      ),
+    );
+    expect(mixed!.diagram.boundaries).toEqual([
+      { kind: 'region', label: 'app', wraps: ['folder_app', 'folder_app_Http'] },
+    ]);
+    const wrapped = new Set(mixed!.diagram.boundaries.flatMap((b) => b.wraps));
+    expect(wrapped.has('folder_lib')).toBe(false);
+    expect(wrapped.size).toBeLessThan(mixed!.diagram.components.length);
   });
 
   it('returns null for an empty rollup (Map empty state, not a fake card)', () => {
@@ -118,8 +160,19 @@ describe('rollupToArchifyIR', () => {
       'lib/C.php',
     ]);
     expect(model!.diagram.connections).toEqual([
-      { id: 'link_0', from: 'file_app_A_php', to: 'file_lib_C_php', variant: 'default', width: 1 },
+      {
+        id: 'link_0',
+        from: 'file_app_A_php',
+        to: 'file_lib_C_php',
+        variant: 'default',
+        width: 1,
+        fromSide: 'right',
+        toSide: 'left',
+        route: 'orthogonal-h',
+      },
     ]);
+    expect(model!.diagram.components.find((c) => c.id === 'folder_app')?.col).toBe(0);
+    expect(model!.diagram.components.find((c) => c.id === 'file_app_A_php')?.col).toBeGreaterThan(0);
     expect(model!.diagram.connections.some((c) => c.from === 'folder_app')).toBe(false);
   });
 
@@ -148,5 +201,45 @@ describe('rollupToArchifyIR', () => {
       [{ source: 'dir:src', target: 'dir:app', weight: 3, externalTarget: false }],
     );
     expect(rollupToArchifyIR(payload)?.diagram).toEqual(rollupToArchifyIR(payload)?.diagram);
+  });
+
+  it('layers folders left-to-right from payload edges', () => {
+    const model = rollupToArchifyIR(
+      rollup(
+        [
+          folder('app', { fileCount: 2 }),
+          folder('src', { fileCount: 3 }),
+          folder('lib', { fileCount: 4 }),
+          folder('routes', { fileCount: 5 }),
+          folder('database', { fileCount: 6 }),
+          folder('tests', { fileCount: 7 }),
+          folder('config', { fileCount: 8 }),
+          folder('resources', { fileCount: 9 }),
+        ],
+        [
+          { source: 'dir:app', target: 'dir:src', weight: 4, externalTarget: false },
+          { source: 'dir:src', target: 'dir:lib', weight: 2, externalTarget: false },
+          { source: 'dir:app', target: 'dir:routes', weight: 1, externalTarget: false },
+          { source: 'dir:src', target: 'dir:database', weight: 3, externalTarget: false },
+          { source: 'dir:lib', target: 'dir:tests', weight: 1, externalTarget: false },
+          { source: 'dir:routes', target: 'dir:config', weight: 1, externalTarget: false },
+          { source: 'dir:app', target: 'dir:resources', weight: 1, externalTarget: false },
+        ],
+      ),
+    );
+    const col = Object.fromEntries(model!.diagram.components.map((c) => [c.id, c.col]));
+    expect(col.folder_app).toBe(0);
+    expect(col.folder_src).toBe(1);
+    expect(col.folder_routes).toBe(1);
+    expect(col.folder_resources).toBe(1);
+    expect(col.folder_lib).toBe(2);
+    expect(col.folder_database).toBe(2);
+    expect(col.folder_config).toBe(2);
+    expect(col.folder_tests).toBe(3);
+    for (const link of model!.diagram.connections) {
+      const from = model!.diagram.components.find((c) => c.id === link.from)!;
+      const to = model!.diagram.components.find((c) => c.id === link.to)!;
+      expect(from.col).toBeLessThan(to.col);
+    }
   });
 });
