@@ -138,6 +138,13 @@ vi.mock('../components/DependencyGraph', () => ({
   default: () => <div data-testid="dependency-graph">graph canvas</div>,
 }));
 
+vi.mock('../lib/archifyDeliver', () => ({
+  deliverArchitectureHtml: () => ({
+    html: '<html lang="en" data-theme="dark" data-preset="signal-flow"><body>archify</body></html>',
+    layoutOk: true,
+  }),
+}));
+
 import ExplorePage from './ExplorePage';
 
 function renderExplore() {
@@ -167,6 +174,7 @@ describe('Explore Map first-paint (IG-32)', () => {
     graphNeighbourhoodData = null;
     neighbourhoodMeta = {};
     neighbourhoodFocus = null;
+    document.documentElement.removeAttribute('data-lss-present');
   });
 
   it('calls ensureMapRollup and never api.graph / api.graphOverview / ensureExploreData', async () => {
@@ -184,14 +192,33 @@ describe('Explore Map first-paint (IG-32)', () => {
     await waitFor(() => {
       expect(screen.getByRole('img', { name: 'Codebase folder map' })).toBeInTheDocument();
     });
-    expect(screen.getByRole('button', { name: /Folder: app\// })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Folder: lib\// })).toBeInTheDocument();
+    const frame = document.querySelector('iframe[title="Codebase folder map"]');
+    expect(frame?.getAttribute('sandbox')).toBe('allow-scripts allow-downloads');
+    expect(frame?.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    expect(frame?.getAttribute('srcdoc') ?? '').toContain('data-lss-archify-host="1"');
+    expect(screen.getByRole('button', { name: /Folder: app\//, hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Folder: lib\//, hidden: true })).toBeInTheDocument();
     expect(screen.queryByText('.php')).not.toBeInTheDocument();
+  });
+
+  it('opens Present from F and ?present=1 without calling api.graph', async () => {
+    render(
+      <MemoryRouter initialEntries={['/explore?present=1']}>
+        <ExplorePage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(ensureMapRollup).toHaveBeenCalled();
+    });
+    expect(document.documentElement.getAttribute('data-lss-present')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Present' })).toHaveAttribute('aria-pressed', 'true');
+    expect(ensureExploreData).not.toHaveBeenCalled();
+    expect(graph).not.toHaveBeenCalled();
   });
 
   it('fetches neighbourhood on hub click, not GET /graph', async () => {
     renderExplore();
-    const hub = await screen.findByRole('button', { name: /Folder: app\// });
+    const hub = await screen.findByRole('button', { name: /Folder: app\//, hidden: true });
     fireEvent.click(hub);
     expect(ensureMapNeighbourhood).toHaveBeenCalledWith('dir:app');
     expect(ensureExploreData).not.toHaveBeenCalled();
@@ -295,7 +322,7 @@ describe('Explore Map drill screen states (note 09)', () => {
     graphNeighbourhoodData = null;
     renderExplore();
     expect(await screen.findByRole('img', { name: 'Codebase folder map' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Folder: app\// })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Folder: app\//, hidden: true })).toBeInTheDocument();
     expect(screen.getByText('Loading…')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back to folders' })).toBeInTheDocument();
     expect(screen.queryByLabelText(/File: /)).not.toBeInTheDocument();
@@ -328,10 +355,10 @@ describe('Explore Map drill screen states (note 09)', () => {
     graphNeighbourhoodData = appNeighbourhood;
     renderExplore();
     expect(await screen.findByRole('img', { name: 'Codebase folder map' })).toBeInTheDocument();
-    expect(screen.getByLabelText(/File: app\/A\.php/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/File: lib\/C\.php/)).toBeInTheDocument();
+    expect(document.querySelector('[aria-label="File: app/A.php"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="File: lib/C.php"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Back to folders' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Folder: lib\// })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Folder: lib\//, hidden: true })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back to folders' }));
     expect(clearMapNeighbourhood).toHaveBeenCalled();
     expect(ensureExploreData).not.toHaveBeenCalled();
