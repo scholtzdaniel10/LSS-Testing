@@ -104,4 +104,22 @@ describe('deliverArchitectureHtml (vendored Archify)', () => {
     expect(html).toContain('file_app_A_php');
     expect(html).toContain('file_lib_C_php');
   });
+
+  it('keeps Archify layoutOk when a same-column folder region is present', () => {
+    const model = rollupToArchifyIR(
+      rollup(
+        [folder('app'), folder('app/Http'), folder('lib')],
+        [
+          { source: 'dir:app', target: 'dir:lib', weight: 1, externalTarget: false },
+          { source: 'dir:app/Http', target: 'dir:lib', weight: 1, externalTarget: false },
+        ],
+      ),
+    );
+    expect(model!.diagram.boundaries).toEqual([
+      { kind: 'region', label: 'app', wraps: ['folder_app', 'folder_app_Http'] },
+    ]);
+    const { layoutOk, html } = deliverArchitectureHtml(model!.diagram);
+    expect(layoutOk).toBe(true);
+    expect(html).toContain('folder_app_Http');
+  });
 });
