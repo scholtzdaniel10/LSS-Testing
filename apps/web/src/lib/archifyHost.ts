@@ -60,7 +60,7 @@ const BRIDGE_SCRIPT = `<script data-lss-archify-host="1">
 
 export function injectArchifyHost(html: string, present: boolean): string {
   const flags = present ? ' data-present="true"' : ' data-embed="true"';
-  let out = html.replace(
+  const out = html.replace(
     /<html lang="([^"]*)" data-theme="dark" data-preset="([^"]*)">/,
     `<html lang="$1" data-theme="dark" data-preset="$2"${flags}>`,
   );
