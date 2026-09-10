@@ -329,21 +329,25 @@ function connectionsFromChords(
 function folderRegions(
   hubs: RollupHub[],
   irIdBySource: Record<string, string>,
+  cells: Map<string, GridCell>,
 ): ArchifyArchitectureIR['boundaries'] {
   if (hubs.length < 2) return [];
-  const byGroup = new Map<string, string[]>();
+  const byGroup = new Map<string, RollupHub[]>();
   for (const hub of hubs) {
     if (hub.groupKey === 'other') continue;
-    const irId = irIdBySource[hub.id];
-    if (!irId) continue;
     const list = byGroup.get(hub.groupKey) ?? [];
-    list.push(irId);
+    list.push(hub);
     byGroup.set(hub.groupKey, list);
   }
   const regions: ArchifyArchitectureIR['boundaries'] = [];
-  for (const [groupKey, wraps] of byGroup) {
+  for (const [groupKey, group] of byGroup) {
+    if (group.length < 2 || group.length === hubs.length) continue;
+    const cols = new Set(group.map((hub) => cellOf(cells, hub.id).col));
+    if (cols.size !== 1) continue;
+    const wraps = group
+      .map((hub) => irIdBySource[hub.id])
+      .filter((id): id is string => Boolean(id));
     if (wraps.length < 2) continue;
-    if (wraps.length === hubs.length) continue;
     regions.push({ kind: 'region', label: fitLabel(groupKey), wraps });
   }
   return regions;
@@ -538,7 +542,7 @@ export function rollupToArchifyIR(
     },
     layout: archifyGrid(layoutCols(cells)),
     components,
-    boundaries: folderRegions(layout.hubs, irIdBySource),
+    boundaries: folderRegions(layout.hubs, irIdBySource, cells),
     connections,
     cards: [
       {
