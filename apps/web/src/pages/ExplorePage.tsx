@@ -107,6 +107,7 @@ function RadialPanel({
               neighbourhood={drillReady}
               drillFocus={drillReady ? neighbourhoodFocus : null}
               onHubClick={onHubClick}
+              onCollapse={onCollapse}
             />
           </ScreenState>
         </>

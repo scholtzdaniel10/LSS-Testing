@@ -189,6 +189,32 @@ describe('Explore Map first-paint (IG-32)', () => {
     expect(screen.queryByText('.php')).not.toBeInTheDocument();
   });
 
+  it('exposes Present and Export without fetching graph or neighbourhood', async () => {
+    renderExplore();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Present' })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Export PNG' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Export PNG' }));
+    await waitFor(() => {
+      expect(ensureExploreData).not.toHaveBeenCalled();
+    });
+    expect(ensureMapNeighbourhood).not.toHaveBeenCalled();
+    expect(graph).not.toHaveBeenCalled();
+  });
+
+  it('Present Next drills the first hub via neighbourhood, not GET /graph', async () => {
+    renderExplore();
+    const present = await screen.findByRole('button', { name: 'Present' });
+    fireEvent.click(present);
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => {
+      expect(ensureMapNeighbourhood).toHaveBeenCalledWith('dir:app');
+    });
+    expect(ensureExploreData).not.toHaveBeenCalled();
+    expect(graph).not.toHaveBeenCalled();
+  });
+
   it('fetches neighbourhood on hub click, not GET /graph', async () => {
     renderExplore();
     const hub = await screen.findByRole('button', { name: /Folder: app\// });
