@@ -1,6 +1,7 @@
+﻿import { chordStrokeWidth } from './rollupMapModel';
 import { describe, expect, it } from 'vitest';
 import type { GraphOverviewNode, GraphRollup } from '../api/client';
-import { DRILL_FILE_CAP, irIdFromSource, rollupToArchifyIR } from './rollupToArchify';
+import { DRILL_FILE_CAP, irIdFromSource, rollupToArchifyIR , /* width via rollupMapModel */ } from './rollupToArchify';
 
 function folder(
   folderPath: string,
@@ -65,7 +66,7 @@ describe('rollupToArchifyIR', () => {
         from: 'folder_app',
         to: 'folder_lib',
         variant: 'default',
-        width: 2,
+        width: chordStrokeWidth(2),
         fromSide: 'right',
         toSide: 'left',
         route: 'orthogonal-h',
@@ -165,7 +166,7 @@ describe('rollupToArchifyIR', () => {
         from: 'file_app_A_php',
         to: 'file_lib_C_php',
         variant: 'default',
-        width: 1,
+        width: chordStrokeWidth(1),
         fromSide: 'right',
         toSide: 'left',
         route: 'orthogonal-h',
