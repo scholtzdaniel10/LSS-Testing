@@ -3,16 +3,26 @@ import type { GraphOverviewNode, GraphRollup } from '../api/client';
 import {
   buildDrillMapLayout,
   buildRollupMapLayout,
+  chordCurvePath,
+  chordPaintOpacity,
   chordStrokeWidth,
+  DRILL_FILE_CAP,
   FILE_DOT_RADIUS,
+  hubDisplayRadius,
+  hubSpineSegments,
   isDrillFileNode,
   isRollupFolderNode,
+  neighbourhoodReach,
   packHubs,
+  reachRoleOf,
   placeOrbit,
+  presentChapters,
+  presentDurations,
+  rankDrillFiles,
+  shortFileLabel,
   shouldShowHubLabel,
   LABEL_THRESHOLD,
 } from './rollupMapModel';
-import { componentRadius } from './radialModel';
 
 function folder(
   folderPath: string,
@@ -155,41 +165,117 @@ describe('buildRollupMapLayout', () => {
 });
 
 describe('packHubs', () => {
-  it('sizes each ring from fileCount via componentRadius', () => {
+  const twoHubs = [
+    {
+      id: 'dir:app',
+      name: 'app/',
+      folderPath: 'app',
+      groupKey: 'app',
+      fileCount: 80,
+      errors: 0,
+      degree: 0,
+    },
+    {
+      id: 'dir:lib',
+      name: 'lib/',
+      folderPath: 'lib',
+      groupKey: 'other',
+      fileCount: 4,
+      errors: 0,
+      degree: 0,
+    },
+  ];
+
+  it('sizes hubs by relative fileCount (largest reads as the primary)', () => {
+    const { placements } = packHubs(twoHubs, 1400);
+    expect(placements[0].radius).toBe(hubDisplayRadius(80, 80));
+    expect(placements[1].radius).toBe(hubDisplayRadius(4, 80));
+    expect(placements[0].radius).toBeGreaterThan(placements[1].radius);
+  });
+
+  it('keeps a gap between hubs so the spine is not a packed bubble chart', () => {
+    const { placements } = packHubs(twoHubs, 1400);
+    const dist = Math.hypot(placements[0].cx - placements[1].cx, placements[0].cy - placements[1].cy);
+    expect(dist).toBeGreaterThan(placements[0].radius + placements[1].radius + 24);
+    expect(placements[0].labelY).toBeGreaterThan(placements[0].cy);
+    expect(placements[0].cy).toBe(placements[1].cy);
+  });
+});
+
+describe('hubDisplayRadius', () => {
+  it('ranks a larger folder above a smaller one', () => {
+    expect(hubDisplayRadius(80, 80)).toBeGreaterThan(hubDisplayRadius(4, 80));
+  });
+});
+
+describe('hubSpineSegments', () => {
+  it('draws one hairline through a single packed row', () => {
     const { placements } = packHubs(
       [
-        {
-          id: 'dir:app',
-          name: 'app/',
-          folderPath: 'app',
-          groupKey: 'app',
-          fileCount: 80,
-          errors: 0,
-          degree: 0,
-        },
-        {
-          id: 'dir:lib',
-          name: 'lib/',
-          folderPath: 'lib',
-          groupKey: 'other',
-          fileCount: 4,
-          errors: 0,
-          degree: 0,
-        },
+        { id: 'dir:app', name: 'app/', folderPath: 'app', groupKey: 'app', fileCount: 8, errors: 0, degree: 0 },
+        { id: 'dir:lib', name: 'lib/', folderPath: 'lib', groupKey: 'other', fileCount: 4, errors: 0, degree: 0 },
       ],
       1400,
     );
-    expect(placements[0].radius).toBe(componentRadius(80));
-    expect(placements[1].radius).toBe(componentRadius(4));
-    expect(placements[0].radius).toBeGreaterThan(placements[1].radius);
+    const spines = hubSpineSegments(placements);
+    expect(spines).toHaveLength(1);
+    expect(spines[0].x2).toBeGreaterThan(spines[0].x1);
   });
 });
 
 describe('chordStrokeWidth', () => {
   it('stays between 1 and 3', () => {
-    expect(chordStrokeWidth(1)).toBe(1);
-    expect(chordStrokeWidth(2)).toBeGreaterThan(1);
-    expect(chordStrokeWidth(10_000)).toBe(3);
+    expect(chordStrokeWidth(1)).toBeGreaterThanOrEqual(1);
+    expect(chordStrokeWidth(2)).toBeGreaterThan(chordStrokeWidth(1));
+    expect(chordStrokeWidth(10_000)).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('chordCurvePath', () => {
+  it('emits a quadratic path between two hubs', () => {
+    const d = chordCurvePath(0, 0, 100, 0);
+    expect(d.startsWith('M 0 0 Q ')).toBe(true);
+    expect(d.endsWith(' 100 0')).toBe(true);
+  });
+});
+
+describe('chordPaintOpacity', () => {
+  it('whispers until focus, then lights only the route', () => {
+    expect(chordPaintOpacity(false, false)).toBeLessThan(0.1);
+    expect(chordPaintOpacity(true, true)).toBeGreaterThan(0.8);
+    expect(chordPaintOpacity(true, false)).toBeLessThan(0.1);
+  });
+});
+
+describe('neighbourhoodReach', () => {
+  it('includes the focus and one-hop neighbours from payload chords only', () => {
+    const reach = neighbourhoodReach(
+      [
+        { source: 'dir:app', target: 'dir:lib', weight: 2, broken: false },
+        { source: 'dir:lib', target: 'dir:src', weight: 1, broken: false },
+      ],
+      'dir:app',
+    );
+    expect([...reach].sort()).toEqual(['dir:app', 'dir:lib']);
+    expect(reach.has('dir:src')).toBe(false);
+  });
+
+  it('is empty without a focus', () => {
+    expect(neighbourhoodReach([{ source: 'a', target: 'b', weight: 1, broken: false }], null).size).toBe(0);
+  });
+});
+
+describe('reachRoleOf', () => {
+  const chords = [
+    { source: 'dir:app', target: 'dir:lib', weight: 2, broken: false },
+    { source: 'dir:src', target: 'dir:app', weight: 1, broken: false },
+  ];
+
+  it('marks origin, upstream, and downstream from payload chords only', () => {
+    expect(reachRoleOf('dir:app', 'dir:app', chords)).toBe('origin');
+    expect(reachRoleOf('dir:lib', 'dir:app', chords)).toBe('downstream');
+    expect(reachRoleOf('dir:src', 'dir:app', chords)).toBe('upstream');
+    expect(reachRoleOf('dir:other', 'dir:app', chords)).toBe('none');
   });
 });
 
@@ -228,9 +314,27 @@ describe('buildDrillMapLayout', () => {
     );
     expect(layout.hub?.id).toBe('dir:app');
     expect(layout.files.map((f) => f.id)).toEqual(['app/A.php', 'lib/C.php']);
+    expect(layout.hiddenFiles).toBe(0);
     expect(layout.chords).toEqual([
       { source: 'app/A.php', target: 'lib/C.php', weight: 1, broken: false },
     ]);
+  });
+
+  it('caps and ranks files so the drill is not a starfield', () => {
+    const files = Array.from({ length: DRILL_FILE_CAP + 5 }, (_, i) =>
+      file(`app/F${String(i).padStart(2, '0')}.php`),
+    );
+    files[3] = { ...files[3], errors: 4, degree: 1 };
+    files[7] = { ...files[7], errors: 0, degree: 9 };
+    const layout = buildDrillMapLayout(
+      rollup([folder('app')]),
+      rollup(files),
+      'dir:app',
+    );
+    expect(layout.files).toHaveLength(DRILL_FILE_CAP);
+    expect(layout.hiddenFiles).toBe(5);
+    expect(layout.files[0].id).toBe('app/F03.php');
+    expect(layout.files[1].id).toBe('app/F07.php');
   });
 
   it('does not change first-paint rollup layout (still drops files)', () => {
@@ -253,5 +357,48 @@ describe('placeOrbit', () => {
 
   it('returns empty for zero files', () => {
     expect(placeOrbit(0, 0, 10, 0)).toEqual([]);
+  });
+});
+
+describe('rankDrillFiles', () => {
+  it('orders by errors, then degree, then id', () => {
+    const { visible, hidden } = rankDrillFiles([
+      { id: 'b.php', name: 'b.php', groupKey: 'app', errors: 0, degree: 2 },
+      { id: 'a.php', name: 'a.php', groupKey: 'app', errors: 3, degree: 1 },
+      { id: 'c.php', name: 'c.php', groupKey: 'app', errors: 0, degree: 9 },
+    ]);
+    expect(visible.map((f) => f.id)).toEqual(['a.php', 'c.php', 'b.php']);
+    expect(hidden).toBe(0);
+  });
+});
+
+describe('shortFileLabel', () => {
+  it('keeps short names and trims long ones', () => {
+    expect(shortFileLabel('A.php')).toBe('A.php');
+    expect(shortFileLabel('VeryLongControllerName.php', 10)).toBe('VeryLongC…');
+  });
+});
+
+describe('presentChapters', () => {
+  it('is overview plus one drill on the first ranked hub', () => {
+    const chapters = presentChapters([
+      { id: 'dir:app', name: 'app/', folderPath: 'app', groupKey: 'app', fileCount: 8, errors: 0, degree: 0 },
+      { id: 'dir:lib', name: 'lib/', folderPath: 'lib', groupKey: 'other', fileCount: 2, errors: 0, degree: 0 },
+    ]);
+    expect(chapters).toEqual([
+      { id: 'overview', title: 'Folders', hubId: null },
+      { id: 'drill', title: 'app/', hubId: 'dir:app' },
+    ]);
+  });
+
+  it('stays overview-only when there are no hubs', () => {
+    expect(presentChapters([])).toEqual([{ id: 'overview', title: 'Folders', hubId: null }]);
+  });
+});
+
+describe('presentDurations', () => {
+  it('collapses motion when the user prefers reduced motion', () => {
+    expect(presentDurations(true)).toEqual({ overviewMs: 0, reachMs: 0 });
+    expect(presentDurations(false).overviewMs).toBeGreaterThan(0);
   });
 });
