@@ -482,6 +482,50 @@ body {
   align-items: start;
 }
 
+/* Archify Present stage: F or ?present=1 hides LSS chrome around the Map. */
+html[data-lss-present="true"] .topnav {
+  display: none;
+}
+
+html[data-lss-present="true"] .page {
+  padding: 0;
+}
+
+html[data-lss-present="true"] .page__inner {
+  max-width: none !important;
+  padding: 0;
+}
+
+html[data-lss-present="true"] .page__title,
+html[data-lss-present="true"] .page__subtitle {
+  display: none;
+}
+
+html[data-lss-present="true"] .explore-split {
+  display: block;
+  gap: 0;
+}
+
+html[data-lss-present="true"] .explore-tree-col {
+  display: none;
+}
+
+html[data-lss-present="true"] .explore-map-col {
+  border: 0;
+  border-radius: 0;
+  min-height: 100vh;
+}
+
+html[data-lss-present="true"] .explore-map-col .panel__head {
+  padding: var(--sp-2) var(--sp-3);
+}
+
+html[data-lss-present="true"] .archify-map-frame {
+  max-height: none;
+  border-radius: 0;
+  border: 0;
+}
+
 /* ---------- Explore: tree + graph ---------- */
 .tree {
   font-family: var(--font-mono);
