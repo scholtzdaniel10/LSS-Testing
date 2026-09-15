@@ -12,11 +12,23 @@ source are needed.
 
 ## One-click launch (Windows)
 
-Run `desktop.bat` from the repo root (double-click it in Explorer or call it
-from cmd). It installs Electron deps on first run, builds the web app, migrates
-the database, auto-issues a Sanctum API token, starts the Laravel API in a
-separate cmd window if it is not already running, then launches the Electron
-desktop app — all in one step, no manual token setup needed.
+Two launchers live at the repo root. Both install Electron deps on first run,
+build the web app, migrate the database, start the Laravel API in a separate
+cmd window if it is not already running, start a **queue worker**
+(`php artisan queue:listen --tries=1 --timeout=660`) in its own window if none
+is running, then launch Electron.
+
+| Launcher | Auth | Env it sets |
+|---|---|---|
+| `desktop.bat` | **Auto-token**: runs `php artisan desktop:token`, injects `LSS_API_TOKEN`; opens already signed in as `desktop@lss.local`. | `LSS_API_TOKEN`, `LSS_LOCAL_LINK_TOKEN` |
+| `desktop-login.bat` | **Login**: issues no token; Electron lands on `/login` and the user signs in with email + password (DX-auth). | `LSS_EXTERNAL_API=1`, `LSS_LOCAL_LINK_TOKEN` |
+
+The queue worker matters: Link / analyze jobs are dispatched to the queue and
+sit at "queued 0%" until a worker picks them up. Electron only spawns its own
+worker in the self-contained path (below), so the `.bat` launchers do it.
+
+For `desktop-login.bat` sign in with a seeded user (`php artisan db:seed` creates
+`daniel@lss.local` / `jean@lss.local`, password `password`).
 
 ## Quick start
 
@@ -39,10 +51,14 @@ Electron owns the Laravel API **and** a `php artisan queue:listen --timeout=660`
 worker with the same injected `DB_*`, `SESSION_DRIVER=file`, and `CACHE_STORE=file`
 env. Both processes are killed on app quit.
 
-**Legacy mode** (`desktop.bat` or any launcher that pre-sets `LSS_API_TOKEN` and
-starts `artisan serve` externally): Electron does not spawn API or queue workers —
-run `php artisan queue:listen --timeout=660` in a separate terminal yourself
-(same as the root README dev workflow).
+**Legacy / external-API mode** is entered when *either* `LSS_API_TOKEN` is set
+(`desktop.bat`) *or* `LSS_EXTERNAL_API=1` is set (`desktop-login.bat`). Electron
+only proxies to the already-running API at `LSS_API_URL` (default
+`http://127.0.0.1:8000`): it does not touch DB config, spawn API/queue sidecars,
+or run `desktop:token`. With `LSS_EXTERNAL_API=1` and no token,
+`window.lssDesktop.apiToken` is `null` and the web app shows `/login`. If you
+start the API by hand instead of via a `.bat`, run
+`php artisan queue:listen --timeout=660` in a separate terminal yourself.
 
 ## API URL override
 
@@ -167,13 +183,3 @@ both env vars unset. `LSS_LOCAL_LINK_TOKEN` absent disables the local-link
 enforcement; `LSS_API_TOKEN` absent means the web app falls back to any token
 stored in `localStorage` — the same behaviour as before. Browser dev workflow
 is unchanged; `php artisan token:issue <email>` is still used there.
-
-## Launchers (repo root)
-
-| Script | Token | Lands on | Queue |
-|--------|-------|----------|-------|
-| `desktop.bat` | Issues `LSS_API_TOKEN` via `desktop:token` (auto-login) | App home | Starts `queue:listen` if needed |
-| `desktop-login.bat` | None � sets `LSS_EXTERNAL_API=1` | `/login` | Starts `queue:work` if needed |
-
-Both start the API (`php artisan serve`) when port 8000 is free, migrate, build the web app, and launch Electron. Prefer `desktop-login.bat` when you want email/password sign-in (`daniel@lss.local` / `password`).
-

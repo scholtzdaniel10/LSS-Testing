@@ -122,7 +122,7 @@ if /i "%QUEUE_UP%"=="True" (
 )
 
 rem ----------------------------------------------------------------------------
-rem Phase 6: launch Electron in external-API mode (no token -> /login)
+rem Phase 6: launch Electron in external-API mode (no token, so it lands on /login)
 rem ----------------------------------------------------------------------------
 set "LSS_EXTERNAL_API=1"
 echo [desktop-login.bat] Launching desktop app ^(login mode^)...
