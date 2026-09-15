@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AnalyzeController;
+use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BootstrapController;
 use App\Http\Controllers\Api\V1\ErrorController;
 use App\Http\Controllers\Api\V1\GraphAggregateController;
@@ -25,8 +26,14 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     // DX-25: unauthenticated — ignore rules are not sensitive; the web fetches
     // them before a token is configured so it can filter the local file tree.
     Route::get('/ignore-rules', IgnoreRulesController::class);
+    // DX-auth: email/password → Sanctum PAT. Credential endpoint gets its own
+    // tight bucket (per IP + email) on top of the shared `api` one.
+    Route::post('/auth/login', [AuthController::class, 'login'])
+        ->middleware('throttle:login');
 
     Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/auth/logout', [AuthController::class, 'logout']);
+
         Route::get('/projects', [ProjectController::class, 'index']);
         Route::post('/projects', [ProjectController::class, 'store']);
         Route::get('/projects/{project}', [ProjectController::class, 'show']);

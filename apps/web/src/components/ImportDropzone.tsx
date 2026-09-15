@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiError, api, getApiToken, pollAnalyzeFollowOn, pollJob, QUEUE_HINT, setActiveProjectId } from '../api/client';
 import {
   ingestDirectoryHandle,
@@ -52,7 +53,7 @@ const ImportDropzone: React.FC = () => {
   const linkLocal = async (manifest: LocalProjectManifest | null, localPath: string) => {
     const bearer = getApiToken() || token;
     if (!bearer) {
-      setError('Set an API token in Settings before linking a local folder.');
+      setError('Sign in before linking a local folder.');
       return;
     }
     const trimmed = localPath.trim();
@@ -94,7 +95,7 @@ const ImportDropzone: React.FC = () => {
   const upload = async (manifest: LocalProjectManifest) => {
     const bearer = getApiToken() || token;
     if (!bearer) {
-      setError('Set an API token in Settings before uploading.');
+      setError('Sign in before uploading.');
       return;
     }
     try {
@@ -317,7 +318,7 @@ const ImportDropzone: React.FC = () => {
       )}
       {!token && (
         <p className="field__hint" style={{ marginTop: 8 }}>
-          Tip: paste a Sanctum token in Settings first (`php artisan token:issue jean@lss.local`).
+          Tip: <Link to="/login">Sign in</Link> first — linking and importing need your account.
         </p>
       )}
       {!diskPath.trim() && token && (

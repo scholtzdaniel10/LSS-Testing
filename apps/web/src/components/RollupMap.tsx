@@ -119,8 +119,8 @@ const RollupMap: React.FC<RollupMapProps> = ({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+    <div className="archify-map" data-present={present ? 'true' : undefined}>
+      <div className="archify-map__bar">
         <span className="panel__hint">
           {isDrill ? (
             <>
@@ -149,14 +149,7 @@ const RollupMap: React.FC<RollupMapProps> = ({
         className="archify-map-frame"
         role="img"
         aria-label="Codebase folder map"
-        style={{
-          overflow: 'hidden',
-          maxHeight: present ? 'none' : '65vh',
-          height: present ? 'calc(100vh - 48px)' : '65vh',
-          background: 'var(--surface-panel)',
-          borderRadius: present ? 0 : 'var(--radius-md)',
-          border: present ? 'none' : '1px solid var(--line-1)',
-        }}
+        data-present={present ? 'true' : undefined}
       >
         {html ? (
           <iframe

@@ -33,7 +33,7 @@ export function ScreenState({
       <div className="panel panel--error" data-animate role="alert">
         <h2 className="panel__title">Could not load</h2>
         <p className="page__subtitle">{errorMessage ?? 'Unknown error'}</p>
-        <p className="field__hint">Check the API is running and your bearer token in Settings.</p>
+        <p className="field__hint">Check the API is running and that you are signed in (Settings → Account).</p>
       </div>
     );
   }

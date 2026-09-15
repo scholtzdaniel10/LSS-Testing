@@ -134,10 +134,6 @@ vi.mock('../api/client', async (importOriginal) => {
   };
 });
 
-vi.mock('../components/DependencyGraph', () => ({
-  default: () => <div data-testid="dependency-graph">graph canvas</div>,
-}));
-
 vi.mock('../lib/archifyDeliver', () => ({
   deliverArchitectureHtml: () => ({
     html: '<html lang="en" data-theme="dark" data-preset="signal-flow"><body>archify</body></html>',
@@ -201,7 +197,21 @@ describe('Explore Map first-paint (IG-32)', () => {
     expect(screen.queryByText('.php')).not.toBeInTheDocument();
   });
 
-  it('opens Present from F and ?present=1 without calling api.graph', async () => {
+  it('is Map-only: no Graph tab, no graph copy, never ensureExploreData', async () => {
+    renderExplore();
+    await waitFor(() => {
+      expect(ensureMapRollup).toHaveBeenCalled();
+    });
+    expect(screen.queryByRole('group', { name: 'View toggle' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Graph' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Map' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/dependency graph/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Codebase map' })).toBeInTheDocument();
+    expect(ensureExploreData).not.toHaveBeenCalled();
+    expect(graph).not.toHaveBeenCalled();
+  });
+
+  it('opens Present from ?present=1 and exits on F without calling api.graph', async () => {
     render(
       <MemoryRouter initialEntries={['/explore?present=1']}>
         <ExplorePage />
@@ -212,8 +222,31 @@ describe('Explore Map first-paint (IG-32)', () => {
     });
     expect(document.documentElement.getAttribute('data-lss-present')).toBe('true');
     expect(screen.getByRole('button', { name: 'Present' })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => {
+      expect(screen.getByRole('img', { name: 'Codebase folder map' })).toBeInTheDocument();
+    });
+    const frame = document.querySelector<HTMLElement>('.archify-map-frame');
+    expect(frame?.getAttribute('data-present')).toBe('true');
+    expect(frame?.style.height).toBe('');
     expect(ensureExploreData).not.toHaveBeenCalled();
     expect(graph).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'f' });
+    expect(document.documentElement.getAttribute('data-lss-present')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Present' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('enters Present from the toolbar button and F', async () => {
+    renderExplore();
+    await waitFor(() => {
+      expect(ensureMapRollup).toHaveBeenCalled();
+    });
+    expect(document.documentElement.getAttribute('data-lss-present')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Present' }));
+    expect(document.documentElement.getAttribute('data-lss-present')).toBe('true');
+    fireEvent.keyDown(window, { key: 'F' });
+    expect(document.documentElement.getAttribute('data-lss-present')).toBeNull();
+    expect(ensureExploreData).not.toHaveBeenCalled();
   });
 
   it('fetches neighbourhood on hub click, not GET /graph', async () => {
@@ -225,22 +258,6 @@ describe('Explore Map first-paint (IG-32)', () => {
     expect(graph).not.toHaveBeenCalled();
     expect(graphOverview).not.toHaveBeenCalled();
     expect(graphNeighbourhood).not.toHaveBeenCalled();
-  });
-
-  it('lazy-loads GET /graph only after the user opens Graph', async () => {
-    renderExplore();
-    await waitFor(() => {
-      expect(ensureMapRollup).toHaveBeenCalled();
-    });
-    expect(ensureExploreData).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
-
-    await waitFor(() => {
-      expect(ensureExploreData).toHaveBeenCalled();
-    });
-    expect(graph).not.toHaveBeenCalled();
-    expect(graphOverview).not.toHaveBeenCalled();
   });
 });
 

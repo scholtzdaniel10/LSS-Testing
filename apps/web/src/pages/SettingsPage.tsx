@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useHistory } from 'react-router-dom';
 import { useEntrance } from '../lib/anim';
-import { api, setApiToken, getApiToken } from '../api/client';
+import { api, setApiToken, getApiToken, getSignedInEmail, setSignedInEmail } from '../api/client';
 import { useProject } from '../state/ProjectContext';
 import { linkLocalFolder } from '../lib/linkLocalProject';
 import type { LocalRoot } from '../api/client';
@@ -18,9 +19,21 @@ const desktopInjectedToken = !!(window.lssDesktop?.apiToken);
 
 const SettingsPage: React.FC = () => {
   const ref = useEntrance();
-  const { project, targets, setToken, reloadAll, projects, selectProject, deleteProject, jobMessage } =
-    useProject();
+  const history = useHistory();
+  const {
+    project,
+    targets,
+    token: activeToken,
+    setToken,
+    reloadAll,
+    projects,
+    selectProject,
+    deleteProject,
+    jobMessage,
+  } = useProject();
   const [token, setTokenLocal] = useState(getApiToken);
+  const [signedInEmail] = useState(getSignedInEmail);
+  const [signingOut, setSigningOut] = useState(false);
   const [editor, setEditor] = useState<EditorSettings>(loadEditorSettings);
   const [envName, setEnvName] = useState('staging');
   const [envUrl, setEnvUrl] = useState('http://127.0.0.1');
@@ -76,10 +89,32 @@ const SettingsPage: React.FC = () => {
 
   const saveToken = () => {
     setApiToken(token.trim());
+    setSignedInEmail(null); // a pasted PAT has no known owner
     setToken(token.trim());
     setMessage('Token saved');
     void reloadAll();
   };
+
+  const signOut = async () => {
+    setSigningOut(true);
+    setMessage(null);
+    try {
+      await api.logout();
+    } catch {
+      // API unreachable: api.logout already cleared local state; still leave.
+    }
+    setToken('');
+    history.replace('/login');
+  };
+
+  // DX-auth: who the current bearer belongs to, in priority order.
+  const identity = desktopInjectedToken
+    ? 'Signed in automatically by the desktop launcher.'
+    : signedInEmail
+      ? `Signed in as ${signedInEmail}`
+      : activeToken
+        ? 'Signed in with a pasted API token.'
+        : 'Not signed in.';
 
   const saveEditor = () => {
     saveEditorSettings(editor);
@@ -167,31 +202,49 @@ const SettingsPage: React.FC = () => {
       <div className="page__inner" ref={ref} style={{ maxWidth: 760 }}>
         <div data-animate>
           <h1 className="page__title">Settings</h1>
-          <p className="page__subtitle">API auth, target environment, and your editor bridge.</p>
+          <p className="page__subtitle">Account, target environment, and your editor bridge.</p>
         </div>
 
         <div className="panel" data-animate>
           <div className="panel__head">
-            <h2 className="panel__title">API token</h2>
+            <h2 className="panel__title">Account</h2>
             <span className="panel__hint">Sanctum bearer · never commit this</span>
           </div>
+          <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+            <p style={{ margin: 0, flex: 1 }}>{identity}</p>
+            <button
+              type="button"
+              className="btn"
+              disabled={signingOut || !activeToken}
+              onClick={() => void signOut()}
+              title="Revoke this token on the API and return to sign-in"
+            >
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
           {desktopInjectedToken && (
-            <p className="panel__hint" style={{ marginBottom: 'var(--sp-2)' }}>
-              Auto-issued by the desktop launcher — manual entry not needed.
+            <p className="field__hint" style={{ marginTop: 'var(--sp-2)' }}>
+              The launcher re-issues its token on every start, so signing out here only lasts until the next relaunch.
             </p>
           )}
-          <div className="field">
-            <label htmlFor="api-token">Bearer token</label>
-            <input
-              id="api-token"
-              value={token}
-              onChange={(e) => setTokenLocal(e.target.value)}
-              placeholder="php artisan token:issue jean@lss.local"
-            />
-          </div>
-          <button type="button" className="btn btn--accent" onClick={saveToken}>
-            Save token
-          </button>
+          <details style={{ marginTop: 'var(--sp-4)' }}>
+            <summary className="field__hint" style={{ cursor: 'pointer' }}>
+              Advanced: paste an API token instead
+            </summary>
+            <div className="field" style={{ marginTop: 'var(--sp-3)' }}>
+              <label htmlFor="api-token">Bearer token</label>
+              <input
+                id="api-token"
+                value={token}
+                onChange={(e) => setTokenLocal(e.target.value)}
+                placeholder="php artisan token:issue jean@lss.local"
+              />
+              <span className="field__hint">For scripts and power users — the normal path is Sign in with email + password.</span>
+            </div>
+            <button type="button" className="btn btn--accent" onClick={saveToken} disabled={!token.trim()}>
+              Save token
+            </button>
+          </details>
         </div>
 
         <div className="panel" data-animate>

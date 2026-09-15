@@ -37,5 +37,14 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('expensive', fn (Request $request): Limit => Limit::perMinute(10)
             ->by($request->user()?->id ?? $request->ip()));
+
+        // DX-auth: credential endpoint — 5/min keyed by IP + submitted email so a
+        // single client cannot brute-force one account or spray many from one IP.
+        RateLimiter::for('login', function (Request $request): Limit {
+            $email = $request->input('email');
+
+            return Limit::perMinute(5)
+                ->by($request->ip().'|'.(is_string($email) ? mb_strtolower($email) : ''));
+        });
     }
 }

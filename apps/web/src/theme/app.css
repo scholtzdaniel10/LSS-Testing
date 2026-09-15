@@ -1,4 +1,4 @@
-/* App-wide layout & component styles. Every value comes from tokens.css. */
+﻿/* App-wide layout & component styles. Every value comes from tokens.css. */
 
 html,
 body,
@@ -492,7 +492,7 @@ body {
   flex-shrink: 0;
 }
 
-/* Inline file-path link inside a row-list__meta — resets button styles */
+/* Inline file-path link inside a row-list__meta â€” resets button styles */
 .row-list__link {
   background: none;
   border: none;
@@ -522,18 +522,44 @@ body {
   align-items: start;
 }
 
-/* Archify Present stage: F or ?present=1 hides LSS chrome around the Map. */
+/* ---------- Explore: Archify Map (IG-32) ---------- */
+.archify-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.archify-map__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.archify-map-frame {
+  overflow: hidden;
+  height: clamp(22rem, 58vh, 48rem); /* fluid; refined in responsive media queries */
+  background: var(--surface-panel);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+}
+
+/* Archify Present stage: F or ?present=1 hides LSS chrome around the Map.
+   The map column becomes a flex column the height of the viewport and the
+   frame flexes to fill whatever is left â€” no magic pixel offsets. */
 html[data-lss-present="true"] .topnav {
   display: none;
 }
 
 html[data-lss-present="true"] .page {
   padding: 0;
+  overflow: hidden;
 }
 
 html[data-lss-present="true"] .page__inner {
   max-width: none !important;
   padding: 0;
+  gap: 0;
 }
 
 html[data-lss-present="true"] .page__title,
@@ -546,24 +572,121 @@ html[data-lss-present="true"] .explore-split {
   gap: 0;
 }
 
-html[data-lss-present="true"] .explore-tree-col {
+html[data-lss-present="true"] .explore-tree-col,
+html[data-lss-present="true"] .explore-map-col .panel__head,
+html[data-lss-present="true"] .archify-map__bar {
   display: none;
 }
 
 html[data-lss-present="true"] .explore-map-col {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding: 0;
   border: 0;
   border-radius: 0;
-  min-height: 100vh;
+  background: var(--surface-panel);
 }
 
-html[data-lss-present="true"] .explore-map-col .panel__head {
-  padding: var(--sp-2) var(--sp-3);
+html[data-lss-present="true"] .archify-map {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
 }
 
 html[data-lss-present="true"] .archify-map-frame {
-  max-height: none;
-  border-radius: 0;
+  flex: 1;
+  min-height: 0;
+  height: auto;
   border: 0;
+  border-radius: 0;
+}
+
+
+/* ---------- Present / Map responsive viewport (laptop / 1080p / large) ----------
+   Fluid map frame in Explore; Present always fills the real viewport.
+   Prefer dvh + clamp over one fixed monitor size. */
+.archify-map-frame {
+  /* laptop (~1366) → 1080p → large: grow frame with viewport */
+  height: clamp(22rem, 58vh, 48rem);
+}
+
+@media (min-width: 1280px) and (max-width: 1599px) {
+  /* typical 1080p / 14–15" laptop landscape */
+  .archify-map-frame {
+    height: clamp(24rem, 62vh, 52rem);
+  }
+  .explore-split {
+    grid-template-columns: minmax(260px, 320px) 1fr;
+  }
+}
+
+@media (min-width: 1600px) {
+  /* large / 1440p+ desks */
+  .archify-map-frame {
+    height: clamp(28rem, 68vh, 58rem);
+  }
+  .explore-split {
+    grid-template-columns: minmax(300px, 380px) 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  /* compact laptop / short height */
+  .explore-split {
+    grid-template-columns: 1fr;
+  }
+  .archify-map-frame {
+    height: clamp(18rem, 52vh, 36rem);
+  }
+}
+
+@media (max-height: 800px) {
+  .archify-map-frame {
+    height: clamp(16rem, 55vh, 32rem);
+  }
+  html[data-lss-present="true"] .explore-map-col {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+}
+
+html[data-lss-present="true"] .explore-map-col {
+  width: 100%;
+  max-width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+}
+
+html[data-lss-present="true"] .archify-map-frame {
+  width: 100%;
+  max-width: 100vw;
+}
+
+@supports (height: 100svh) {
+  html[data-lss-present="true"] .explore-map-col {
+    min-height: 100svh;
+    height: 100svh;
+  }
+}
+/* Only way back besides F once the panel head is hidden. */
+.explore-present-exit {
+  position: fixed;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  z-index: 10;
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  opacity: 0.55;
+}
+
+.explore-present-exit:hover,
+.explore-present-exit:focus-visible {
+  opacity: 1;
 }
 
 /* ---------- Explore: tree + graph ---------- */
@@ -1094,6 +1217,56 @@ html[data-lss-present="true"] .archify-map-frame {
 .field__hint {
   font-size: var(--text-xs);
   color: var(--ink-4);
+}
+
+/* ---------- Login (DX-auth) ---------- */
+.login {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+  overflow-y: auto;
+}
+
+.login__card {
+  width: 100%;
+  max-width: 380px;
+  padding: var(--sp-5);
+}
+
+.login__brand {
+  margin: 0 0 var(--sp-4);
+}
+
+.login__title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.login__subtitle {
+  margin-bottom: var(--sp-5);
+}
+
+.login__card .field input {
+  max-width: none;
+}
+
+.login__error {
+  color: var(--status-critical);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--sp-3);
+}
+
+.login__submit {
+  width: 100%;
+  justify-content: center;
+}
+
+.login__hint {
+  margin: var(--sp-4) 0 0;
 }
 
 /* ---------- v0 banner ---------- */
