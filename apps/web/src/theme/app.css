@@ -1,4 +1,4 @@
-/* App-wide layout & component styles. Every value comes from tokens.css. */
+﻿/* App-wide layout & component styles. Every value comes from tokens.css. */
 
 html,
 body,
@@ -492,7 +492,7 @@ body {
   flex-shrink: 0;
 }
 
-/* Inline file-path link inside a row-list__meta — resets button styles */
+/* Inline file-path link inside a row-list__meta â€” resets button styles */
 .row-list__link {
   background: none;
   border: none;
@@ -538,7 +538,7 @@ body {
 
 .archify-map-frame {
   overflow: hidden;
-  height: 65vh;
+  height: clamp(22rem, 58vh, 48rem); /* fluid; refined in responsive media queries */
   background: var(--surface-panel);
   border: 1px solid var(--line-1);
   border-radius: var(--radius-md);
@@ -546,7 +546,7 @@ body {
 
 /* Archify Present stage: F or ?present=1 hides LSS chrome around the Map.
    The map column becomes a flex column the height of the viewport and the
-   frame flexes to fill whatever is left — no magic pixel offsets. */
+   frame flexes to fill whatever is left â€” no magic pixel offsets. */
 html[data-lss-present="true"] .topnav {
   display: none;
 }
@@ -603,6 +603,76 @@ html[data-lss-present="true"] .archify-map-frame {
   border-radius: 0;
 }
 
+
+/* ---------- Present / Map responsive viewport (laptop / 1080p / large) ----------
+   Fluid map frame in Explore; Present always fills the real viewport.
+   Prefer dvh + clamp over one fixed monitor size. */
+.archify-map-frame {
+  /* laptop (~1366) → 1080p → large: grow frame with viewport */
+  height: clamp(22rem, 58vh, 48rem);
+}
+
+@media (min-width: 1280px) and (max-width: 1599px) {
+  /* typical 1080p / 14–15" laptop landscape */
+  .archify-map-frame {
+    height: clamp(24rem, 62vh, 52rem);
+  }
+  .explore-split {
+    grid-template-columns: minmax(260px, 320px) 1fr;
+  }
+}
+
+@media (min-width: 1600px) {
+  /* large / 1440p+ desks */
+  .archify-map-frame {
+    height: clamp(28rem, 68vh, 58rem);
+  }
+  .explore-split {
+    grid-template-columns: minmax(300px, 380px) 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  /* compact laptop / short height */
+  .explore-split {
+    grid-template-columns: 1fr;
+  }
+  .archify-map-frame {
+    height: clamp(18rem, 52vh, 36rem);
+  }
+}
+
+@media (max-height: 800px) {
+  .archify-map-frame {
+    height: clamp(16rem, 55vh, 32rem);
+  }
+  html[data-lss-present="true"] .explore-map-col {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+}
+
+html[data-lss-present="true"] .explore-map-col {
+  width: 100%;
+  max-width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+}
+
+html[data-lss-present="true"] .archify-map-frame {
+  width: 100%;
+  max-width: 100vw;
+}
+
+@supports (height: 100svh) {
+  html[data-lss-present="true"] .explore-map-col {
+    min-height: 100svh;
+    height: 100svh;
+  }
+}
 /* Only way back besides F once the panel head is hidden. */
 .explore-present-exit {
   position: fixed;
