@@ -85,4 +85,8 @@
 
   /* Explore node-tree windowing (IG-31) */
   --tree-row-h: 24px;
+
+  /* Motion — note 09: interactions < 100ms */
+  --dur-fast: 80ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }

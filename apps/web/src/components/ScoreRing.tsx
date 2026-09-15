@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { pathLength, useCountUp } from '../lib/anim';
+import { useLayoutEffect, useRef } from 'react';
+import { pathLength, prefersReducedMotion, useCountUp } from '../lib/anim';
 import { animate, stagger } from 'animejs';
 import type { DimensionScore } from '../types';
 
@@ -12,7 +12,7 @@ const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--
  * by color alone.
  */
 const ScoreRing: React.FC<{ overall: number; dims: DimensionScore[] }> = ({ overall, dims }) => {
-  const valueRef = useCountUp(overall, 1400);
+  const valueRef = useCountUp(overall, 700);
   const groupRef = useRef<SVGGElement>(null);
   const ran = useRef(false);
 
@@ -31,9 +31,10 @@ const ScoreRing: React.FC<{ overall: number; dims: DimensionScore[] }> = ({ over
     } ${c + radius * Math.sin(a1)}`;
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (ran.current || !groupRef.current) return;
     ran.current = true;
+    if (prefersReducedMotion()) return;
     const paths = [...groupRef.current.querySelectorAll<SVGPathElement>('path[data-arc]')].filter(
       (p) => pathLength(p) > 0,
     );
@@ -45,8 +46,8 @@ const ScoreRing: React.FC<{ overall: number; dims: DimensionScore[] }> = ({ over
     });
     animate(paths, {
       strokeDashoffset: 0,
-      duration: 1100,
-      delay: stagger(140),
+      duration: 600,
+      delay: stagger(60),
       ease: 'inOutQuart',
     });
   }, []);
