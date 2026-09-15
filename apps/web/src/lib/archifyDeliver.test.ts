@@ -122,4 +122,21 @@ describe('deliverArchitectureHtml (vendored Archify)', () => {
     expect(layoutOk).toBe(true);
     expect(html).toContain('folder_app_Http');
   });
+
+  it('paints with LSS tokens, not Archify navy/cyan', () => {
+    const model = rollupToArchifyIR(twoFolder);
+    const { html } = deliverArchitectureHtml(model!.diagram);
+    const skin = html.match(/<style data-lss-archify-skin="1">([\s\S]*?)<\/style>/);
+    expect(skin).not.toBeNull();
+    const css = skin![1];
+    expect(css).toContain('--surface-page: #252423');
+    expect(css).toContain('--accent: #ff4b4b');
+    expect(css).toContain('--bg: var(--surface-page)');
+    expect(css).toContain('--frontend-stroke: var(--series-1)');
+    expect(css).toContain('--backend-stroke: var(--series-2)');
+    expect(css).toMatch(
+      /html\[data-preset="signal-flow"\] \.diagram-container[\s\S]*background:\s*var\(--surface-panel\)/,
+    );
+    expect(html).toContain('data-lss-archify-skin="1"');
+  });
 });
