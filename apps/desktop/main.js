@@ -15,9 +15,10 @@
  * sidecar plus `queue:listen --timeout=660` with the user's own DB credentials
  * injected into ONLY those child processes' environment (api-process.js) — never
  * written to any .env file.
- * Launches via desktop.bat (LSS_API_TOKEN already set) are unaffected: this
- * file just proxies to the already-running, already-configured API exactly
- * as before ("legacy mode" below). Start `queue:listen` yourself for that path.
+ * Launches via desktop.bat (LSS_API_TOKEN already set) or desktop-login.bat
+ * (LSS_EXTERNAL_API=1, no token → /login) are unaffected: this file just
+ * proxies to the already-running, already-configured API exactly as before
+ * ("legacy mode" below). Both .bat launchers start the queue worker themselves.
  */
 
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
@@ -38,10 +39,15 @@ const DIST_DIR = app.isPackaged
 const DB_SETUP_HTML = path.join(__dirname, 'db-setup.html');
 const SELF_CONTAINED_API_URL = 'http://' + API_HOST + ':' + API_PORT;
 
-// Legacy mode: desktop.bat (or another external launcher) already migrated,
-// started the API and provisioned LSS_API_TOKEN — main.js must not touch DB
-// config or spawn a second API process. This is unchanged v0/DSK-3 behaviour.
-const LEGACY_MODE = Boolean(process.env.LSS_API_TOKEN);
+// Legacy / external-API mode: a launcher already migrated and started the API
+// (and queue worker) itself — main.js must not touch DB config, spawn a second
+// API process, or issue a desktop token. Two launchers put us here:
+//   • desktop.bat        — sets LSS_API_TOKEN (auto-token, unchanged v0/DSK-3)
+//   • desktop-login.bat  — sets LSS_EXTERNAL_API=1 and deliberately leaves
+//                          LSS_API_TOKEN unset so the renderer lands on /login
+//                          (DSK-login). preload's apiToken stays null.
+const EXTERNAL_API_MODE = process.env.LSS_EXTERNAL_API === '1';
+const LEGACY_MODE = Boolean(process.env.LSS_API_TOKEN) || EXTERNAL_API_MODE;
 const LEGACY_API_URL = process.env.LSS_API_URL || SELF_CONTAINED_API_URL;
 
 // ── Single-instance lock ───────────────────────────────────────────────────────
@@ -379,8 +385,10 @@ app.whenReady().then(async () => {
   createWindow(port);
 
   if (LEGACY_MODE) {
-    // desktop.bat (or another external launcher) already migrated, started
-    // the API and issued the token — behave exactly like v0.
+    // desktop.bat / desktop-login.bat (or another external launcher) already
+    // migrated and started the API — just proxy to it. No desktop:token is
+    // issued here; with LSS_EXTERNAL_API=1 and no token the web app's auth
+    // gate shows /login.
     loadApp();
     return;
   }

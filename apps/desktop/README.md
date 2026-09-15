@@ -167,3 +167,13 @@ both env vars unset. `LSS_LOCAL_LINK_TOKEN` absent disables the local-link
 enforcement; `LSS_API_TOKEN` absent means the web app falls back to any token
 stored in `localStorage` â€” the same behaviour as before. Browser dev workflow
 is unchanged; `php artisan token:issue <email>` is still used there.
+
+## Launchers (repo root)
+
+| Script | Token | Lands on | Queue |
+|--------|-------|----------|-------|
+| `desktop.bat` | Issues `LSS_API_TOKEN` via `desktop:token` (auto-login) | App home | Starts `queue:listen` if needed |
+| `desktop-login.bat` | None — sets `LSS_EXTERNAL_API=1` | `/login` | Starts `queue:work` if needed |
+
+Both start the API (`php artisan serve`) when port 8000 is free, migrate, build the web app, and launch Electron. Prefer `desktop-login.bat` when you want email/password sign-in (`daniel@lss.local` / `password`).
+

@@ -198,11 +198,41 @@ echo [desktop.bat] API is up.
 
 rem ============================================================================
 
-rem Phase 5: launch Electron
+rem Phase 5: ensure a queue worker is running ^(DSK-login^).
+
+rem Link / analyze jobs are dispatched to the queue; without a worker they sit
+
+rem at "queued 0%%" forever. Electron only spawns its own worker in the
+
+rem self-contained ^(no LSS_API_TOKEN^) path, so the launcher must do it here.
 
 rem ============================================================================
 
 :launch
+
+echo [desktop.bat] Checking for a running queue worker...
+
+for /f %%i in ('powershell -NoProfile -Command "[bool](Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'php.exe' -and $_.CommandLine -like '*artisan*queue:*' })"') do set QUEUE_UP=%%i
+
+if /i "%QUEUE_UP%"=="True" (
+
+    echo [desktop.bat] Queue worker already running -- reusing it.
+
+) else (
+
+    echo [desktop.bat] Starting queue worker in a new window...
+
+    start "LSS Queue" cmd /k "cd /d %~dp0apps\api && php artisan queue:listen --tries=1 --timeout=660"
+
+)
+
+
+
+rem ============================================================================
+
+rem Phase 6: launch Electron
+
+rem ============================================================================
 
 echo [desktop.bat] Launching desktop app...
 
