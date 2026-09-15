@@ -522,18 +522,44 @@ body {
   align-items: start;
 }
 
-/* Archify Present stage: F or ?present=1 hides LSS chrome around the Map. */
+/* ---------- Explore: Archify Map (IG-32) ---------- */
+.archify-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.archify-map__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.archify-map-frame {
+  overflow: hidden;
+  height: 65vh;
+  background: var(--surface-panel);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-md);
+}
+
+/* Archify Present stage: F or ?present=1 hides LSS chrome around the Map.
+   The map column becomes a flex column the height of the viewport and the
+   frame flexes to fill whatever is left — no magic pixel offsets. */
 html[data-lss-present="true"] .topnav {
   display: none;
 }
 
 html[data-lss-present="true"] .page {
   padding: 0;
+  overflow: hidden;
 }
 
 html[data-lss-present="true"] .page__inner {
   max-width: none !important;
   padding: 0;
+  gap: 0;
 }
 
 html[data-lss-present="true"] .page__title,
@@ -546,24 +572,51 @@ html[data-lss-present="true"] .explore-split {
   gap: 0;
 }
 
-html[data-lss-present="true"] .explore-tree-col {
+html[data-lss-present="true"] .explore-tree-col,
+html[data-lss-present="true"] .explore-map-col .panel__head,
+html[data-lss-present="true"] .archify-map__bar {
   display: none;
 }
 
 html[data-lss-present="true"] .explore-map-col {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding: 0;
   border: 0;
   border-radius: 0;
-  min-height: 100vh;
+  background: var(--surface-panel);
 }
 
-html[data-lss-present="true"] .explore-map-col .panel__head {
-  padding: var(--sp-2) var(--sp-3);
+html[data-lss-present="true"] .archify-map {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
 }
 
 html[data-lss-present="true"] .archify-map-frame {
-  max-height: none;
-  border-radius: 0;
+  flex: 1;
+  min-height: 0;
+  height: auto;
   border: 0;
+  border-radius: 0;
+}
+
+/* Only way back besides F once the panel head is hidden. */
+.explore-present-exit {
+  position: fixed;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  z-index: 10;
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  opacity: 0.55;
+}
+
+.explore-present-exit:hover,
+.explore-present-exit:focus-visible {
+  opacity: 1;
 }
 
 /* ---------- Explore: tree + graph ---------- */
