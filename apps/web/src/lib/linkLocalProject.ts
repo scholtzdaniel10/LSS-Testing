@@ -20,7 +20,7 @@ export async function linkLocalFolder(
 ): Promise<{ projectId: string; name: string }> {
   const bearer = getApiToken() || options.token;
   if (!bearer) {
-    throw new Error('Set an API token in Settings before linking a local folder.');
+    throw new Error('Sign in before linking a local folder.');
   }
 
   const trimmed = localPath.trim();

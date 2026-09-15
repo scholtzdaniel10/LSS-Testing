@@ -183,15 +183,31 @@ export class ApiError extends Error {
   }
 }
 
+/** DX-auth: `user` half of the POST /auth/login response. */
+export type AuthUser = { id: number | string; name: string; email: string };
+
 const TOKEN_KEY = 'lss.apiToken';
+const USER_EMAIL_KEY = 'lss.userEmail';
 const PROJECT_KEY = 'lss.projectId';
 
 export function getApiToken(): string {
   return localStorage.getItem(TOKEN_KEY) ?? '';
 }
 
+/** Empty string clears the stored token (sign-out). */
 export function setApiToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+/** DX-auth: email shown in Settings; only set by the login page (pasted/desktop tokens have none). */
+export function getSignedInEmail(): string {
+  return localStorage.getItem(USER_EMAIL_KEY) ?? '';
+}
+
+export function setSignedInEmail(email: string | null): void {
+  if (email) localStorage.setItem(USER_EMAIL_KEY, email);
+  else localStorage.removeItem(USER_EMAIL_KEY);
 }
 
 export function getActiveProjectId(): string | null {
@@ -232,12 +248,38 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiEnve
     const detail = formatApiError(body, dataMsg || res.statusText || `HTTP ${res.status}`);
     throw new ApiError(detail || `HTTP ${res.status}`, res.status, body ?? undefined);
   }
-  if (!body) throw new ApiError('Empty response', res.status);
+  // 204 (logout, local-root delete) carries no envelope — synthesise an empty one.
+  if (!body) {
+    if (res.status === 204) return { data: null as T, meta: {}, errors: [] };
+    throw new ApiError('Empty response', res.status);
+  }
   return body;
 }
 
 export const api = {
   health: () => request<{ status: string; time: string }>('/health'),
+  /** DX-auth: email/password → Sanctum PAT. Caller stores the token (setApiToken / ProjectContext.setToken). */
+  login: (credentials: { email: string; password: string }) =>
+    request<{ token: string; user: AuthUser }>('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials),
+    }),
+  /**
+   * DX-auth: revoke the current PAT server-side and always clear it locally.
+   * A 401 means the token is already gone — treated as success. Other failures
+   * (API down) still clear local state so sign-out never traps the user, then rethrow.
+   */
+  logout: async (): Promise<void> => {
+    try {
+      await request<null>('/auth/logout', { method: 'POST' });
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) throw e;
+    } finally {
+      setApiToken('');
+      setSignedInEmail(null);
+    }
+  },
   projects: () => request<Project[]>('/projects').then(async (env) => {
     // paginated list returns data as array inside paginator shape — handle both
     const data = env.data as unknown;

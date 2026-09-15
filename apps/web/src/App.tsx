@@ -1,5 +1,5 @@
-import { Suspense, lazy } from 'react';
-import { Redirect, Route, Switch } from 'react-router-dom';
+import { Suspense, lazy, type ReactNode } from 'react';
+import { Redirect, Route, Switch, useLocation } from 'react-router-dom';
 import { IonApp, setupIonicReact } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
 
@@ -9,7 +9,8 @@ import DiagnosePage from './pages/DiagnosePage';
 import TestPage from './pages/TestPage';
 import SettingsPage from './pages/SettingsPage';
 import ProjectsPage from './pages/ProjectsPage';
-import { ProjectProvider } from './state/ProjectContext';
+import LoginPage from './pages/LoginPage';
+import { ProjectProvider, useProject } from './state/ProjectContext';
 
 // IG-14: lazy — CodebaseRadial/DependencyGraph are heavy; must not block shell mount.
 const ExplorePage = lazy(() => import('./pages/ExplorePage'));
@@ -29,25 +30,46 @@ import './theme/app.css';
 
 setupIonicReact({ mode: 'md' });
 
+/**
+ * DX-auth SPA gate. `token` comes from ProjectContext, which already adopts the
+ * desktop-injected `window.lssDesktop.apiToken` at module load — so the desktop
+ * launcher skips login without any special case here.
+ */
+const RequireAuth: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { token } = useProject();
+  const location = useLocation();
+  if (!token) {
+    return <Redirect to={{ pathname: '/login', state: { from: location } }} />;
+  }
+  return <>{children}</>;
+};
+
 const App: React.FC = () => (
   <IonApp>
     <ProjectProvider>
       <IonReactRouter>
         <div className="app-shell">
-          <TopNav />
           <Switch>
-            <Route exact path="/health" component={HealthPage} />
-            <Route exact path="/projects" component={ProjectsPage} />
-            <Route exact path="/explore">
-              <Suspense fallback={<p className="panel__hint">Loading explore…</p>}>
-                <ExplorePage />
-              </Suspense>
-            </Route>
-            <Route exact path="/diagnose" component={DiagnosePage} />
-            <Route exact path="/test" component={TestPage} />
-            <Route exact path="/settings" component={SettingsPage} />
-            <Route exact path="/">
-              <Redirect to="/health" />
+            <Route exact path="/login" component={LoginPage} />
+            <Route>
+              <RequireAuth>
+                <TopNav />
+                <Switch>
+                  <Route exact path="/health" component={HealthPage} />
+                  <Route exact path="/projects" component={ProjectsPage} />
+                  <Route exact path="/explore">
+                    <Suspense fallback={<p className="panel__hint">Loading explore…</p>}>
+                      <ExplorePage />
+                    </Suspense>
+                  </Route>
+                  <Route exact path="/diagnose" component={DiagnosePage} />
+                  <Route exact path="/test" component={TestPage} />
+                  <Route exact path="/settings" component={SettingsPage} />
+                  <Route exact path="/">
+                    <Redirect to="/health" />
+                  </Route>
+                </Switch>
+              </RequireAuth>
             </Route>
           </Switch>
         </div>

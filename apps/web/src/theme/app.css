@@ -1096,6 +1096,56 @@ html[data-lss-present="true"] .archify-map-frame {
   color: var(--ink-4);
 }
 
+/* ---------- Login (DX-auth) ---------- */
+.login {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+  overflow-y: auto;
+}
+
+.login__card {
+  width: 100%;
+  max-width: 380px;
+  padding: var(--sp-5);
+}
+
+.login__brand {
+  margin: 0 0 var(--sp-4);
+}
+
+.login__title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.login__subtitle {
+  margin-bottom: var(--sp-5);
+}
+
+.login__card .field input {
+  max-width: none;
+}
+
+.login__error {
+  color: var(--status-critical);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--sp-3);
+}
+
+.login__submit {
+  width: 100%;
+  justify-content: center;
+}
+
+.login__hint {
+  margin: var(--sp-4) 0 0;
+}
+
 /* ---------- v0 banner ---------- */
 .v0-banner {
   font-family: var(--font-mono);

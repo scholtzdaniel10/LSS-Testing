@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphOverview, type GraphRollup, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
+import { getApiToken, setApiToken, setSignedInEmail, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphOverview, type GraphRollup, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 import { deleteLocalProjectsForServerId, listLocalProjects } from '../lib/localProjectStore';
 import { isRollupFolderNode } from '../lib/rollupMapModel';
@@ -145,7 +145,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const reloadAll = useCallback(async () => {
     if (!getApiToken()) {
       setStatus('empty');
-      setErrorMessage('Add an API bearer token in Settings (php artisan token:issue).');
+      setErrorMessage('Sign in to load your projects.');
       return;
     }
     setStatus('loading');
@@ -195,6 +195,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setLocalManifest(locals.find((m) => m.serverProjectId === id) ?? null);
       setStatus('ready');
     } catch (e) {
+      // DX-auth: a revoked/stale token must not strand the user on an error
+      // screen — drop it so the SPA gate (App.tsx RequireAuth) sends them to /login.
+      if (e instanceof ApiError && e.status === 401) {
+        setApiToken('');
+        setSignedInEmail(null);
+        setTokenState('');
+      }
       setStatus('error');
       setErrorMessage(e instanceof ApiError ? e.message : 'Failed to load');
     }
