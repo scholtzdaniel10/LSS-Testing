@@ -14,6 +14,8 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
   margin: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .app-shell {
@@ -114,6 +116,42 @@ body {
   background: var(--surface-wash);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .btn,
+  .btn--accent,
+  .topnav__link,
+  .topnav__program,
+  .tile,
+  .row-list__row,
+  .row-list__link,
+  .legend__item,
+  .tree__row,
+  .graph-toolbar__btn,
+  .graph-chip,
+  .graph-zoom-controls__btn,
+  .graph-search__hit,
+  .graph-search__input,
+  .field input,
+  .field select {
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .topnav__link--active {
   color: var(--ink-1);
 }
@@ -146,6 +184,8 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: var(--sp-6) var(--sp-6) var(--sp-7);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .page__inner {

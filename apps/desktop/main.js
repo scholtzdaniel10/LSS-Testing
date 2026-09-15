@@ -90,6 +90,7 @@ function verifyDist(distDir) {
 function attachWindowDiagnostics(win) {
   win.webContents.on('did-fail-load', (_event, code, description, url) => {
     if (code === -3) return; // ERR_ABORTED during navigation — ignore
+    if (!win.isDestroyed()) win.show();
     dialog.showErrorBox(
       'LSS failed to load',
       'Could not load the UI (' + code + '):\n' + description + '\n\nURL: ' + url +
@@ -110,13 +111,25 @@ function createWindow(port) {
   mainWindow = new BrowserWindow({
     width : 1280,
     height: 800,
+    minWidth: 960,
+    minHeight: 640,
+    show: false,
+    // Must match --surface-page in apps/web/src/theme/tokens.css (kills white flash).
+    backgroundColor: '#252423',
     title : 'LSS Maintenance System',
     webPreferences: {
       contextIsolation : true,
       nodeIntegration  : false,
       sandbox          : false,  // must be false to allow preload IPC
       preload          : path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
     },
+  });
+
+  // Show as soon as the first document paints. Also show after the long
+  // self-contained API wait so launch never looks hung on a hidden window.
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow) mainWindow.show();
   });
 
   // Block new windows opened by the renderer (window.open, target="_blank")
@@ -371,6 +384,10 @@ app.whenReady().then(async () => {
     loadApp();
     return;
   }
+
+  // Dark chrome while Postgres/API come up — ready-to-show already fired only
+  // after a document loads, so reveal the empty window now.
+  if (mainWindow) mainWindow.show();
 
   // Self-contained path (portable-exe / direct launch): try the saved (or
   // default 127.0.0.1:5432 lss/lss/lss) config before bothering the user.

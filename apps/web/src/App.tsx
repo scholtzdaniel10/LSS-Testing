@@ -27,7 +27,7 @@ import './theme/variables.css';
 import './theme/tokens.css';
 import './theme/app.css';
 
-setupIonicReact();
+setupIonicReact({ mode: 'md' });
 
 const App: React.FC = () => (
   <IonApp>
