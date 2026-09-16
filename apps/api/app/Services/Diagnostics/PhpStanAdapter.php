@@ -3,6 +3,7 @@
 namespace App\Services\Diagnostics;
 
 use App\Services\Import\StackDetector;
+use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
 
@@ -188,6 +189,32 @@ final class PhpStanAdapter implements Analyzer
             if ($selected !== [] && ($files + $count) > $budget) {
                 break;
             }
+            // Oversized first shard: take a file slice so first-pass stays inside budget.
+            if ($selected === [] && $count > $budget && ($shard['paths'] ?? null) !== null) {
+                $listed = $this->listPhpFiles($sandboxPath, $shard['paths']);
+                $take = array_slice($listed, 0, $budget);
+                $rest = array_slice($listed, $budget);
+                // One process (not N× bootstrap) — parallel lives inside PHPStan neon.
+                $selected[] = [
+                    'label' => $shard['label'].':first',
+                    'paths' => $take,
+                ];
+                if ($rest !== []) {
+                    $this->deferredShards[] = [
+                        'label' => $shard['label'].':rest',
+                        'paths' => $rest,
+                    ];
+                }
+                $chosenLabel = $shard['label'];
+                foreach ($ranked as $restShard) {
+                    if ($restShard['label'] === $chosenLabel) {
+                        continue;
+                    }
+                    $this->deferredShards[] = $restShard;
+                }
+
+                return $selected;
+            }
             $selected[] = $shard;
             $files += $count;
             if ($files >= $budget) {
@@ -206,6 +233,40 @@ final class PhpStanAdapter implements Analyzer
         ));
 
         return $selected;
+    }
+
+    /**
+     * @param  list<string>  $paths
+     * @return list<string>
+     */
+    private function listPhpFiles(string $sandboxPath, array $paths): array
+    {
+        $out = [];
+        foreach ($paths as $rel) {
+            $abs = $sandboxPath.DIRECTORY_SEPARATOR.str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $rel);
+            if (is_file($abs) && str_ends_with(strtolower($abs), '.php')) {
+                $out[] = str_replace('\\', '/', $rel);
+
+                continue;
+            }
+            if (! is_dir($abs)) {
+                continue;
+            }
+            $it = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($abs, \FilesystemIterator::SKIP_DOTS),
+            );
+            $root = rtrim(str_replace('\\', '/', $sandboxPath), '/').'/';
+            foreach ($it as $file) {
+                if (! $file->isFile() || ! str_ends_with(strtolower($file->getFilename()), '.php')) {
+                    continue;
+                }
+                $full = str_replace('\\', '/', $file->getPathname());
+                $out[] = str_starts_with($full, $root) ? substr($full, strlen($root)) : $full;
+            }
+        }
+        sort($out);
+
+        return $out;
     }
 
     /**
@@ -273,7 +334,7 @@ final class PhpStanAdapter implements Analyzer
         }
 
         $cacheSuffix = substr(hash('sha256', $label), 0, 8);
-        $configPath = $this->ensureConfig($sandboxPath, $cacheSuffix);
+        $configPath = $this->ensureConfig($sandboxPath, $cacheSuffix, $paths);
         $tmpDir = $this->writableTmpDir();
 
         $cmd = $this->analyseCommand($binary, $configPath, $paths);
@@ -291,7 +352,7 @@ final class PhpStanAdapter implements Analyzer
      *
      * @param  list<string>|null  $paths
      */
-    public function pendingShard(string $sandboxPath, ?array $paths, string $label): \Illuminate\Process\PendingProcess
+    public function pendingShard(string $sandboxPath, ?array $paths, string $label): PendingProcess
     {
         $binary = $this->resolveBinary();
         if ($binary === null) {
@@ -299,7 +360,7 @@ final class PhpStanAdapter implements Analyzer
         }
 
         $cacheSuffix = substr(hash('sha256', $label), 0, 8);
-        $configPath = $this->ensureConfig($sandboxPath, $cacheSuffix);
+        $configPath = $this->ensureConfig($sandboxPath, $cacheSuffix, $paths);
         $tmpDir = $this->writableTmpDir();
 
         return Process::path($sandboxPath)
@@ -440,7 +501,10 @@ final class PhpStanAdapter implements Analyzer
         return $findings;
     }
 
-    public function ensureConfig(string $sandboxPath, string $cacheSuffix = ''): string
+    /**
+     * @param  list<string>|null  $analysePaths  When set, neon uses these paths only (no broad scanDirectories).
+     */
+    public function ensureConfig(string $sandboxPath, string $cacheSuffix = '', ?array $analysePaths = null): string
     {
         $sep = DIRECTORY_SEPARATOR;
         $deep = (bool) config('speed.phpstan_deep', false);
@@ -492,7 +556,23 @@ NEON;
             $parallelBlock .= "\n    tmpDir: \"{$cacheDirNeon}\"";
         }
 
-        if ($profile->isLegacyPhpLayout) {
+        $level = $profile->isLegacyPhpLayout ? 0 : 1;
+
+        if ($analysePaths !== null && $analysePaths !== []) {
+            $pathLines = '';
+            foreach ($analysePaths as $p) {
+                $p = str_replace('\\', '/', $p);
+                $pathLines .= "        - {$p}\n";
+            }
+            $neon = <<<NEON
+parameters:
+    level: {$level}
+    paths:
+{$pathLines}{$exclude}
+{$parallelBlock}
+    reportUnmatchedIgnoredErrors: false
+NEON;
+        } elseif ($profile->isLegacyPhpLayout) {
             $scanDirs = $deep
                 ? "        - application\n        - system"
                 : '        - application';
@@ -520,7 +600,7 @@ NEON;
         file_put_contents($configPath, $neon);
 
         // Keep legacy filename for older tests that look for .lss-phpstan.neon
-        if (! $deep && $cacheSuffix === '') {
+        if (! $deep && $cacheSuffix === '' && $analysePaths === null) {
             @copy($configPath, $sandboxPath.$sep.'.lss-phpstan.neon');
         }
 

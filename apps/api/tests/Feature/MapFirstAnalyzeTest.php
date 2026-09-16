@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\BuildHealthSnapshot;
 use App\Jobs\BuildProjectMap;
 use App\Jobs\DiagnoseProject;
 use App\Models\JobStatus;
@@ -42,7 +43,7 @@ it('dispatches map then diagnose job statuses after analyze/rescan queue', funct
     Bus::assertChained([
         BuildProjectMap::class,
         DiagnoseProject::class,
-        \App\Jobs\BuildHealthSnapshot::class,
+        BuildHealthSnapshot::class,
     ]);
 });
 
