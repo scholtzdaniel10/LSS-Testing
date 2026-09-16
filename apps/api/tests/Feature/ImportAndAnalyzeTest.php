@@ -38,7 +38,7 @@ it('imports a zip into the sandbox and records project files (IG-19)', function 
     $jobId = $response->json('data.jobId');
     $job = JobStatus::query()->find($jobId);
     expect($job?->status)->toBe(JobStatus::STATUS_DONE)
-        ->and($job?->result)->toHaveKeys(['analyzeJobId', 'snapshotJobId']);
+        ->and($job?->result)->toHaveKeys(['mapJobId', 'diagnoseJobId', 'analyzeJobId', 'snapshotJobId']);
 
     $project->refresh();
     expect($project->last_imported_at)->not->toBeNull()
@@ -46,7 +46,8 @@ it('imports a zip into the sandbox and records project files (IG-19)', function 
         ->and($project->files()->where('path', 'like', 'node_modules%')->exists())->toBeFalse()
         ->and($project->usageReport)->not->toBeNull();
 
-    expect(JobStatus::query()->find($job->result['analyzeJobId'])?->status)->toBe(JobStatus::STATUS_DONE);
+    expect(JobStatus::query()->find($job->result['mapJobId'])?->status)->toBe(JobStatus::STATUS_DONE)
+        ->and(JobStatus::query()->find($job->result['diagnoseJobId'])?->status)->toBe(JobStatus::STATUS_DONE);
 
     $tree = $this->getJson("/api/v1/projects/{$project->id}/tree");
     $tree->assertOk();
@@ -159,9 +160,11 @@ it('re-scan queues analyze then snapshot chain (UI-4)', function () {
     $response = $this->postJson("/api/v1/projects/{$project->id}/rescan");
     $response->assertAccepted();
 
-    $analyzeStatus = JobStatus::query()->findOrFail($response->json('data.analyzeJobId'));
+    $mapStatus = JobStatus::query()->findOrFail($response->json('data.mapJobId'));
+    $diagnoseStatus = JobStatus::query()->findOrFail($response->json('data.diagnoseJobId'));
     $snapshotStatus = JobStatus::query()->findOrFail($response->json('data.snapshotJobId'));
-    expect($analyzeStatus->status)->toBe(JobStatus::STATUS_DONE)
+    expect($mapStatus->status)->toBe(JobStatus::STATUS_DONE)
+        ->and($diagnoseStatus->status)->toBe(JobStatus::STATUS_DONE)
         ->and($snapshotStatus->status)->toBe(JobStatus::STATUS_DONE);
 
     $this->getJson("/api/v1/projects/{$project->id}/health-report")->assertOk();

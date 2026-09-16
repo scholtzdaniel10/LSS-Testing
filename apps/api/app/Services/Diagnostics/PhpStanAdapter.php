@@ -16,10 +16,20 @@ final class PhpStanAdapter implements Analyzer
 {
     private const MEMORY_LIMIT = '2G';
 
+    /** Priority child-dir names for progressive first-pass (CI3 / Laravel-ish). */
+    private const FIRST_PASS_PRIORITY = [
+        'controllers', 'models', 'libraries', 'helpers', 'core', 'modules',
+        'services', 'http', 'domain', 'actions', 'livewire', 'console',
+        'app', 'src',
+    ];
+
     /** @var callable(string): string|null */
     private $jsonRunner;
 
     private ?string $lastRunStatus = null;
+
+    /** @var list<array{label: string, paths: list<string>|null}> */
+    private array $deferredShards = [];
 
     public function __construct(
         private readonly Taxonomy $taxonomy = new Taxonomy,
@@ -78,6 +88,16 @@ final class PhpStanAdapter implements Analyzer
     }
 
     /**
+     * Shards deferred by progressive first-pass (empty when full plan fits budget).
+     *
+     * @return list<array{label: string, paths: list<string>|null}>
+     */
+    public function deferredShards(): array
+    {
+        return $this->deferredShards;
+    }
+
+    /**
      * Plan analysis shards (top-level dirs under application/src/app, or explicit paths).
      *
      * @param  list<string>|null  $onlyPaths
@@ -85,6 +105,8 @@ final class PhpStanAdapter implements Analyzer
      */
     public function planShards(string $sandboxPath, ?array $onlyPaths = null): array
     {
+        $this->deferredShards = [];
+
         if ($onlyPaths !== null) {
             if ($onlyPaths === []) {
                 return [];
@@ -120,7 +142,7 @@ final class PhpStanAdapter implements Analyzer
                 $shards[] = ['label' => 'system', 'paths' => ['system']];
             }
 
-            return $shards;
+            return $this->applyProgressiveBudget($sandboxPath, $shards);
         }
 
         foreach (['src', 'app', 'application'] as $candidate) {
@@ -134,13 +156,103 @@ final class PhpStanAdapter implements Analyzer
                 $shards[] = ['label' => $rel, 'paths' => [$rel]];
             }
             if ($shards !== []) {
-                return $shards;
+                return $this->applyProgressiveBudget($sandboxPath, $shards);
             }
 
             return [['label' => $candidate, 'paths' => [$candidate]]];
         }
 
         return [['label' => 'full', 'paths' => null]];
+    }
+
+    /**
+     * @param  list<array{label: string, paths: list<string>|null}>  $shards
+     * @return list<array{label: string, paths: list<string>|null}>
+     */
+    private function applyProgressiveBudget(string $sandboxPath, array $shards): array
+    {
+        if (! config('speed.phpstan_progressive', true) || $shards === []) {
+            return $shards;
+        }
+
+        $budget = max(50, (int) config('speed.phpstan_first_pass_max_files', 1200));
+        $ranked = $shards;
+        usort($ranked, function (array $a, array $b): int {
+            return $this->shardPriority($a) <=> $this->shardPriority($b);
+        });
+
+        $selected = [];
+        $files = 0;
+        foreach ($ranked as $shard) {
+            $count = $this->countPhpFiles($sandboxPath, $shard['paths'] ?? null);
+            if ($selected !== [] && ($files + $count) > $budget) {
+                break;
+            }
+            $selected[] = $shard;
+            $files += $count;
+            if ($files >= $budget) {
+                break;
+            }
+        }
+
+        if ($selected === []) {
+            $selected = [$ranked[0]];
+        }
+
+        $chosen = array_fill_keys(array_map(static fn (array $s): string => $s['label'], $selected), true);
+        $this->deferredShards = array_values(array_filter(
+            $ranked,
+            static fn (array $s): bool => ! isset($chosen[$s['label']]),
+        ));
+
+        return $selected;
+    }
+
+    /**
+     * @param  array{label: string, paths: list<string>|null}  $shard
+     */
+    private function shardPriority(array $shard): int
+    {
+        $label = strtolower($shard['label']);
+        $base = basename(str_replace('\\', '/', $label));
+        $idx = array_search($base, self::FIRST_PASS_PRIORITY, true);
+        if ($idx === false) {
+            return 100 + strlen($label);
+        }
+
+        return (int) $idx;
+    }
+
+    /**
+     * @param  list<string>|null  $paths
+     */
+    private function countPhpFiles(string $sandboxPath, ?array $paths): int
+    {
+        if ($paths === null) {
+            return 10_000;
+        }
+        $total = 0;
+        foreach ($paths as $rel) {
+            $abs = $sandboxPath.DIRECTORY_SEPARATOR.str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $rel);
+            if (is_file($abs) && str_ends_with(strtolower($abs), '.php')) {
+                $total++;
+
+                continue;
+            }
+            if (! is_dir($abs)) {
+                continue;
+            }
+            $it = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($abs, \FilesystemIterator::SKIP_DOTS),
+            );
+            foreach ($it as $file) {
+                if ($file->isFile() && str_ends_with(strtolower($file->getFilename()), '.php')) {
+                    $total++;
+                }
+            }
+        }
+
+        return $total;
     }
 
     /**
@@ -160,9 +272,48 @@ final class PhpStanAdapter implements Analyzer
             return [];
         }
 
-        $configPath = $this->ensureConfig($sandboxPath);
+        $cacheSuffix = substr(hash('sha256', $label), 0, 8);
+        $configPath = $this->ensureConfig($sandboxPath, $cacheSuffix);
         $tmpDir = $this->writableTmpDir();
 
+        $cmd = $this->analyseCommand($binary, $configPath, $paths);
+
+        $result = Process::path($sandboxPath)
+            ->timeout(600)
+            ->env($this->processEnvWithTmp($tmpDir))
+            ->run($cmd);
+
+        return $this->findingsFromProcess($result->output(), $result->errorOutput(), $sandboxPath, $label);
+    }
+
+    /**
+     * Build a pending process for concurrent shard execution.
+     *
+     * @param  list<string>|null  $paths
+     */
+    public function pendingShard(string $sandboxPath, ?array $paths, string $label): \Illuminate\Process\PendingProcess
+    {
+        $binary = $this->resolveBinary();
+        if ($binary === null) {
+            throw new RuntimeException('PHPStan binary missing');
+        }
+
+        $cacheSuffix = substr(hash('sha256', $label), 0, 8);
+        $configPath = $this->ensureConfig($sandboxPath, $cacheSuffix);
+        $tmpDir = $this->writableTmpDir();
+
+        return Process::path($sandboxPath)
+            ->timeout(600)
+            ->env($this->processEnvWithTmp($tmpDir))
+            ->command($this->analyseCommand($binary, $configPath, $paths));
+    }
+
+    /**
+     * @param  list<string>|null  $paths
+     * @return list<string>
+     */
+    private function analyseCommand(string $binary, string $configPath, ?array $paths): array
+    {
         $cmd = [
             PHP_BINARY,
             $binary,
@@ -180,14 +331,14 @@ final class PhpStanAdapter implements Analyzer
             }
         }
 
-        $result = Process::path($sandboxPath)
-            ->timeout(600)
-            ->env($this->processEnvWithTmp($tmpDir))
-            ->run($cmd);
+        return $cmd;
+    }
 
-        $json = $result->output();
-        $stderr = $result->errorOutput();
-
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function findingsFromProcess(string $json, string $stderr, string $sandboxPath, string $label): array
+    {
         if ($json === '' && $stderr !== '') {
             if ($this->isNoFilesToAnalyse($stderr)) {
                 $this->lastRunStatus = $this->lastRunStatus ?? 'clean';
@@ -289,19 +440,26 @@ final class PhpStanAdapter implements Analyzer
         return $findings;
     }
 
-    public function ensureConfig(string $sandboxPath): string
+    public function ensureConfig(string $sandboxPath, string $cacheSuffix = ''): string
     {
         $sep = DIRECTORY_SEPARATOR;
         $deep = (bool) config('speed.phpstan_deep', false);
         $configName = $deep ? '.lss-phpstan-deep.neon' : '.lss-phpstan.neon';
+        if ($cacheSuffix !== '') {
+            $configName = $deep
+                ? ".lss-phpstan-deep-{$cacheSuffix}.neon"
+                : ".lss-phpstan-{$cacheSuffix}.neon";
+        }
         $configPath = $sandboxPath.$sep.$configName;
 
         // Always rewrite so parallel / wave flags stay current.
         $profile = $this->stackDetector->detect($sandboxPath);
         $parallel = (int) config('speed.phpstan_parallel', 0);
+        $shardConcurrency = max(1, (int) config('speed.phpstan_shard_concurrency', 4));
         if ($parallel <= 0) {
             $cpus = (int) (function_exists('swoole_cpu_num') ? swoole_cpu_num() : (getenv('NUMBER_OF_PROCESSORS') ?: 4));
-            $parallel = max(2, $cpus - 1);
+            // Leave headroom when multiple shards run together.
+            $parallel = max(1, intdiv(max(2, $cpus), min($shardConcurrency, 4)));
         }
 
         // Trailing (?) marks each path optional — PHPStan 2.x hard-fails on
@@ -323,8 +481,15 @@ NEON;
         // PHPStan has no --cache-dir CLI flag; the result cache lives in the
         // neon `tmpDir` parameter, so the per-project cache is wired up here.
         if (config('speed.phpstan_cache_dir', true)) {
-            $cacheDir = str_replace('\\', '/', $this->projectCacheDir($sandboxPath));
-            $parallelBlock .= "\n    tmpDir: \"{$cacheDir}\"";
+            $cacheDir = $this->projectCacheDir($sandboxPath);
+            if ($cacheSuffix !== '') {
+                $cacheDir .= $sep.'s-'.$cacheSuffix;
+                if (! is_dir($cacheDir)) {
+                    mkdir($cacheDir, 0755, true);
+                }
+            }
+            $cacheDirNeon = str_replace('\\', '/', $cacheDir);
+            $parallelBlock .= "\n    tmpDir: \"{$cacheDirNeon}\"";
         }
 
         if ($profile->isLegacyPhpLayout) {
@@ -355,7 +520,7 @@ NEON;
         file_put_contents($configPath, $neon);
 
         // Keep legacy filename for older tests that look for .lss-phpstan.neon
-        if (! $deep) {
+        if (! $deep && $cacheSuffix === '') {
             @copy($configPath, $sandboxPath.$sep.'.lss-phpstan.neon');
         }
 

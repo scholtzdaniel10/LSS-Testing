@@ -15,7 +15,7 @@ type WizardStep = 'idle' | 'name' | 'method' | 'link' | 'uploading';
 const ProjectsPage: React.FC = () => {
   const ref = useEntrance();
   const history = useHistory();
-  const { projects, selectProject, deleteProject, refreshProjects, status, errorMessage, jobMessage } =
+  const { projects, selectProject, deleteProject, refreshProjects, status, errorMessage, jobMessage, watchDiagnose } =
     useProject();
 
   // Wizard
@@ -55,9 +55,13 @@ const ProjectsPage: React.FC = () => {
     setCardBusy((prev) => ({ ...prev, [p.id]: 'Queuing re-scan…' }));
     try {
       const { data } = await api.rescan(p.id);
-      setCardBusy((prev) => ({ ...prev, [p.id]: `Analyze job ${data.analyzeJobId}…` }));
-      await pollJob(data.analyzeJobId, (j) =>
-        setCardBusy((prev) => ({ ...prev, [p.id]: `Analyze: ${j.status} ${j.progress}%` })),
+      setCardBusy((prev) => ({ ...prev, [p.id]: `Map job ${data.mapJobId}…` }));
+      await pollJob(data.mapJobId, (j) =>
+        setCardBusy((prev) => ({ ...prev, [p.id]: `Map: ${j.status} ${j.progress}%` })),
+      );
+      setCardBusy((prev) => ({ ...prev, [p.id]: `Diagnose ${data.diagnoseJobId}…` }));
+      await pollJob(data.diagnoseJobId, (j) =>
+        setCardBusy((prev) => ({ ...prev, [p.id]: `Diagnose: ${j.status} ${j.progress}%` })),
       );
       await pollJob(data.snapshotJobId, (j) =>
         setCardBusy((prev) => ({ ...prev, [p.id]: `Snapshot: ${j.status} ${j.progress}%` })),
@@ -112,10 +116,12 @@ const ProjectsPage: React.FC = () => {
     setConsentPath(null);
     setConsentError(null);
     try {
-      await linkLocalFolder(trimmed, {
+      const { diagnoseJobId } = await linkLocalFolder(trimmed, {
         projectName: newName.trim() || undefined,
         onStatus: setWizardBusy,
+        onDiagnoseQueued: watchDiagnose,
       });
+      if (diagnoseJobId) watchDiagnose(diagnoseJobId);
       await refreshProjects();
       resetWizard();
     } catch (e) {

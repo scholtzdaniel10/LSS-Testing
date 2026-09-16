@@ -18,7 +18,7 @@ const desktopInjectedToken = !!(window.lssDesktop?.apiToken);
 
 const SettingsPage: React.FC = () => {
   const ref = useEntrance();
-  const { project, targets, setToken, reloadAll, projects, selectProject, deleteProject, jobMessage } =
+  const { project, targets, setToken, reloadAll, projects, selectProject, deleteProject, jobMessage, watchDiagnose } =
     useProject();
   const [token, setTokenLocal] = useState(getApiToken);
   const [editor, setEditor] = useState<EditorSettings>(loadEditorSettings);
@@ -148,13 +148,19 @@ const SettingsPage: React.FC = () => {
     setMessage(null);
     saveLocalProjectRoot(editor.localRoot);
     try {
-      await linkLocalFolder(editor.localRoot.trim(), {
+      const { diagnoseJobId } = await linkLocalFolder(editor.localRoot.trim(), {
         projectId: project.id,
         projectName: project.name,
         onStatus: (m) => setMessage(m),
+        onDiagnoseQueued: watchDiagnose,
       });
+      if (diagnoseJobId) watchDiagnose(diagnoseJobId);
       await reloadAll();
-      setMessage(`Linked and analyzed ${editor.localRoot.trim()}`);
+      setMessage(
+        diagnoseJobId
+          ? `Map ready for ${editor.localRoot.trim()} · Diagnose still running`
+          : `Linked ${editor.localRoot.trim()}`,
+      );
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Local link failed');
     } finally {

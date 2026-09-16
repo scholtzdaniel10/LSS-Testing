@@ -43,6 +43,7 @@ vi.mock('../state/ProjectContext', () => ({
     chains,
     status: 'ready',
     errorMessage: null,
+    diagnoseJob: null,
   }),
 }));
 

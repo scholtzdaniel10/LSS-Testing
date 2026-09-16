@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphOverview, type GraphRollup, type HealthSnapshot, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
+import { getApiToken, setApiToken, setActiveProjectId, getActiveProjectId, api, ApiError, pollJob, type AnalyserStatuses, type DiagnosticFinding, type ErrorChain, type GraphEdge, type GraphOverview, type GraphRollup, type HealthSnapshot, type JobStatus, type Project, type TargetEnvironment, type TreeFile, type UsageReport } from '../api/client';
 import type { LocalProjectManifest } from '../lib/localProjectStore';
 import { deleteLocalProjectsForServerId, listLocalProjects } from '../lib/localProjectStore';
 import { isRollupFolderNode } from '../lib/rollupMapModel';
@@ -57,6 +57,9 @@ type ProjectContextValue = {
   status: LoadState;
   errorMessage: string | null;
   jobMessage: string | null;
+  /** Separate Diagnose track (PHPStan etc.) — never fake-stuck inside Map %. */
+  diagnoseJob: JobStatus | null;
+  watchDiagnose: (jobId: string) => void;
   reloadAll: () => Promise<void>;
   /** Lazy-load GET /graph (+ /tree if needed) after the user opens Graph. */
   ensureExploreData: () => Promise<void>;
@@ -118,6 +121,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<LoadState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [jobMessage, setJobMessage] = useState<string | null>(null);
+  const [diagnoseJob, setDiagnoseJob] = useState<JobStatus | null>(null);
+  const diagnoseWatchRef = useRef<string | null>(null);
   const exploreLoadedFor = useRef<string | null>(null);
   const treeLoadedFor = useRef<string | null>(null);
   const rollupLoadedFor = useRef<string | null>(null);
@@ -193,6 +198,19 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setTargets(Array.isArray(tgtEnv.data) ? tgtEnv.data : []);
       const locals = await listLocalProjects();
       setLocalManifest(locals.find((m) => m.serverProjectId === id) ?? null);
+      try {
+        const latest = await api.latestJob(id, 'diagnose');
+        if (latest.data && (latest.data.status === 'queued' || latest.data.status === 'running')) {
+          setDiagnoseJob(latest.data);
+          diagnoseWatchRef.current = latest.data.id;
+        } else if (latest.data) {
+          setDiagnoseJob(latest.data);
+        } else {
+          setDiagnoseJob(null);
+        }
+      } catch {
+        /* latest job is optional for Map */
+      }
       setStatus('ready');
     } catch (e) {
       setStatus('error');
@@ -309,13 +327,49 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     [reloadAll],
   );
 
+  const watchDiagnose = useCallback((jobId: string) => {
+    diagnoseWatchRef.current = jobId;
+    void (async () => {
+      try {
+        const done = await pollJob(jobId, (j) => {
+          if (diagnoseWatchRef.current === jobId) setDiagnoseJob(j);
+        });
+        if (diagnoseWatchRef.current === jobId) {
+          setDiagnoseJob(done);
+          if (done.status === 'done') {
+            const id = getActiveProjectId();
+            if (id) {
+              const errEnv = await api.errors(id);
+              setErrors(Array.isArray(errEnv.data) ? errEnv.data : []);
+              setChains(errEnv.chains ?? []);
+              if (errEnv.analysers && Object.keys(errEnv.analysers).length > 0) {
+                setAnalysers(errEnv.analysers);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        if (diagnoseWatchRef.current === jobId) {
+          setJobMessage(e instanceof ApiError ? e.message : 'Diagnose failed');
+        }
+      }
+    })();
+  }, []);
+
   const rescan = useCallback(async () => {
     if (!project) return;
     setJobMessage('Queuing re-scan…');
     try {
       const { data } = await api.rescan(project.id);
-      setJobMessage(`Analyze ${data.analyzeJobId} · snapshot ${data.snapshotJobId}`);
-      await pollJob(data.analyzeJobId, (j) => setJobMessage(`Analyze: ${j.status} ${j.progress}% — ${j.message ?? ''}`));
+      setJobMessage(`Map ${data.mapJobId} · Diagnose ${data.diagnoseJobId}`);
+      await pollJob(data.mapJobId, (j) =>
+        setJobMessage(`Map: ${j.status} ${j.progress}% — ${j.message ?? ''}`),
+      );
+      setJobMessage('Map ready · Diagnose running…');
+      await pollJob(data.diagnoseJobId, (j) => {
+        setDiagnoseJob(j);
+        setJobMessage(`Diagnose: ${j.status} ${j.progress}% — ${j.message ?? ''}`);
+      });
       await pollJob(data.snapshotJobId, (j) => setJobMessage(`Snapshot: ${j.status} ${j.progress}%`));
       await reloadAll();
       setJobMessage('Re-scan complete');
@@ -345,6 +399,16 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void reloadAll();
   }, [token, reloadAll]);
+
+  useEffect(() => {
+    if (
+      diagnoseJob &&
+      (diagnoseJob.status === 'queued' || diagnoseJob.status === 'running') &&
+      diagnoseWatchRef.current !== diagnoseJob.id
+    ) {
+      watchDiagnose(diagnoseJob.id);
+    }
+  }, [diagnoseJob, watchDiagnose]);
 
   const value = useMemo(
     () => ({
@@ -378,6 +442,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       status,
       errorMessage,
       jobMessage,
+      diagnoseJob,
+      watchDiagnose,
       reloadAll,
       ensureExploreData,
       ensureTree,
@@ -416,6 +482,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       status,
       errorMessage,
       jobMessage,
+      diagnoseJob,
+      watchDiagnose,
       reloadAll,
       ensureExploreData,
       ensureTree,

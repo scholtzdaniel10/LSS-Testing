@@ -15,7 +15,7 @@ import { useProject } from '../state/ProjectContext';
  * Drop a folder for browser preview, then analyze on disk via API (no zip upload).
  */
 const ImportDropzone: React.FC = () => {
-  const { setLocalManifest, reloadAll, selectProject, token, project, localManifest } = useProject();
+  const { setLocalManifest, reloadAll, selectProject, token, project, localManifest, watchDiagnose } = useProject();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [statsLine, setStatsLine] = useState<string | null>(null);
@@ -62,11 +62,12 @@ const ImportDropzone: React.FC = () => {
     }
     persistDiskPath(trimmed);
     try {
-      const { projectId, name } = await linkLocalFolder(trimmed, {
+      const { projectId, name, diagnoseJobId } = await linkLocalFolder(trimmed, {
         projectId: manifest?.serverProjectId ?? project?.id,
         projectName: manifest?.name ?? project?.name,
         token: bearer,
         onStatus: setBusy,
+        onDiagnoseQueued: watchDiagnose,
       });
 
       if (manifest) {
@@ -74,14 +75,19 @@ const ImportDropzone: React.FC = () => {
         await saveLocalProject(updated);
         setLocalManifest(updated);
       }
-      setBusy('Link complete — switching to project…');
+      setBusy(
+        diagnoseJobId
+          ? 'Map ready — opening project (Diagnose still running)…'
+          : 'Link complete — switching to project…',
+      );
       selectProject(projectId);
       await reloadAll();
+      if (diagnoseJobId) watchDiagnose(diagnoseJobId);
       setBusy(null);
       setError(null);
       setStatsLine(
         (prev) =>
-          `${prev ?? ''} · Linked ${trimmed} on disk (no upload). Graph and diagnostics are from the API scan.`,
+          `${prev ?? ''} · Linked ${trimmed} on disk (no upload). Map ready; Diagnose may still be running.`,
       );
     } catch (e) {
       const msg =
@@ -143,10 +149,14 @@ const ImportDropzone: React.FC = () => {
       }
 
       await pollAnalyzeFollowOn(job, (stage, j) => {
-        setBusy(
-          `${stage === 'analyze' ? 'Analyze' : 'Snapshot'}: ${j.status} ${j.progress}% — ${j.message ?? ''}`,
-        );
+        const label = stage === 'map' ? 'Map' : stage === 'diagnose' ? 'Diagnose' : 'Snapshot';
+        setBusy(`${label}: ${j.status} ${j.progress}% — ${j.message ?? ''}`);
       });
+      const diagnoseId = job.result?.diagnoseJobId;
+      if (diagnoseId) {
+        setBusy('Map ready · Diagnose running in background…');
+        watchDiagnose(diagnoseId);
+      }
 
       const updated = {
         ...manifest,

@@ -16,6 +16,19 @@ return [
     'phpstan_shards' => (bool) env('PHPSTAN_SHARDS', true),
 
     /*
+    | How many PHPStan shard processes to run at once (separate tmpDirs).
+    */
+    'phpstan_shard_concurrency' => (int) env('PHPSTAN_SHARD_CONCURRENCY', 4),
+
+    /*
+    | First diagnose pass: scope to priority dirs until file budget; deepen later.
+    | Keeps Diagnose usable inside the ~60s link→analyze SLA on large trees.
+    */
+    'phpstan_progressive' => (bool) env('PHPSTAN_PROGRESSIVE', true),
+
+    'phpstan_first_pass_max_files' => (int) env('PHPSTAN_FIRST_PASS_MAX_FILES', 1200),
+
+    /*
     | CI3 Wave B: include system/ in PHPStan. Default false = application only.
     */
     'phpstan_deep' => (bool) env('PHPSTAN_DEEP', false),

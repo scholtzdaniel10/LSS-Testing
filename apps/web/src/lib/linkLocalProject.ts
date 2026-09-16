@@ -8,7 +8,14 @@ import {
   setActiveProjectId,
 } from '../api/client';
 
-/** Link a folder on disk to the API and wait for scan + health (no zip upload). */
+const stageLabel = (stage: string): string => {
+  if (stage === 'map') return 'Map';
+  if (stage === 'diagnose') return 'Diagnose';
+  if (stage === 'snapshot') return 'Snapshot';
+  return stage;
+};
+
+/** Link a folder on disk to the API; returns when Map is ready (Diagnose may still run). */
 export async function linkLocalFolder(
   localPath: string,
   options: {
@@ -16,11 +23,13 @@ export async function linkLocalFolder(
     projectName?: string;
     token?: string;
     onStatus?: (message: string) => void;
+    /** Called with diagnose job id so the UI can keep polling without blocking Map. */
+    onDiagnoseQueued?: (diagnoseJobId: string) => void;
   } = {},
-): Promise<{ projectId: string; name: string }> {
+): Promise<{ projectId: string; name: string; diagnoseJobId?: string }> {
   const bearer = getApiToken() || options.token;
   if (!bearer) {
-    throw new Error('Set an API token in Settings before linking a local folder.');
+    throw new Error('Sign in before linking a local folder.');
   }
 
   const trimmed = localPath.trim();
@@ -59,13 +68,18 @@ export async function linkLocalFolder(
     throw new Error(`Link stuck in "${job.status}". ${QUEUE_HINT}`);
   }
 
-  await pollAnalyzeFollowOn(job, (stage, j) => {
+  const follow = await pollAnalyzeFollowOn(job, (stage, j) => {
     options.onStatus?.(
-      `${stage === 'analyze' ? 'Analyze' : 'Snapshot'}: ${j.status} ${j.progress}% — ${j.message ?? ''}`,
+      `${stageLabel(stage)}: ${j.status} ${j.progress}% — ${j.message ?? ''}`,
     );
   });
 
-  return { projectId, name };
+  if (follow.diagnoseJobId) {
+    options.onDiagnoseQueued?.(follow.diagnoseJobId);
+    options.onStatus?.('Map ready · Diagnose running in background');
+  }
+
+  return { projectId, name, diagnoseJobId: follow.diagnoseJobId };
 }
 
 export { ApiError };

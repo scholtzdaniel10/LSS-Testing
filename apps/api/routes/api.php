@@ -57,6 +57,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::delete('/projects/{project}/target-environments/{targetEnvironment}', [TargetEnvironmentController::class, 'destroy']);
         Route::post('/projects/{project}/target-environments/{targetEnvironment}/probe', [TargetEnvironmentController::class, 'probe']);
 
+        Route::get('/projects/{project}/jobs/latest', [JobStatusController::class, 'latest']);
         Route::get('/jobs/{jobStatus}', [JobStatusController::class, 'show']);
         Route::get('/jobs/{jobStatus}/stream', JobStreamController::class);
 

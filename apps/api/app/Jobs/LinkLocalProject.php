@@ -18,7 +18,7 @@ use Throwable;
 
 /**
  * Link an on-disk folder as the project source (Obsidian-style) — no zip upload.
- * Indexes files then queues analyze → snapshot (does not block on PHPStan).
+ * Indexes files then queues map → diagnose → snapshot (Map unlocks before PHPStan).
  */
 class LinkLocalProject implements ShouldQueue
 {
@@ -89,12 +89,13 @@ class LinkLocalProject implements ShouldQueue
 
         $followOn = DispatchAnalyzeChain::dispatch(
             $this->projectId,
-            'Post-link dependency scan',
+            'Post-link map build',
+            'Post-link diagnose',
             'Post-link health snapshot',
         );
 
         $status->markDone(
-            'Linked local folder · '.count($result['files']).' files (skipped '.$result['skipped'].') · analyze queued',
+            'Linked local folder · '.count($result['files']).' files (skipped '.$result['skipped'].') · map+diagnose queued',
             $followOn,
         );
     }

@@ -2,13 +2,12 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\WarmsProjectReadCaches;
 use App\Models\DiagnosticError;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Services\Diagnostics\AnalysisRunner;
-use App\Services\Graph\DependencyGraphBuilder;
 use App\Services\Graph\IncrementalGraphBuilder;
-use App\Services\Import\UsageReportBuilder;
 use App\Support\Cache\ProjectReadCache;
 use App\Support\Sandbox\ProjectWorkspace;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -17,11 +16,12 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * DX-1/3: rebuild usage + graph, run analysers, persist scan/errors.
+ * Phase B: PHPStan/phpcs/phpmd/js/php_test → scan/errors/impact. Own JobStatus.
  */
-class AnalyzeProject implements ShouldQueue
+class DiagnoseProject implements ShouldQueue
 {
     use Queueable;
+    use WarmsProjectReadCaches;
 
     /** PHPStan may run up to 600s; leave headroom for the worker. */
     public int $timeout = 660;
@@ -33,36 +33,17 @@ class AnalyzeProject implements ShouldQueue
 
     public function handle(
         ProjectWorkspace $workspace,
-        UsageReportBuilder $usage,
-        DependencyGraphBuilder $graph,
         AnalysisRunner $runner,
         IncrementalGraphBuilder $incrementalGraph,
     ): void {
         @set_time_limit(600);
 
         $status = JobStatus::query()->findOrFail($this->jobStatusId);
-        $status->markRunning(10);
+        $status->markRunning(5);
 
         $project = Project::query()->findOrFail($this->projectId);
         $sandbox = $workspace->root($project);
 
-        $status->markRunning(25);
-        $this->ensureUsage($project, $sandbox, $usage);
-
-        $status->markRunning(45);
-        $paths = $project->files()
-            ->whereIn('lang', $graph->parseableLangs())
-            ->pluck('path')
-            ->all();
-
-        $edges = $incrementalGraph->buildIndexed($project->id, $sandbox, $paths);
-        $project->graphSnapshots()->create([
-            'scanned_at' => now(),
-            'edges' => $edges,
-        ]);
-        ProjectReadCache::forgetGraph($project->id);
-
-        $status->markRunning(55);
         $isRescan = $project->scans()->where('status', 'done')->exists();
         $changedPhp = $this->changedPhpPaths($project, $incrementalGraph);
 
@@ -76,15 +57,16 @@ class AnalyzeProject implements ShouldQueue
 
         $phpstanPaths = ($isRescan && $this->shouldIncrementalPhpStan($changedPhp)) ? $changedPhp : null;
 
+        $status->markRunning(10);
         $result = $runner->run(
             $project,
             $sandbox,
             function (int $accepted, int $rejected, string $label, int $shardIndex, int $shardTotal) use ($status): void {
-                $pct = 55 + (int) floor(30 * ($shardIndex / max(1, $shardTotal)));
+                $pct = 10 + (int) floor(80 * ($shardIndex / max(1, $shardTotal)));
                 $status->update([
                     'status' => JobStatus::STATUS_RUNNING,
-                    'progress' => min(85, $pct),
-                    'message' => "phpstan {$shardIndex}/{$shardTotal}: {$label} ({$accepted} findings)",
+                    'progress' => min(90, $pct),
+                    'message' => "Diagnose {$shardIndex}/{$shardTotal}: {$label} ({$accepted} findings)",
                 ]);
             },
             $phpstanPaths,
@@ -94,8 +76,9 @@ class AnalyzeProject implements ShouldQueue
             $this->replaceErrorsForPaths($result['scan']->id, $project->id, $phpstanPaths);
         }
 
-        $status->markRunning(85);
-        $runner->applyImpactAndChains($result['scan'], $edges);
+        $status->markRunning(92);
+        $edges = $project->graphSnapshots()->orderByDesc('scanned_at')->value('edges') ?? [];
+        $runner->applyImpactAndChains($result['scan'], is_array($edges) ? $edges : []);
 
         ProjectReadCache::forgetProject($project->id);
         $this->warmReadCaches($project);
@@ -105,6 +88,27 @@ class AnalyzeProject implements ShouldQueue
             $analyserNote = ' · PHPStan missing on Maintain API (composer install in apps/api)';
         } elseif (($result['analysers']['phpstan'] ?? null) === 'clean') {
             $analyserNote = ' · PHPStan clean';
+        }
+
+        $deferred = $result['phpstanDeferred'] ?? [];
+        if ($deferred !== []) {
+            $dirs = [];
+            foreach ($deferred as $shard) {
+                foreach ($shard['paths'] ?? [] as $path) {
+                    $dirs[] = $path;
+                }
+            }
+            $dirs = array_values(array_unique($dirs));
+            if ($dirs !== []) {
+                $deepen = JobStatus::query()->create([
+                    'type' => 'diagnose-deepen',
+                    'project_id' => $project->id,
+                    'status' => JobStatus::STATUS_QUEUED,
+                    'message' => 'Progressive deepen (remaining dirs)',
+                ]);
+                DiagnoseDeepen::dispatch($project->id, $deepen->id, $dirs);
+                $analyserNote .= ' · first-pass · deepen queued ('.count($dirs).' dirs)';
+            }
         }
 
         $status->markDone(sprintf(
@@ -118,23 +122,6 @@ class AnalyzeProject implements ShouldQueue
     public function failed(Throwable $e): void
     {
         JobStatus::query()->find($this->jobStatusId)?->markFailed($e->getMessage());
-    }
-
-    private function ensureUsage(Project $project, string $sandbox, UsageReportBuilder $usage): void
-    {
-        if (config('speed.skip_stale_usage_rebuild', true)) {
-            $existing = $project->usageReport;
-            if ($existing !== null
-                && $project->last_imported_at !== null
-                && $existing->updated_at !== null
-                && $existing->updated_at->gte($project->last_imported_at)) {
-                return;
-            }
-        }
-
-        $report = $usage->build($sandbox, $project);
-        $usage->persist($project, $report);
-        ProjectReadCache::forgetUsage($project->id);
     }
 
     /**
@@ -158,7 +145,6 @@ class AnalyzeProject implements ShouldQueue
         if (! config('speed.incremental_graph', true)) {
             return false;
         }
-        // First scan / huge change set → full sharded pass.
         if ($changedPhp === []) {
             return false;
         }
@@ -170,9 +156,6 @@ class AnalyzeProject implements ShouldQueue
     }
 
     /**
-     * Keep findings for untouched files from the previous done scan; new scan only holds changed-file findings.
-     * Merge by copying untouched prior errors into the new scan.
-     *
      * @param  list<string>  $changedPaths
      */
     private function replaceErrorsForPaths(string $newScanId, string $projectId, array $changedPaths): void
@@ -222,53 +205,5 @@ class AnalyzeProject implements ShouldQueue
         if ($rows !== []) {
             DiagnosticError::query()->insert($rows);
         }
-    }
-
-    private function warmReadCaches(Project $project): void
-    {
-        $project->loadCount('files');
-        $snapshot = $project->graphSnapshots()->orderByDesc('scanned_at')->first();
-        if ($snapshot !== null) {
-            ProjectReadCache::put("graph:{$project->id}", [
-                'projectId' => $project->id,
-                'scannedAt' => $snapshot->scanned_at?->toIso8601String(),
-                'edges' => $snapshot->edges,
-            ]);
-        }
-
-        $usage = $project->usageReport;
-        if ($usage !== null) {
-            ProjectReadCache::put("usage:{$project->id}", [
-                'projectId' => $project->id,
-                'report' => $usage->report,
-                'createdAt' => $usage->created_at?->toIso8601String(),
-            ]);
-        }
-
-        $tree = $project->files()->orderBy('path')->get(['path', 'size', 'lang'])
-            ->map(fn ($f) => ['path' => $f->path, 'size' => $f->size, 'lang' => $f->lang])
-            ->all();
-        ProjectReadCache::put("tree:{$project->id}", $tree);
-
-        $health = $project->healthSnapshots()->orderByDesc('taken_at')->first();
-        if ($health !== null) {
-            ProjectReadCache::put("health:{$project->id}:latest", $health->snapshot);
-        }
-
-        ProjectReadCache::put("bootstrap:{$project->id}", [
-            'project' => [
-                'id' => $project->id,
-                'name' => $project->name,
-                'sourceType' => $project->source_type ?? 'import',
-                'localSourcePath' => $project->local_source_path,
-                'sandboxPath' => $project->sandbox_path,
-                'sandboxSizeBytes' => $project->sandbox_size_bytes,
-                'lastImportedAt' => $project->last_imported_at?->toIso8601String(),
-                'fileCount' => $project->files_count ?? $project->files()->count(),
-            ],
-            'health' => $health?->snapshot,
-            'usage' => $usage?->report,
-            'analysers' => $project->scans()->orderByDesc('created_at')->value('analyser_status') ?? [],
-        ]);
     }
 }
