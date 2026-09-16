@@ -176,7 +176,7 @@ final class PhpStanAdapter implements Analyzer
             return $shards;
         }
 
-        $budget = max(50, (int) config('speed.phpstan_first_pass_max_files', 1200));
+        $budget = max(50, (int) config('speed.phpstan_first_pass_max_files', 300));
         $ranked = $shards;
         usort($ranked, function (array $a, array $b): int {
             return $this->shardPriority($a) <=> $this->shardPriority($b);

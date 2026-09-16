@@ -100,14 +100,19 @@ class DiagnoseProject implements ShouldQueue
             }
             $dirs = array_values(array_unique($dirs));
             if ($dirs !== []) {
-                $deepen = JobStatus::query()->create([
-                    'type' => 'diagnose-deepen',
-                    'project_id' => $project->id,
-                    'status' => JobStatus::STATUS_QUEUED,
-                    'message' => 'Progressive deepen (remaining dirs)',
-                ]);
-                DiagnoseDeepen::dispatch($project->id, $deepen->id, $dirs);
-                $analyserNote .= ' · first-pass · deepen queued ('.count($dirs).' dirs)';
+                // Under sync, dispatch would block the first-pass SLA; queue workers run deepen async.
+                if (config('queue.default') === 'sync') {
+                    $analyserNote .= ' · first-pass · deepen deferred ('.count($dirs).' paths; use async queue)';
+                } else {
+                    $deepen = JobStatus::query()->create([
+                        'type' => 'diagnose-deepen',
+                        'project_id' => $project->id,
+                        'status' => JobStatus::STATUS_QUEUED,
+                        'message' => 'Progressive deepen (remaining dirs)',
+                    ]);
+                    DiagnoseDeepen::dispatch($project->id, $deepen->id, $dirs);
+                    $analyserNote .= ' · first-pass · deepen queued ('.count($dirs).' paths)';
+                }
             }
         }
 

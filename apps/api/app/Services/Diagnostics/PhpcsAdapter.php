@@ -99,6 +99,21 @@ final class PhpcsAdapter implements Analyzer
      */
     private function scanTargets(string $sandboxPath): array
     {
+        $scope = config('speed.analyser_path_scope');
+        if (is_array($scope) && $scope !== []) {
+            $targets = [];
+            foreach ($scope as $rel) {
+                $rel = str_replace(['\\'], '/', (string) $rel);
+                $abs = $sandboxPath.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $rel);
+                if (is_dir($abs) || is_file($abs)) {
+                    $targets[] = $rel;
+                }
+            }
+            if ($targets !== []) {
+                return array_values(array_unique($targets));
+            }
+        }
+
         foreach (['app', 'application', 'src', 'lib'] as $candidate) {
             if (is_dir($sandboxPath.DIRECTORY_SEPARATOR.$candidate)) {
                 return [$candidate];

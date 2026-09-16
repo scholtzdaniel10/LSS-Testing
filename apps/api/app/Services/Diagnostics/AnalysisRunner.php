@@ -6,7 +6,6 @@ use App\Models\DiagnosticError;
 use App\Models\Project;
 use App\Models\Scan;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 
@@ -94,105 +93,117 @@ final class AnalysisRunner
         $useBuffer = (bool) config('speed.findings_buffer', false)
             && config('cache.default') === 'redis';
 
-        foreach ($this->analyzers as $analyzer) {
-            $source = $analyzer->source();
+        try {
+            foreach ($this->analyzers as $analyzer) {
+                $source = $analyzer->source();
 
-            if ($analyzer instanceof PhpStanAdapter && config('speed.phpstan_shards', true) && ! $analyzer->usesInjectedRunner()) {
-                $shards = $analyzer->planShards($sandboxPath, $phpstanPaths);
-                $shardTotal = max(1, count($shards));
-                $allFindings = [];
-
-                if ($shards === []) {
-                    $findings = $analyzer->run($sandboxPath);
-                    $allFindings = $findings;
-                    [$a, $r] = $this->persistFindings($scan, $allFindings, $useBuffer ? $bufferKey : null);
-                    $accepted += $a;
-                    $rejected += $r;
-                    if ($useBuffer) {
-                        $this->flushFindingsBuffer($bufferKey);
+                if ($analyzer instanceof PhpStanAdapter && config('speed.phpstan_shards', true) && ! $analyzer->usesInjectedRunner()) {
+                    $shards = $analyzer->planShards($sandboxPath, $phpstanPaths);
+                    $shardTotal = max(1, count($shards));
+                    $allFindings = [];
+                    $scope = [];
+                    foreach ($shards as $shard) {
+                        foreach ($shard['paths'] ?? [] as $path) {
+                            $scope[] = str_replace('\\', '/', (string) $path);
+                        }
                     }
-                } elseif (! $analyzer->binaryAvailable()) {
-                    $analyzer->runShard($sandboxPath, null, 'missing');
-                    $analyserStatus[$source] = $analyzer->runStatus() ?? 'missing_binary';
-                    $phpstanDeferred = $analyzer->deferredShards();
+                    if ($scope !== []) {
+                        config(['speed.analyser_path_scope' => array_values(array_unique($scope))]);
+                    }
 
-                    continue;
-                } else {
-                    $concurrency = max(1, (int) config('speed.phpstan_shard_concurrency', 4));
-                    $shardIndex = 0;
-                    foreach (array_chunk($shards, $concurrency) as $batch) {
-                        if (count($batch) === 1) {
-                            $shard = $batch[0];
-                            $shardIndex++;
-                            $findings = $analyzer->runShard($sandboxPath, $shard['paths'], $shard['label']);
-                            $allFindings = array_merge($allFindings, $findings);
-                            [$a, $r] = $this->persistFindings($scan, $findings, $useBuffer ? $bufferKey : null);
-                            $accepted += $a;
-                            $rejected += $r;
-                            if ($onProgress !== null) {
-                                $onProgress($accepted, $rejected, $shard['label'], $shardIndex, $shardTotal);
+                    if ($shards === []) {
+                        $findings = $analyzer->run($sandboxPath);
+                        $allFindings = $findings;
+                        [$a, $r] = $this->persistFindings($scan, $allFindings, $useBuffer ? $bufferKey : null);
+                        $accepted += $a;
+                        $rejected += $r;
+                        if ($useBuffer) {
+                            $this->flushFindingsBuffer($bufferKey);
+                        }
+                    } elseif (! $analyzer->binaryAvailable()) {
+                        $analyzer->runShard($sandboxPath, null, 'missing');
+                        $analyserStatus[$source] = $analyzer->runStatus() ?? 'missing_binary';
+                        $phpstanDeferred = $analyzer->deferredShards();
+
+                        continue;
+                    } else {
+                        $concurrency = max(1, (int) config('speed.phpstan_shard_concurrency', 4));
+                        $shardIndex = 0;
+                        foreach (array_chunk($shards, $concurrency) as $batch) {
+                            if (count($batch) === 1) {
+                                $shard = $batch[0];
+                                $shardIndex++;
+                                $findings = $analyzer->runShard($sandboxPath, $shard['paths'], $shard['label']);
+                                $allFindings = array_merge($allFindings, $findings);
+                                [$a, $r] = $this->persistFindings($scan, $findings, $useBuffer ? $bufferKey : null);
+                                $accepted += $a;
+                                $rejected += $r;
+                                if ($onProgress !== null) {
+                                    $onProgress($accepted, $rejected, $shard['label'], $shardIndex, $shardTotal);
+                                }
+                                if ($useBuffer) {
+                                    $this->flushFindingsBuffer($bufferKey);
+                                }
+
+                                continue;
+                            }
+
+                            $running = [];
+                            foreach ($batch as $i => $shard) {
+                                $running[$i] = $analyzer->pendingShard($sandboxPath, $shard['paths'], $shard['label'])->start();
+                            }
+                            foreach ($batch as $i => $shard) {
+                                $shardIndex++;
+                                $result = $running[$i]->wait();
+                                $findings = $analyzer->findingsFromProcess(
+                                    $result->output(),
+                                    $result->errorOutput(),
+                                    $sandboxPath,
+                                    $shard['label'],
+                                );
+                                $allFindings = array_merge($allFindings, $findings);
+                                [$a, $r] = $this->persistFindings($scan, $findings, $useBuffer ? $bufferKey : null);
+                                $accepted += $a;
+                                $rejected += $r;
+                                if ($onProgress !== null) {
+                                    $onProgress($accepted, $rejected, $shard['label'], $shardIndex, $shardTotal);
+                                }
                             }
                             if ($useBuffer) {
                                 $this->flushFindingsBuffer($bufferKey);
                             }
-
-                            continue;
-                        }
-
-                        $pending = [];
-                        foreach ($batch as $i => $shard) {
-                            $pending[$i] = $analyzer->pendingShard($sandboxPath, $shard['paths'], $shard['label']);
-                        }
-                        $results = Process::concurrent($pending);
-                        foreach ($batch as $i => $shard) {
-                            $shardIndex++;
-                            $result = $results[$i];
-                            $findings = $analyzer->findingsFromProcess(
-                                $result->output(),
-                                $result->errorOutput(),
-                                $sandboxPath,
-                                $shard['label'],
-                            );
-                            $allFindings = array_merge($allFindings, $findings);
-                            [$a, $r] = $this->persistFindings($scan, $findings, $useBuffer ? $bufferKey : null);
-                            $accepted += $a;
-                            $rejected += $r;
-                            if ($onProgress !== null) {
-                                $onProgress($accepted, $rejected, $shard['label'], $shardIndex, $shardTotal);
-                            }
-                        }
-                        if ($useBuffer) {
-                            $this->flushFindingsBuffer($bufferKey);
                         }
                     }
+
+                    $status = $analyzer->runStatus();
+                    $analyserStatus[$source] = $status ?? ($allFindings === [] ? 'clean' : 'ok');
+                    $phpstanDeferred = $analyzer->deferredShards();
+
+                    continue;
                 }
 
+                $findings = $analyzer->run($sandboxPath);
                 $status = $analyzer->runStatus();
-                $analyserStatus[$source] = $status ?? ($allFindings === [] ? 'clean' : 'ok');
-                $phpstanDeferred = $analyzer->deferredShards();
+                $analyserStatus[$source] = $status ?? ($findings === [] ? 'clean' : 'ok');
 
-                continue;
+                [$a, $r] = $this->persistFindings($scan, $findings, $useBuffer ? $bufferKey : null);
+                $accepted += $a;
+                $rejected += $r;
+                if ($useBuffer) {
+                    $this->flushFindingsBuffer($bufferKey);
+                }
+                if ($onProgress !== null) {
+                    $onProgress($accepted, $rejected, $source, 1, 1);
+                }
             }
 
-            $findings = $analyzer->run($sandboxPath);
-            $status = $analyzer->runStatus();
-            $analyserStatus[$source] = $status ?? ($findings === [] ? 'clean' : 'ok');
-
-            [$a, $r] = $this->persistFindings($scan, $findings, $useBuffer ? $bufferKey : null);
-            $accepted += $a;
-            $rejected += $r;
-            if ($useBuffer) {
-                $this->flushFindingsBuffer($bufferKey);
-            }
-            if ($onProgress !== null) {
-                $onProgress($accepted, $rejected, $source, 1, 1);
-            }
+            $scan->update([
+                'status' => 'done',
+                'analyser_status' => $analyserStatus,
+            ]);
+        } finally {
+            config(['speed.analyser_path_scope' => null]);
         }
-
-        $scan->update([
-            'status' => 'done',
-            'analyser_status' => $analyserStatus,
-        ]);
 
         return [
             'scan' => $scan,

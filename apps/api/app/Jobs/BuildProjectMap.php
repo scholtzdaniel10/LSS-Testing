@@ -47,8 +47,11 @@ class BuildProjectMap implements ShouldQueue
         $this->ensureUsage($project, $sandbox, $usage);
 
         $status->markRunning(45);
+        $maxGraph = max(100, (int) config('speed.graph_first_pass_max_files', 1500));
         $paths = $project->files()
             ->whereIn('lang', $graph->parseableLangs())
+            ->orderBy('path')
+            ->limit($maxGraph)
             ->pluck('path')
             ->all();
 

@@ -26,7 +26,7 @@ return [
     */
     'phpstan_progressive' => (bool) env('PHPSTAN_PROGRESSIVE', true),
 
-    'phpstan_first_pass_max_files' => (int) env('PHPSTAN_FIRST_PASS_MAX_FILES', 1200),
+    'phpstan_first_pass_max_files' => (int) env('PHPSTAN_FIRST_PASS_MAX_FILES', 300),
 
     /*
     | CI3 Wave B: include system/ in PHPStan. Default false = application only.
@@ -42,6 +42,11 @@ return [
     | neon parallel.maximumNumberOfProcesses (0 = auto max(2, CPU-1)).
     */
     'phpstan_parallel' => (int) env('PHPSTAN_PARALLEL', 0),
+
+    /*
+    | First Map pass: hash/parse at most this many parseable files (rest deepen later).
+    */
+    'graph_first_pass_max_files' => (int) env('GRAPH_FIRST_PASS_MAX_FILES', 1500),
 
     /*
     | Incremental graph: only reparse files whose content hash changed (Cache-backed).
