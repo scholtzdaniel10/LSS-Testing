@@ -1,6 +1,7 @@
 <?php
 
-use App\Jobs\AnalyzeProject;
+use App\Jobs\BuildProjectMap;
+use App\Jobs\DiagnoseProject;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Models\Scan;
@@ -30,13 +31,17 @@ it('joins persisted errors onto graph edges with upstream and downstream (DX-7)'
     foreach (['a.php', 'b.php', 'c.php', 'd.php'] as $path) {
         $project->files()->create(['path' => $path, 'size' => 1, 'lang' => 'php']);
     }
-    $status = JobStatus::query()->create([
-        'type' => 'analyze',
+    $mapStatus = JobStatus::query()->create([
+        'type' => 'build-map',
+        'project_id' => $project->id,
+        'status' => JobStatus::STATUS_QUEUED,
+    ]);
+    $diagnoseStatus = JobStatus::query()->create([
+        'type' => 'diagnose',
         'project_id' => $project->id,
         'status' => JobStatus::STATUS_QUEUED,
     ]);
 
-    // Fake analyser: one real-shaped finding on the chain root, one on the leaf.
     $fake = new class implements Analyzer
     {
         public function source(): string
@@ -65,26 +70,30 @@ it('joins persisted errors onto graph edges with upstream and downstream (DX-7)'
         }
     };
 
-    (new AnalyzeProject($project->id, $status->id))->handle(
+    (new BuildProjectMap($project->id, $mapStatus->id))->handle(
         app(ProjectWorkspace::class),
         app(UsageReportBuilder::class),
         app(DependencyGraphBuilder::class),
+        app(IncrementalGraphBuilder::class),
+    );
+
+    (new DiagnoseProject($project->id, $diagnoseStatus->id))->handle(
+        app(ProjectWorkspace::class),
         AnalysisRunner::withAdapters([$fake]),
         app(IncrementalGraphBuilder::class),
     );
 
-    expect($status->fresh()->status)->toBe(JobStatus::STATUS_DONE);
+    expect($mapStatus->fresh()->status)->toBe(JobStatus::STATUS_DONE)
+        ->and($diagnoseStatus->fresh()->status)->toBe(JobStatus::STATUS_DONE);
 
     /** @var Scan $scan */
     $scan = $project->scans()->latest('created_at')->firstOrFail();
     $rootError = $scan->errors()->where('file', 'a.php')->firstOrFail();
     $leafError = $scan->errors()->where('file', 'd.php')->firstOrFail();
 
-    // Golden: a.php has exactly the 3 known dependents, nearest first.
     expect($rootError->downstream)->toBe(['b.php', 'c.php', 'd.php'])
         ->and($rootError->upstream)->toBe([]);
 
-    // Leaf: nothing depends on d.php; it depends directly on c.php.
     expect($leafError->downstream)->toBe([])
         ->and($leafError->upstream)->toBe(['c.php']);
 });

@@ -37,7 +37,7 @@ function analyserEmptyHint(analysers: AnalyserStatuses): string {
 const DiagnosePage: React.FC = () => {
   const history = useHistory();
   const ref = useEntrance();
-  const { project, errors, analysers, chains, status, errorMessage } = useProject();
+  const { project, errors, analysers, chains, status, errorMessage, diagnoseJob } = useProject();
   const [active, setActive] = useState<DiagnosticFinding | null>(null);
   const [lines, setLines] = useState<{ line: number; text: string }[]>([]);
   const [popover, setPopover] = useState<{ top: number } | null>(null);
@@ -191,6 +191,18 @@ const DiagnosePage: React.FC = () => {
             )}
             . Recall is bounded by static analysis — we never invent errors.
           </p>
+          {diagnoseJob && (diagnoseJob.status === 'queued' || diagnoseJob.status === 'running') && (
+            <p className="page__subtitle" style={{ marginTop: 'var(--sp-2)', color: 'var(--ink-2)' }}>
+              Diagnose running {diagnoseJob.progress}%
+              {diagnoseJob.message ? ` — ${diagnoseJob.message}` : ''}
+              {errors.length > 0 ? ` · ${errors.length} partial findings so far` : ''}
+            </p>
+          )}
+          {diagnoseJob?.status === 'done' && errors.length === 0 && (
+            <p className="page__subtitle" style={{ marginTop: 'var(--sp-2)', color: 'var(--ink-2)' }}>
+              Last diagnose finished{diagnoseJob.message ? `: ${diagnoseJob.message}` : '.'}
+            </p>
+          )}
         </div>
 
         {/* DX-24: per-analyser status pills driven from registry */}

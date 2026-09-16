@@ -147,7 +147,13 @@ export type JobStatus = {
   status: 'queued' | 'running' | 'done' | 'failed';
   progress: number;
   message: string | null;
-  result?: { analyzeJobId?: string; snapshotJobId?: string } | null;
+  result?: {
+    mapJobId?: string;
+    diagnoseJobId?: string;
+    snapshotJobId?: string;
+    /** @deprecated legacy single analyze id */
+    analyzeJobId?: string;
+  } | null;
 };
 
 /** Default poll window covers long PHPStan runs (worker timeout ~660s). */
@@ -330,9 +336,16 @@ export const api = {
       missingOnDisk?: boolean;
     }>(`/projects/${id}/file?path=${encodeURIComponent(path)}`),
   rescan: (id: string) =>
-    request<{ analyzeJobId: string; snapshotJobId: string }>(`/projects/${id}/rescan`, { method: 'POST' }),
-  analyze: (id: string) => request<{ jobId: string }>(`/projects/${id}/analyze`, { method: 'POST' }),
+    request<{ mapJobId: string; diagnoseJobId: string; snapshotJobId: string }>(`/projects/${id}/rescan`, {
+      method: 'POST',
+    }),
+  analyze: (id: string) =>
+    request<{ jobId: string; mapJobId: string; diagnoseJobId: string }>(`/projects/${id}/analyze`, {
+      method: 'POST',
+    }),
   snapshot: (id: string) => request<{ jobId: string }>(`/projects/${id}/snapshot`, { method: 'POST' }),
+  latestJob: (projectId: string, type: string) =>
+    request<JobStatus | null>(`/projects/${projectId}/jobs/latest?type=${encodeURIComponent(type)}`),
   targetEnvs: (id: string) => request<TargetEnvironment[]>(`/projects/${id}/target-environments`),
   saveTargetEnv: (id: string, body: { name: string; baseUrl: string; notes?: string }) =>
     request<TargetEnvironment>(`/projects/${id}/target-environments`, {
@@ -371,24 +384,49 @@ export async function pollJob(
   throw new ApiError(`Job timed out after ${Math.round(timeoutMs / 1000)}s. ${QUEUE_HINT}`, 408);
 }
 
-/** After link/import finishes, poll queued analyze → snapshot if present in job.result. */
+export type FollowOnStage = 'map' | 'diagnose' | 'snapshot';
+
+/**
+ * After link/import finishes, poll map (Map-ready) then optionally diagnose + snapshot.
+ * Default: wait for map only so Explore can open while Diagnose continues.
+ */
 export async function pollAnalyzeFollowOn(
   job: JobStatus,
-  onUpdate?: (stage: 'analyze' | 'snapshot', j: JobStatus) => void,
-  timeoutMs = JOB_POLL_TIMEOUT_MS,
-): Promise<void> {
-  const analyzeId = job.result?.analyzeJobId;
+  onUpdate?: (stage: FollowOnStage, j: JobStatus) => void,
+  options: {
+    waitForDiagnose?: boolean;
+    waitForSnapshot?: boolean;
+    timeoutMs?: number;
+  } = {},
+): Promise<{ mapJobId?: string; diagnoseJobId?: string; snapshotJobId?: string }> {
+  const timeoutMs = options.timeoutMs ?? JOB_POLL_TIMEOUT_MS;
+  const waitForDiagnose = options.waitForDiagnose ?? false;
+  const waitForSnapshot = options.waitForSnapshot ?? false;
+
+  const mapId = job.result?.mapJobId ?? job.result?.analyzeJobId;
+  const diagnoseId = job.result?.diagnoseJobId;
   const snapshotId = job.result?.snapshotJobId;
-  if (analyzeId) {
-    const analyze = await pollJob(analyzeId, (j) => onUpdate?.('analyze', j), timeoutMs);
-    if (analyze.status === 'failed') {
-      throw new Error(analyze.message ?? 'Analyze failed');
+
+  if (mapId) {
+    const map = await pollJob(mapId, (j) => onUpdate?.('map', j), timeoutMs);
+    if (map.status === 'failed') {
+      throw new Error(map.message ?? 'Map build failed');
     }
   }
-  if (snapshotId) {
+
+  if (waitForDiagnose && diagnoseId) {
+    const diagnose = await pollJob(diagnoseId, (j) => onUpdate?.('diagnose', j), timeoutMs);
+    if (diagnose.status === 'failed') {
+      throw new Error(diagnose.message ?? 'Diagnose failed');
+    }
+  }
+
+  if (waitForSnapshot && snapshotId) {
     const snapshot = await pollJob(snapshotId, (j) => onUpdate?.('snapshot', j), timeoutMs);
     if (snapshot.status === 'failed') {
       throw new Error(snapshot.message ?? 'Health snapshot failed');
     }
   }
+
+  return { mapJobId: mapId, diagnoseJobId: diagnoseId, snapshotJobId: snapshotId };
 }

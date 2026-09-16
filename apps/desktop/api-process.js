@@ -206,7 +206,7 @@ try {
 }
 `;
 
-/** Must exceed longest queued job timeout (AnalyzeProject = 660s). */
+/** Must exceed longest queued job timeout (DiagnoseProject = 660s). */
 const QUEUE_LISTEN_TIMEOUT_SEC = 660;
 
 /** Builds the DB_* + session/cache + APP_* env block injected into PHP child processes. */

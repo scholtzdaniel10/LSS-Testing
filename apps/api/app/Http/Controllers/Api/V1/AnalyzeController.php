@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Jobs\AnalyzeProject;
 use App\Models\JobStatus;
 use App\Models\Project;
 use App\Support\Jobs\DispatchAnalyzeChain;
@@ -11,7 +10,7 @@ use Illuminate\Http\JsonResponse;
 class AnalyzeController extends Controller
 {
     /**
-     * DX-3: queue analysis (usage + graph + PHPStan). Expensive throttle.
+     * Queue map → diagnose (usage/graph then analysers). Expensive throttle.
      */
     public function store(Project $project): JsonResponse
     {
@@ -22,23 +21,24 @@ class AnalyzeController extends Controller
             );
         }
 
-        $status = JobStatus::query()->create([
-            'type' => 'analyze',
-            'project_id' => $project->id,
-            'status' => JobStatus::STATUS_QUEUED,
-        ]);
-
-        AnalyzeProject::dispatch($project->id, $status->id);
+        $ids = DispatchAnalyzeChain::dispatch(
+            $project->id,
+            'Manual map build',
+            'Manual diagnose',
+            withSnapshot: false,
+        );
 
         return $this->respond([
-            'jobId' => $status->id,
-            'status' => $status->status,
+            'jobId' => $ids['mapJobId'],
+            'mapJobId' => $ids['mapJobId'],
+            'diagnoseJobId' => $ids['diagnoseJobId'],
+            'status' => JobStatus::STATUS_QUEUED,
         ], status: 202);
     }
 
     /**
-     * UI-4: queue analyze → snapshot so the health screen updates after findings land.
-     * Returns 202 immediately; poll analyzeJobId then snapshotJobId.
+     * UI-4: queue map → diagnose → snapshot so Health updates after findings land.
+     * Returns 202 immediately; poll mapJobId (Map ready), then diagnoseJobId, then snapshotJobId.
      */
     public function rescan(Project $project): JsonResponse
     {

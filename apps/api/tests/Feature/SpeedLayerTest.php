@@ -15,13 +15,41 @@ it('plans CI3 shards as application child dirs (Wave A)', function () {
     File::ensureDirectoryExists($root.'/system/core');
     file_put_contents($root.'/application/controllers/Welcome.php', "<?php\n");
 
-    config(['speed.phpstan_deep' => false]);
+    config(['speed.phpstan_deep' => false, 'speed.phpstan_progressive' => false]);
     $adapter = new PhpStanAdapter;
     $shards = $adapter->planShards($root);
 
     expect($shards)->not->toBeEmpty()
         ->and(collect($shards)->pluck('label')->all())->toContain('application/controllers')
         ->and(collect($shards)->pluck('label')->all())->not->toContain('system');
+
+    File::deleteDirectory($root);
+});
+
+it('progressive first-pass defers low-priority dirs over file budget', function () {
+    $root = storage_path('framework/testing/prog-'.uniqid());
+    File::ensureDirectoryExists($root.'/application/controllers');
+    File::ensureDirectoryExists($root.'/application/models');
+    File::ensureDirectoryExists($root.'/application/views');
+    for ($i = 0; $i < 30; $i++) {
+        file_put_contents($root.'/application/controllers/C'.$i.'.php', "<?php\n");
+        file_put_contents($root.'/application/models/M'.$i.'.php', "<?php\n");
+        file_put_contents($root.'/application/views/V'.$i.'.php', "<?php\n");
+    }
+
+    config([
+        'speed.phpstan_deep' => false,
+        'speed.phpstan_progressive' => true,
+        'speed.phpstan_first_pass_max_files' => 50,
+    ]);
+    $adapter = new PhpStanAdapter;
+    $shards = $adapter->planShards($root);
+    $labels = collect($shards)->pluck('label')->all();
+    $deferred = collect($adapter->deferredShards())->pluck('label')->all();
+
+    expect($labels)->toContain('application/controllers')
+        ->and($deferred)->not->toBeEmpty()
+        ->and($deferred)->toContain('application/views');
 
     File::deleteDirectory($root);
 });

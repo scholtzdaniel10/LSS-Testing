@@ -19,7 +19,7 @@ use Throwable;
 /**
  * IG-19 / IG-1: extract uploaded zip into path-jailed sandbox, replace
  * project_files, persist C4 usage report. Never executes imported code.
- * Indexes files then queues analyze → snapshot (does not block on PHPStan).
+ * Indexes files then queues map → diagnose → snapshot (Map unlocks before PHPStan).
  */
 class ImportProjectArchive implements ShouldQueue
 {
@@ -86,13 +86,14 @@ class ImportProjectArchive implements ShouldQueue
 
         $followOn = DispatchAnalyzeChain::dispatch(
             $this->projectId,
-            'Post-import dependency scan',
+            'Post-import map build',
+            'Post-import diagnose',
             'Post-import health snapshot',
         );
 
         @unlink($this->zipPath);
         $status->markDone(
-            'Imported '.count($result['files']).' files (skipped '.$result['skipped'].') · analyze queued',
+            'Imported '.count($result['files']).' files (skipped '.$result['skipped'].') · map+diagnose queued',
             $followOn,
         );
     }

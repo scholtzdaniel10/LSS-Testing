@@ -27,7 +27,7 @@ it('links a local folder and indexes files without zip upload', function () {
     $jobId = $response->json('data.jobId');
     $job = JobStatus::query()->find($jobId);
     expect($job?->status)->toBe(JobStatus::STATUS_DONE)
-        ->and($job?->result)->toHaveKeys(['analyzeJobId', 'snapshotJobId']);
+        ->and($job?->result)->toHaveKeys(['mapJobId', 'diagnoseJobId', 'analyzeJobId', 'snapshotJobId']);
 
     $project->refresh();
     expect($project->source_type)->toBe('local')
@@ -36,7 +36,8 @@ it('links a local folder and indexes files without zip upload', function () {
         ->and($project->files()->where('path', 'src/Hello.php')->exists())->toBeTrue()
         ->and($project->files()->where('path', 'like', 'node_modules%')->exists())->toBeFalse();
 
-    expect(JobStatus::query()->find($job->result['analyzeJobId'])?->status)->toBe(JobStatus::STATUS_DONE)
+    expect(JobStatus::query()->find($job->result['mapJobId'])?->status)->toBe(JobStatus::STATUS_DONE)
+        ->and(JobStatus::query()->find($job->result['diagnoseJobId'])?->status)->toBe(JobStatus::STATUS_DONE)
         ->and(JobStatus::query()->find($job->result['snapshotJobId'])?->status)->toBe(JobStatus::STATUS_DONE);
 
     $tree = $this->getJson("/api/v1/projects/{$project->id}/tree");
